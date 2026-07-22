@@ -1,0 +1,699 @@
+{
+  "metadata": {
+    "queries": 20,
+    "retrievers": [
+      "dense",
+      "bm25",
+      "hybrid"
+    ],
+    "score_fields": [
+      "relevance_score",
+      "groundedness_score",
+      "usefulness_score",
+      "coverage_score"
+    ],
+    "note": "File này chỉ giữ scores/verdict/error cho mỗi query và mỗi retriever."
+  },
+  "results": [
+    {
+      "query_id": "traveler_need_q_0001",
+      "query": "Ở Huế nên chọn khu nào để tiện đi chơi và ăn uống? Mình muốn có gợi ý thực tế, không quá chung chung.",
+      "category": "accommodation",
+      "locations": [
+        "Huế"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 1.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 1.0,
+          "groundedness_score": 1.0,
+          "usefulness_score": 1.0,
+          "coverage_score": 1.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0002",
+      "query": "Ở Phong Nha có điểm tham quan nào đáng đi nhất cho người mới đến? Ưu tiên lựa chọn dễ đi cho người lần đầu.",
+      "category": "attraction",
+      "locations": [
+        "Phong Nha"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0003",
+      "query": "Nếu chỉ có buổi sáng, nên ưu tiên những trải nghiệm nào ở Hội An?",
+      "category": "itinerary",
+      "locations": [
+        "Hội An"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 3.0,
+          "groundedness_score": 4.0,
+          "usefulness_score": 4.0,
+          "coverage_score": 3.0,
+          "verdict": "pass",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 1.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0004",
+      "query": "Mình đi Đà Lạt thì nên ăn gì để đúng chất địa phương? Nếu có lưu ý cần tránh thì nói rõ giúp mình.",
+      "category": "food",
+      "locations": [
+        "Đà Lạt"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0005",
+      "query": "Mình muốn hiểu hơn về văn hóa địa phương ở Ninh Bình, nên đi đâu?",
+      "category": "culture",
+      "locations": [
+        "Ninh Bình"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 2.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0006",
+      "query": "Nên đi Phú Yên vào mùa nào để thời tiết dễ chịu?",
+      "category": "weather",
+      "locations": [
+        "Phú Yên"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 2.0,
+          "groundedness_score": 2.0,
+          "usefulness_score": 2.0,
+          "coverage_score": 2.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0007",
+      "query": "Mình muốn hiểu hơn về văn hóa địa phương ở Phong Nha, nên đi đâu? Mình quan tâm đến trải nghiệm đáng tiền.",
+      "category": "culture",
+      "locations": [
+        "Phong Nha"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 2.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 1.0,
+          "usefulness_score": 1.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0008",
+      "query": "Nên chọn Mekong Delta hay Phong Nha cho chuyến đi mùa hè? Mình muốn tránh nơi quá đông nếu có thể.",
+      "category": "comparison",
+      "locations": [
+        "Mekong Delta"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 2.0,
+          "groundedness_score": 4.0,
+          "usefulness_score": 3.0,
+          "coverage_score": 1.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 1.0,
+          "groundedness_score": 1.0,
+          "usefulness_score": 1.0,
+          "coverage_score": 1.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0009",
+      "query": "Ở Hội An có trải nghiệm văn hóa hoặc di sản nào nên thử? Mình muốn có cả hoạt động thư giãn.",
+      "category": "culture",
+      "locations": [
+        "Hội An"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0010",
+      "query": "Tối ở Huế nên đi đâu chơi cho vui? Mình quan tâm đến trải nghiệm đáng tiền.",
+      "category": "nightlife",
+      "locations": [
+        "Huế"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 3.0,
+          "groundedness_score": 3.0,
+          "usefulness_score": 3.0,
+          "coverage_score": 2.0,
+          "verdict": "pass",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 3.0,
+          "groundedness_score": 3.0,
+          "usefulness_score": 2.0,
+          "coverage_score": 2.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0011",
+      "query": "Đi Cát Bà buổi tối thì ngày đầu nên tham quan những đâu? Mình quan tâm đến trải nghiệm đáng tiền.",
+      "category": "itinerary",
+      "locations": [
+        "Cát Bà"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0012",
+      "query": "Ở Phong Nha có trải nghiệm văn hóa hoặc di sản nào nên thử? Mình muốn có cả hoạt động thư giãn.",
+      "category": "culture",
+      "locations": [
+        "Phong Nha"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 2.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 1.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0013",
+      "query": "Ở Cần Thơ có nên thuê xe, đi taxi hay dùng phương tiện công cộng? Mình quan tâm đến trải nghiệm đáng tiền.",
+      "category": "transport",
+      "locations": [
+        "Cần Thơ"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 1.0,
+          "groundedness_score": 1.0,
+          "usefulness_score": 1.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 1.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0014",
+      "query": "Đi TP. Hồ Chí Minh buổi tối thì nên sắp xếp ăn uống thế nào cho tiện? Ưu tiên lựa chọn dễ đi cho người lần đầu.",
+      "category": "food",
+      "locations": [
+        "TP. Hồ Chí Minh"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 3.0,
+          "groundedness_score": 4.0,
+          "usefulness_score": 3.0,
+          "coverage_score": 2.0,
+          "verdict": "pass",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 3.0,
+          "groundedness_score": 4.0,
+          "usefulness_score": 3.0,
+          "coverage_score": 3.0,
+          "verdict": "pass",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0015",
+      "query": "Mình muốn tiết kiệm chi phí, nên chọn trải nghiệm nào ở Sa Pa để không quá mệt? Mình thích chỗ có trải nghiệm địa phương.",
+      "category": "attraction",
+      "locations": [
+        "Sa Pa"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 1.0,
+          "groundedness_score": 2.0,
+          "usefulness_score": 1.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0016",
+      "query": "Phú Yên phù hợp hơn cho đi cùng người lớn tuổi hay Đà Nẵng? Nếu có lưu ý cần tránh thì nói rõ giúp mình.",
+      "category": "comparison",
+      "locations": [
+        "Phú Yên"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 4.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 1.0,
+          "usefulness_score": 1.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0017",
+      "query": "Có chỗ nào ở Phú Quốc ngắm cảnh đêm đẹp không?",
+      "category": "nightlife",
+      "locations": [
+        "Phú Quốc"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 2.0,
+          "groundedness_score": 2.0,
+          "usefulness_score": 2.0,
+          "coverage_score": 2.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 1.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 1.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 1.0,
+          "groundedness_score": 1.0,
+          "usefulness_score": 1.0,
+          "coverage_score": 1.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0018",
+      "query": "ẩm thực truyền thống có ý nghĩa văn hóa/lịch sử gì đáng chú ý? Mình quan tâm đến trải nghiệm đáng tiền.",
+      "category": "culture",
+      "locations": [
+        "Đà Nẵng"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 1.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 2.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 1.0,
+          "groundedness_score": 2.0,
+          "usefulness_score": 1.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0019",
+      "query": "Có thời điểm nào nên tránh khi du lịch Đà Lạt không? Nếu có lưu ý cần tránh thì nói rõ giúp mình.",
+      "category": "weather",
+      "locations": [
+        "Đà Lạt"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    },
+    {
+      "query_id": "traveler_need_q_0020",
+      "query": "Phong Nha phù hợp hơn cho đi nhóm bạn hay Hội An?",
+      "category": "comparison",
+      "locations": [
+        "Phong Nha"
+      ],
+      "scores": {
+        "dense": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "bm25": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        },
+        "hybrid": {
+          "relevance_score": 0.0,
+          "groundedness_score": 0.0,
+          "usefulness_score": 0.0,
+          "coverage_score": 0.0,
+          "verdict": "fail",
+          "error": null
+        }
+      }
+    }
+  ]
+}

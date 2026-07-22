@@ -1,0 +1,10 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Ignore plan folder
+plan/
+
+# Ignore report markdown files
+report/*.md
+reports/*.md

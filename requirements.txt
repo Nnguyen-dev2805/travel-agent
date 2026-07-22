@@ -1,2 +1,5 @@
 beautifulsoup4>=4.12.3
 lxml>=5.2.1
+faiss-cpu>=1.8.0
+hf_xet>=1.5.2
+sentence-transformers>=3.2.1

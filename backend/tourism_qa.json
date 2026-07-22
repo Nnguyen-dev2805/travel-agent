@@ -1,0 +1,102 @@
+[
+    {
+        "id": 1,
+        "question": "Hãy giới thiệu về Bà Nà Hills.",
+        "answer": "Bà Nà Hills là một khu du lịch nổi tiếng nằm cách Đà Nẵng khoảng 25 km về phía tây. Nơi đây nổi bật với khí hậu mát mẻ quanh năm, cảnh quan thiên nhiên tuyệt đẹp và nhiều công trình kiến trúc độc đáo. Điểm nhấn của Bà Nà Hills là cáp treo Bà Nà, được ghi nhận là cáp treo dài nhất thế giới, cùng với cầu Vàng nổi tiếng với những bàn tay khổng lồ. Khu du lịch còn có nhiều hoạt động giải trí, khu vui chơi, vườn hoa, và các công trình tâm linh như chùa Linh Ung. Bà Nà Hills là điểm đến lý tưởng cho du khách muốn khám phá vẻ đẹp thiên nhiên và văn hóa Việt Nam."
+    },
+    {
+        "id": 2,
+        "question": "Có gì thú vị tại Phố cổ Hội An?",
+        "answer": "Phố cổ Hội An nổi bật với kiến trúc cổ kính, các ngôi nhà gỗ truyền thống, và những con phố nhỏ hẹp. Du khách có thể tham quan Chùa Cầu, bảo tàng lịch sử, và các cửa hàng thủ công mỹ nghệ. Hội An cũng nổi tiếng với ẩm thực phong phú như cao lầu, mì quảng và bánh mì. Đặc biệt, vào đêm, phố cổ lung linh ánh đèn lồng, tạo nên không gian lãng mạn và huyền bí."
+    },
+    {
+        "id": 3,
+        "question": "Những địa điểm nổi tiếng ở Hà Nội là gì?",
+        "answer": "Một số địa điểm nổi tiếng ở Hà Nội bao gồm:\n\n1. Hồ Hoàn Kiếm\n2. Văn Miếu - Quốc Tử Giám\n3. Lăng Bác\n4. Chùa Một Cột\n5. Phố Cổ Hà Nội\n6. Nhà Thờ Lớn Hà Nội\n7. Bảo tàng Dân tộc học Việt Nam\n8. Công viên Thống Nhất\n9. Hồ Tây\n10. Nhà hát Lớn Hà Nội\n\nNhững địa điểm này đều mang đậm giá trị văn hóa và lịch sử của thủ đô."
+    },
+    {
+        "id": 4,
+        "question": "Giới thiệu về Vịnh Hạ Long.",
+        "answer": "Vịnh Hạ Long, nằm ở tỉnh Quảng Ninh, Việt Nam, là một trong những kỳ quan thiên nhiên thế giới được UNESCO công nhận. Vịnh nổi tiếng với hàng nghìn hòn đảo đá vôi có hình thù độc đáo, nước biển trong xanh và cảnh quan tuyệt đẹp. Du khách có thể tham gia các hoạt động như du thuyền, kayaking, thăm hang động và khám phá các làng chài. Vịnh Hạ Long không chỉ là điểm đến du lịch hấp dẫn mà còn mang giá trị văn hóa và lịch sử sâu sắc."
+    },
+    {
+        "id": 5,
+        "question": "Nên tham quan Huế trong bao nhiêu ngày?",
+        "answer": "Tham quan Huế thường mất khoảng 2-3 ngày để khám phá các điểm du lịch chính như Đại Nội, lăng tẩm các vua Nguyễn, chùa Thiên Mụ và thưởng thức ẩm thực đặc trưng. Nếu có thời gian, bạn có thể ở lâu hơn để khám phá thêm các vùng lân cận như Phong Nha - Kẻ Bàng hoặc biển Lăng Cô."
+    },
+    {
+        "id": 6,
+        "question": "Các món ăn đặc sản của Đà Nẵng là gì?",
+        "answer": "Đà Nẵng nổi tiếng với nhiều món ăn đặc sản hấp dẫn, bao gồm:\n\n1. **Mì Quảng** - Món mì truyền thống với nước dùng đậm đà, thường kèm thịt gà, tôm hoặc thịt heo.\n2. **Bánh tráng cuốn thịt heo** - Bánh tráng cuốn với thịt heo, rau sống và nước chấm đặc biệt.\n3. **Bánh xèo** - Bánh xèo giòn, nhân tôm, thịt và giá đỗ, ăn kèm rau sống.\n4. **Gỏi cá Nam Ô** - Gỏi cá sống trộn với rau thơm và nước chấm đặc trưng.\n5. **Chả cá Bà Nà** - Chả cá chiên giòn, thường ăn kèm với bún và rau sống.\n6. **Bánh bèo** - Bánh nhỏ hấp từ bột gạo, ăn kèm với tôm chấy và nước mắm.\n\nĐây chỉ là một số món tiêu biểu, Đà Nẵng còn nhiều món ngon khác đang chờ bạn khám phá!"
+    },
+    {
+        "id": 7,
+        "question": "Đến Đà Lạt nên tham quan những đâu?",
+        "answer": "Đến Đà Lạt, bạn nên tham quan những địa điểm sau:\n\n1. Hồ Xuân Hương\n2. Thung Lũng Tình Yêu\n3. Vườn hoa Thành phố\n4. Nhà thờ Domaine de Marie\n5. Dinh Bảo Đại\n6. Trường Cao đẳng Sư phạm Đà Lạt\n7. Chùa Linh Phước (Chùa Ve Chai)\n8. Đồi chè Cầu Đất\n9. Thác Datanla\n10. Làng Cù Lần\n\nĐà Lạt còn nhiều điểm thú vị khác, bạn có thể khám phá thêm!"
+    },
+    {
+        "id": 8,
+        "question": "Giới thiệu về chợ nổi Cái Răng.",
+        "answer": "Chợ nổi Cái Răng là một trong những chợ nổi lớn và nổi tiếng nhất ở miền Tây Nam Bộ, Việt Nam, nằm trên sông Cái Răng, cách trung tâm thành phố Cần Thơ khoảng 6 km. Chợ hoạt động chủ yếu vào buổi sáng, từ khoảng 5 giờ đến 9 giờ. Tại đây, các thương lái và nông dân bán buôn, bán lẻ các loại trái cây, rau củ và đặc sản địa phương trên những chiếc thuyền. Điểm đặc biệt của chợ là các thuyền buôn thường treo các loại hàng hóa lên một cây sào để khách dễ nhận biết. Chợ nổi Cái Răng không chỉ là nơi giao thương mà còn là điểm du lịch hấp dẫn, mang đậm bản sắc văn hóa miền Tây."
+    },
+    {
+        "id": 9,
+        "question": "Có gì đặc biệt ở đảo Phú Quốc?",
+        "answer": "Đảo Phú Quốc nổi bật với những bãi biển đẹp như Bãi Sao, Bãi Dài, và những khu rừng nguyên sinh. Nơi đây còn nổi tiếng với sản phẩm nước mắm truyền thống, hồ tiêu, và các hoạt động thể thao dưới nước như lặn biển, snorkeling. Phú Quốc cũng có nhiều khu nghỉ dưỡng sang trọng và các điểm tham quan như Vinpearl Safari, Dinh Cậu, và VinWonders. Khí hậu nhiệt đới và cảnh quan thiên nhiên phong phú là điểm thu hút du khách."
+    },
+    {
+        "id": 10,
+        "question": "Những địa điểm du lịch nổi tiếng ở Ninh Bình?",
+        "answer": "Ninh Bình nổi tiếng với nhiều địa điểm du lịch hấp dẫn, bao gồm:\n\n1. **Tràng An** - Khu du lịch sinh thái với hệ thống hang động và cảnh quan thiên nhiên tuyệt đẹp.\n2. **Tam Cốc - Bích Động** - Nơi có cảnh quan hùng vĩ với những cánh đồng lúa và dòng sông Ngô Đồng.\n3. **Chùa Bái Đính** - Một trong những ngôi chùa lớn nhất Việt Nam, nổi bật với kiến trúc hoành tráng.\n4. **Cố đô Hoa Lư** - Di sản văn hóa với các di tích lịch sử từ thời Đinh, Lê.\n5. **Hang Múa** - Nơi có thể leo lên đỉnh núi để ngắm toàn cảnh Tam Cốc.\n6. **Vườn quốc gia Cúc Phương** - Khu bảo tồn thiên nhiên với đa dạng sinh học phong phú.\n\nNhững địa điểm này đều mang lại trải nghiệm thú vị cho du khách."
+    },
+    {
+        "id": 11,
+        "question": "Giới thiệu về Hang Sơn Đoòng.",
+        "answer": "Hang Sơn Đoòng, nằm trong Vườn quốc gia Phong Nha - Kẻ Bàng, Quảng Bình, là hang động lớn nhất thế giới được phát hiện vào năm 2009. Với chiều dài khoảng 9 km, chiều cao lên tới 200 mét và rộng 150 mét, hang có hệ sinh thái phong phú, bao gồm cả rừng nguyên sinh bên trong. Sơn Đoòng nổi bật với những khối đá vôi khổng lồ, các thác nước và một hệ thống sông ngầm. Đây là điểm đến hấp dẫn cho những ai yêu thích khám phá thiên nhiên và mạo hiểm."
+    },
+    {
+        "id": 12,
+        "question": "Đi Sa Pa mùa nào đẹp nhất?",
+        "answer": "Sa Pa đẹp nhất vào mùa thu (tháng 9 đến tháng 11) khi ruộng bậc thang chín vàng, hoặc vào mùa xuân (tháng 3 đến tháng 5) khi hoa đua nở. Mỗi mùa đều có nét đẹp riêng."
+    },
+    {
+        "id": 13,
+        "question": "Các món ăn nổi tiếng của Huế.",
+        "answer": "Huế nổi tiếng với nhiều món ăn đặc sắc, trong đó có:\n\n1. **Bún bò Huế** - Món bún với nước dùng đậm đà, thịt bò và giò heo.\n2. **Cơm hến** - Cơm ăn kèm với hến xào, rau sống và gia vị.\n3. **Nem lụi** - Chả thịt nướng cuốn với rau sống và bánh tráng.\n4. **Bánh bèo** - Bánh hấp với nhân tôm, ăn kèm nước mắm.\n5. **Bánh nậm** - Bánh gói lá chuối với nhân tôm và thịt.\n6. **Bánh khoái** - Bánh xèo kiểu Huế, giòn và thơm, thường ăn kèm với rau sống.\n\nNhững món ăn này không chỉ ngon mà còn mang đậm bản sắc văn hóa ẩm thực của Huế."
+    },
+    {
+        "id": 14,
+        "question": "Nên đi Mũi Né vào thời điểm nào?",
+        "answer": "Thời điểm lý tưởng để đi Mũi Né là từ tháng 11 đến tháng 4 năm sau. Trong khoảng thời gian này, thời tiết khô ráo, nắng đẹp, thích hợp cho các hoạt động tắm biển và khám phá."
+    },
+    {
+        "id": 15,
+        "question": "Giới thiệu về Cầu Vàng Đà Nẵng.",
+        "answer": "Cầu Vàng (Golden Bridge) là một trong những điểm du lịch nổi bật tại Đà Nẵng, Việt Nam. Khai trương vào tháng 6 năm 2018, cầu dài 150 mét, nằm ở độ cao 1.400 mét so với mực nước biển, thuộc khu du lịch Bà Nà Hills. Cầu được thiết kế độc đáo với hai bàn tay khổng lồ nâng đỡ, tạo nên một khung cảnh tuyệt đẹp giữa thiên nhiên. Cầu Vàng không chỉ thu hút du khách bởi kiến trúc ấn tượng mà còn bởi cảnh quan hùng vĩ xung quanh, là nơi lý tưởng để chụp ảnh và thưởng thức vẻ đẹp của núi rừng."
+    },
+    {
+        "id": 16,
+        "question": "Những hoạt động không nên bỏ lỡ tại Phú Quốc.",
+        "answer": "Tại Phú Quốc, bạn không nên bỏ lỡ những hoạt động sau:\n\n1. Tham quan Vinpearl Safari - vườn thú mở lớn nhất Việt Nam.\n2. Khám phá VinWonders - công viên giải trí với nhiều trò chơi hấp dẫn.\n3. Tắm biển tại bãi Sao, bãi Dài và bãi Trường.\n4. Lặn ngắm san hô tại các đảo như Hòn Móng Tay, Hòn Gầm Ghì.\n5. Tham quan nhà tù Phú Quốc để tìm hiểu lịch sử.\n6. Thưởng thức hải sản tươi ngon tại chợ đêm Dinh Cậu.\n7. Tham gia tour câu mực đêm.\n8. Khám phá rừng quốc gia Phú Quốc với hệ sinh thái đa dạng.\n\nChúc bạn có chuyến đi thú vị!"
+    },
+    {
+        "id": 17,
+        "question": "Có gì thú vị ở Côn Đảo?",
+        "answer": "Côn Đảo nổi tiếng với những điểm thú vị sau:\n\n1. **Bãi biển đẹp**: Nổi bật như bãi Đầm Trầu, bãi Nhát với cát trắng và nước biển trong xanh.\n2. **Di tích lịch sử**: Nhà tù Côn Đảo, nơi ghi dấu lịch sử kháng chiến của dân tộc.\n3. **Thiên nhiên hoang sơ**: Rừng nguyên sinh, hệ sinh thái đa dạng, lý tưởng cho trekking và khám phá.\n4. **Đảo hoang**: Các đảo nhỏ xung quanh như hòn Bảy Cạnh, hòn Cau, nơi có san hô và động vật biển phong phú.\n5. **Đặc sản địa phương**: Hải sản tươi ngon, đặc biệt là mứt hạt bàng và các món ăn từ cá thu.\n\nCôn Đảo là điểm đến lý tưởng cho những ai yêu thích thiên nhiên và lịch sử."
+    },
+    {
+        "id": 18,
+        "question": "Đặc sản nổi tiếng của Hội An.",
+        "answer": "Đặc sản nổi tiếng của Hội An bao gồm:\n\n1. Cao lầu: Món mì đặc trưng với nước dùng từ xương và rau sống.\n2. Hến xào xúc bánh tráng: Món ăn từ hến xào với gia vị, ăn kèm bánh tráng.\n3. Bánh mì Hội An: Bánh mì giòn, nhân phong phú với thịt, rau và sốt.\n4. Mì Quảng: Món mì với nước dùng đậm đà, thường có tôm, thịt và rau sống.\n5. Bánh bao, bánh vạc: Bánh hấp với nhân thịt và tôm, thường được ăn kèm nước chấm.\n\nNhững món ăn này không chỉ ngon mà còn mang đậm bản sắc văn hóa của Hội An."
+    },
+    {
+        "id": 19,
+        "question": "Giới thiệu về Văn Miếu Quốc Tử Giám.",
+        "answer": "Văn Miếu Quốc Tử Giám, nằm ở Hà Nội, là một trong những di tích lịch sử và văn hóa quan trọng nhất của Việt Nam. Được xây dựng vào năm 1070 dưới triều đại Lý, Văn Miếu là nơi thờ Khổng Tử và là trường đại học đầu tiên của Việt Nam, nơi đào tạo nhân tài cho đất nước. \n\nKhuôn viên Văn Miếu bao gồm nhiều công trình kiến trúc độc đáo, như cổng chính, sân vườn, và các bia đá ghi tên các tiến sĩ. Đây không chỉ là biểu tượng của nền giáo dục mà còn là nơi tôn vinh tri thức và văn hóa dân tộc. Văn Miếu Quốc Tử Giám thu hút nhiều du khách trong và ngoài nước, trở thành điểm đến không thể bỏ qua khi đến Hà Nội."
+    },
+    {
+        "id": 20,
+        "question": "Những điểm tham quan nổi bật ở Thành phố Hồ Chí Minh.",
+        "answer": "Một số điểm tham quan nổi bật ở Thành phố Hồ Chí Minh bao gồm:\n\n1. **Nhà thờ Đức Bà** - Biểu tượng kiến trúc Pháp.\n2. **Bưu điện Trung tâm** - Công trình kiến trúc cổ điển.\n3. **Dinh Độc Lập** - Nơi ghi dấu lịch sử Việt Nam.\n4. **Chợ Bến Thành** - Khu chợ nổi tiếng với hàng hóa đa dạng.\n5. **Phố đi bộ Nguyễn Huệ** - Khu vực vui chơi, giải trí sôi động.\n6. **Bảo tàng Chứng tích Chiến tranh** - Tìm hiểu về lịch sử chiến tranh Việt Nam.\n7. **Khu phố người Hoa (Chợ Lớn)** - Khám phá văn hóa và ẩm thực đặc sắc.\n\nNgoài ra, còn nhiều điểm tham quan khác như Bitexco Financial Tower, Thảo Cầm Viên, và các quán cà phê, nhà hàng nổi tiếng."
+    }
+]
