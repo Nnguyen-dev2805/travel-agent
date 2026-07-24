@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "created_at": "2026-07-22T16:17:57",
+    "created_at": "2026-07-23T14:18:35",
     "input_query_path": "D:\\LLM\\chatotAgentTravelling\\code\\travel-agent\\data\\evaluation\\traveler_need_queries_500.jsonl",
     "output_path": "D:\\LLM\\chatotAgentTravelling\\code\\travel-agent\\report\\evaluate\\vi_to_en_retrieval_gpt4o_mini_answers.json",
     "limit": 20,
@@ -11,74 +11,32 @@
     "api_base_url": "https://models.github.ai/inference",
     "retrieval_query_language": "en",
     "answer_language": "vi",
-    "success_count": 5,
-    "partial_count": 15,
+    "success_count": 20,
+    "partial_count": 0,
     "error_count": 0
   },
   "results": [
     {
       "query_id": "traveler_need_q_0001",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Ở Huế nên chọn khu nào để tiện đi chơi và ăn uống? Mình muốn có gợi ý thực tế, không quá chung chung.",
-      "query_en": "Ở Huế nên chọn khu nào để tiện đi chơi và ăn uống? Mình muốn có gợi ý thực tế, không quá chung chung.",
+      "query_en": "",
+      "retrieval_query": "best areas in Hue for dining and entertainment",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Ở Huế nên chọn khu nào để tiện đi chơi và ăn uống? Mình muốn có gợi ý thực tế, không quá chung chung.",
+        "english_query": "best areas in Hue for dining and entertainment",
         "detected_locations": [
-          "Huế"
+          "Hue"
         ],
-        "intent": "accommodation",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "practical_tip"
       },
-      "answer_vi": "Để tiện đi chơi và ăn uống ở Huế, bạn có thể tham khảo một số khu vực sau:\n\n1. **Khu vực quanh Đại Nội (Huế Citadel)**: Đây là trung tâm lịch sử của Huế, nơi có nhiều di tích văn hóa và kiến trúc. Bạn có thể dễ dàng tìm thấy các quán ăn phục vụ món ăn đặc trưng của Huế như bún bò Huế, bánh bèo, và các món chay tại các quán ăn gần đó. \n\n2. **Ngọc Hà Garden**: Đây là một địa điểm lý tưởng để thưởng thức các món ăn chay nổi tiếng của Huế trong không gian yên tĩnh và đẹp mắt. Khu vực này cũng gần với nhiều điểm tham quan khác.\n\n3. **Bãi biển Thuận An**: Nếu bạn muốn kết hợp giữa ăn uống và thư giãn, bãi biển Thuận An là một lựa chọn tuyệt vời. Tại đây, bạn có thể thưởng thức hải sản tươi ngon và tận hưởng không khí biển.\n\nNgoài ra, bạn cũng có thể khám phá các quán cà phê như Then Café và Bình An Đường Café, nơi có không gian đẹp và phục vụ đồ uống ngon.\n\nHy vọng những gợi ý này sẽ giúp bạn có một chuyến đi thú vị tại Huế!\n\nNguồn tham khảo:\n- [Cách ăn uống như người địa phương ở Huế](https://vietnam.travel/things-to-do/how-eat-local-hue)\n- [Lịch trình 3 ngày ở Huế cho những người yêu văn hóa](https://vietnam.travel/things-to-do/hue-itinerary)",
+      "answer_vi": "Ở Huế, bạn có thể chọn những khu vực sau để tiện đi chơi và ăn uống:\n\n1. **Khu vực gần Đại Nội (Citadel)**: Đây là nơi tập trung nhiều di tích lịch sử và văn hóa của Huế. Bạn có thể tham quan các cung điện, lăng tẩm và sau đó thưởng thức các món ăn đặc sản như bánh bèo, bánh khoái tại các quán ăn gần đó.\n\n2. **Khu vực Bến Ngự**: Tại đây, bạn có thể tìm thấy nhiều quán cà phê và nhà hàng ven sông Hương, nơi bạn có thể vừa thưởng thức đồ ăn vừa ngắm cảnh. Nghĩa Cafe là một gợi ý thú vị cho một buổi sáng thư giãn.\n\n3. **Khu vực Kim Long**: Đây là khu vực có nhiều nhà vườn và không khí yên tĩnh. Bạn có thể đi bộ hoặc thuê xe đạp để khám phá và thưởng thức các món ăn địa phương tại các quán nhỏ trong khu vực này.\n\nNgoài ra, bạn cũng nên ghé thăm các khu chợ như chợ Đông Ba để trải nghiệm không khí địa phương và tìm kiếm những món ăn vặt đặc trưng của Huế.\n\nNguồn tham khảo:\n- [Hue Itinerary](https://vietnam.travel/things-to-do/hue-itinerary)\n- [Hue](https://vietnam.travel/places-to-go/central-vietnam/hue)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.016393,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "cc0ac138debde3291628f603d740765e26fefa926db8ac37d35726e9337ec2af_chunk_0000",
-          "document_id": "cc0ac138debde3291628f603d740765e26fefa926db8ac37d35726e9337ec2af",
-          "document_title": "How to eat like a local in Hue",
-          "source_url": "https://vietnam.travel/things-to-do/how-eat-local-hue",
-          "language": "en",
-          "text_preview": "How to eat like a local in Hue Hue-style dumplings. Photos by Christian Berg The best way to get to the heart of Huế’s tremendous food culture is to take to the streets. Vietnam’s former imperial capital fostered an elegant array of dishes that continue to be the pride of its people. As Huế people say, you can get Huế cuisine elsewhere in Vietnam,..."
-        },
-        {
-          "rank": 2,
-          "score": 0.016393,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "04123bf3ee50198442f052199000ffd58296b6364e6cff8a6697bab9e7eb32d1_chunk_0004",
-          "document_id": "04123bf3ee50198442f052199000ffd58296b6364e6cff8a6697bab9e7eb32d1",
-          "document_title": "Đoàn làm phim Hollywood mong muốn sản xuất phim mới với bối cảnh quay ở Cát Bà (Hải Phòng)",
-          "source_url": "https://2025.vietnam.travel/doan-lam-phim-hollywood-mong-muon-san-xuat-phim-moi-voi-boi-canh-quay-o-cat-ba-hai-phong",
-          "language": "vi",
-          "text_preview": "danh sách ưu tiên tìm kiếm của du khách quốc tế nói chung và các đoàn làm phim nói riêng. Với lượng khán giả, người chơi đông đảo và ổn định, việc một bộ phim của Riot Games được quay tại Việt Nam chắc chắn sẽ đem lại hiệu ứng rất tích cực cho hai nước. Bộ trưởng Nguyễn Văn Hùng phát biểu kết luận buổi làm việc. Ảnh: TITC Sau khi lắng nghe ý kiến v..."
-        },
-        {
-          "rank": 3,
-          "score": 0.016129,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "a0639ba7eaace37c45c63da95451c7ab11a75d25a3aa9723777dfc174da0a465_chunk_0000",
-          "document_id": "a0639ba7eaace37c45c63da95451c7ab11a75d25a3aa9723777dfc174da0a465",
-          "document_title": "3 days in Hue for culture seekers",
-          "source_url": "https://vietnam.travel/things-to-do/hue-itinerary",
-          "language": "en",
-          "text_preview": "3 days in Hue for culture seekers Detail in the Hue Citadel. All photos by Aaron Joel Santos Enchanting Hue is one of Vietnam’s most overlooked destinations. Imperial opulence, colonial relics, and picturesque landscapes set the scene for a sensory-rich getaway. Hue residents are proud but warm, eager to share their exceptional cuisine and the city..."
-        },
-        {
-          "rank": 4,
-          "score": 0.016129,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0001",
-          "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
-          "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
-          "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
-          "language": "vi",
-          "text_preview": "ăn đám giỗ. Tại đây, du khách sẽ được trải nghiệm các lễ cúng giỗ và nề nếp sinh hoạt dân gian. Trong ngày này, con cháu khắp nơi sẽ tề tựu về cùng chuẩn bị các nghi thức, mâm quả cho ngày giỗ ông bà tổ tiên. Tham gia tour Đám giỗ bên cồn, bà Đỗ Thị Kim Chi, Giám đốc Công ty Du lịch Khám phá Mê Kông, nhìn nhận: “Đây là lần đầu tôi trải nghiệm đám g..."
-        },
-        {
-          "rank": 5,
-          "score": 0.015873,
+          "score": 0.032018,
           "retriever": "hybrid_bm25_dense_rrf",
           "chunk_id": "a0639ba7eaace37c45c63da95451c7ab11a75d25a3aa9723777dfc174da0a465_chunk_0003",
           "document_id": "a0639ba7eaace37c45c63da95451c7ab11a75d25a3aa9723777dfc174da0a465",
@@ -86,6 +44,50 @@
           "source_url": "https://vietnam.travel/things-to-do/hue-itinerary",
           "language": "en",
           "text_preview": "treat yourself at La Residence Hotel, a restored 1930s art-deco mansion with a sublime fine-dining restaurant near the river. Both restaurants are on your way back from Thiên Mụ. Day 3 - Hue Beaches, Hến Island and the Chinese Quarter Morning – Make the most of your final day by getting up early and heading straight to Thuận An Beach. The beach is..."
+        },
+        {
+          "rank": 2,
+          "score": 0.030835,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "a0639ba7eaace37c45c63da95451c7ab11a75d25a3aa9723777dfc174da0a465_chunk_0002",
+          "document_id": "a0639ba7eaace37c45c63da95451c7ab11a75d25a3aa9723777dfc174da0a465",
+          "document_title": "3 days in Hue for culture seekers",
+          "source_url": "https://vietnam.travel/things-to-do/hue-itinerary",
+          "language": "en",
+          "text_preview": "the Bảo Quốc Pagoda. This 17th-century pagoda has seen many changes over time, but is still an active place of worship. After checking out the pagoda, stroll down the leafy canal to Bến Ngự Market, poke your head into Phủ Cam church, or stop for a mid-morning coffee at hip Nghĩa Cafe. Newly re-energized, you'll want to spend the rest of your mornin..."
+        },
+        {
+          "rank": 3,
+          "score": 0.029324,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "7590f2fef73f1f1a5d9d8000c84b3f06016c0e7be6c332bd072f004a39f3b1be_chunk_0000",
+          "document_id": "7590f2fef73f1f1a5d9d8000c84b3f06016c0e7be6c332bd072f004a39f3b1be",
+          "document_title": "Hue",
+          "source_url": "https://vietnam.travel/places-to-go/central-vietnam/hue",
+          "language": "en",
+          "text_preview": "Hue Hue is a city chock-full of stories. The Kings of the Nguyen Dynasty built their feudal capital along Hue’s fertile riverbanks and atop its forested hills, but their imperial legacy is just one of many reasons to visit. Hue’s refined cuisine is the stuff of legend, and its leafy streets are lined with mossy pagodas, art déco mansions, and eye-p..."
+        },
+        {
+          "rank": 4,
+          "score": 0.028665,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "8be34acdde059f94b122ba6abc7243a90b49001568828820ec78af53f63ac7ed_chunk_0002",
+          "document_id": "8be34acdde059f94b122ba6abc7243a90b49001568828820ec78af53f63ac7ed",
+          "document_title": "Top 10 luxurious hotels in Vietnam",
+          "source_url": "https://vietnam.travel/things-to-do/top-10-luxurious-hotels-vietnam",
+          "language": "en",
+          "text_preview": "Nguyen Thi Minh Khai. As its name suggests, Hotel des Arts Saigon is awash in beautiful Vietnamese art pieces, and natural light pours in from floor-to-ceiling windows in the restaurants and lobby. Inspiring interiors, a lovely spa and first-rate rooftop bar and swimming pool add a touch of romance couples will love. The Anam, Cam Ranh This five-st..."
+        },
+        {
+          "rank": 5,
+          "score": 0.016393,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "c065f14a4aa16dff4a725704886a1d536219b7e606689e93ad8c4e5713bcd7a0_chunk_0000",
+          "document_id": "c065f14a4aa16dff4a725704886a1d536219b7e606689e93ad8c4e5713bcd7a0",
+          "document_title": "Comfort Meets Culture at Hanoi's Luxury Hotels",
+          "source_url": "https://vietnam.travel/things-to-do/comfort-meet-culture-hanoi-luxury-hotels",
+          "language": "en",
+          "text_preview": "Comfort Meets Culture at Hanoi's Luxury Hotels Vietnam is a place of paradox and a country of contrast. Modern metropolises sprawl out into the arms of ancient mountains, and families of farmers cultivate expansive rice paddies kilometers from colonial architecture. Backpacker-budget accommodation options are abundant everywhere, but Vietnam also b..."
         }
       ],
       "input_metadata": {
@@ -103,7 +105,10 @@
       "status": "success",
       "error": null,
       "question_vi": "Ở Phong Nha có điểm tham quan nào đáng đi nhất cho người mới đến? Ưu tiên lựa chọn dễ đi cho người lần đầu.",
-      "query_en": "best attractions in Phong Nha for first-time visitors, easy to access",
+      "query_en": "",
+      "retrieval_query": "best attractions in Phong Nha for first-time visitors, easy to access",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
         "english_query": "best attractions in Phong Nha for first-time visitors, easy to access",
         "detected_locations": [
@@ -111,7 +116,7 @@
         ],
         "intent": "attraction"
       },
-      "answer_vi": "Phong Nha là một điểm đến tuyệt vời cho những ai lần đầu đến Việt Nam, đặc biệt là với những người yêu thích thiên nhiên và khám phá. Dưới đây là một số điểm tham quan dễ tiếp cận mà bạn có thể xem xét:\n\n1. **Phong Nha Cave**: Đây là một trong những điểm tham quan nổi tiếng nhất trong khu vực. Bạn có thể tham gia tour nửa ngày để khám phá hang động này, với hành trình đi dọc theo dòng sông rất thú vị.\n\n2. **Paradise Cave**: Cũng là một lựa chọn tuyệt vời cho những người mới đến. Hang động này nổi tiếng với vẻ đẹp kỳ diệu và dễ dàng tiếp cận. Tour nửa ngày cũng có sẵn cho điểm tham quan này.\n\n3. **Hang En**: Đây là hang động lớn thứ ba trên thế giới và có thể được khám phá qua một chuyến đi bộ trong ngày. Bạn sẽ có cơ hội trải nghiệm thiên nhiên hoang dã và có thể ở lại qua đêm trong rừng hoặc gần cửa hang.\n\nNgoài ra, bạn cũng có thể tham gia các hoạt động như đi bộ đường dài hoặc đi xe đạp để khám phá cảnh quan xung quanh. Những hoạt động này không chỉ thú vị mà còn giúp bạn cảm nhận được vẻ đẹp của vùng nông thôn Việt Nam.\n\nNguồn tham khảo: [Phong Nha](https://vietnam.travel/things-to-do/complete-guide-phong-nha)",
+      "answer_vi": "Phong Nha là một điểm đến tuyệt vời cho những người lần đầu đến thăm, với nhiều điểm tham quan dễ tiếp cận. Dưới đây là một số gợi ý cho bạn:\n\n1. **Phong Nha Cave**: Đây là một trong những điểm tham quan nổi tiếng nhất trong khu vực. Bạn có thể tham gia tour nửa ngày để khám phá hang động này, bao gồm một hành trình dọc theo dòng sông rất đẹp.\n\n2. **Paradise Cave**: Cũng nằm trong danh sách những điểm đến phổ biến, Paradise Cave mang đến trải nghiệm thú vị với những khối thạch nhũ tuyệt đẹp. Tour nửa ngày cũng rất dễ dàng để đặt qua khách sạn.\n\n3. **Hang En**: Nếu bạn muốn trải nghiệm một chuyến đi bộ vừa phải, Hang En là một lựa chọn tuyệt vời. Đây là hang động lớn thứ ba thế giới và có thể tham gia tour một ngày để khám phá.\n\nCác điểm tham quan này đều dễ tiếp cận và phù hợp cho những người mới đến, giúp bạn có những trải nghiệm tuyệt vời tại Phong Nha.\n\nNguồn tham khảo: [Phong Nha - Hướng dẫn đầy đủ](https://vietnam.travel/things-to-do/complete-guide-phong-nha)",
       "sources": [
         {
           "rank": 1,
@@ -184,7 +189,10 @@
       "status": "success",
       "error": null,
       "question_vi": "Nếu chỉ có buổi sáng, nên ưu tiên những trải nghiệm nào ở Hội An?",
-      "query_en": "must-do experiences in Hoi An in the morning",
+      "query_en": "",
+      "retrieval_query": "must-do experiences in Hoi An in the morning",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
         "english_query": "must-do experiences in Hoi An in the morning",
         "detected_locations": [
@@ -192,7 +200,7 @@
         ],
         "intent": "attraction|itinerary"
       },
-      "answer_vi": "Nếu bạn chỉ có buổi sáng ở Hội An, dưới đây là một số trải nghiệm nên ưu tiên:\n\n1. **Khám Phá Phố Cổ**: Hãy dậy sớm để tận hưởng không khí yên tĩnh của Phố Cổ Hội An trước khi đám đông đến. Bạn có thể đi dạo dưới ánh sáng ban mai, chụp ảnh các ngôi nhà cổ và ghé thăm những ngôi đền khi còn vắng vẻ.\n\n2. **Thưởng Thức Ẩm Thực Địa Phương**: Đừng bỏ lỡ cơ hội thưởng thức các món ăn đặc sản như bánh mì hay cao lầu tại các quán ăn ven đường. Đây là những món ăn nổi tiếng mà bạn nên thử khi đến Hội An.\n\n3. **Đạp Xe Khám Phá Nông Thôn**: Nếu bạn thích hoạt động thể chất, hãy thuê xe đạp và khám phá vùng nông thôn xung quanh Hội An. Bạn sẽ được chiêm ngưỡng những cánh đồng xanh mướt và cuộc sống hàng ngày của người dân địa phương.\n\nNhững hoạt động này sẽ giúp bạn có một buổi sáng thú vị và đáng nhớ tại Hội An. \n\nNguồn tham khảo:\n- [10 essential things to do in Hoi An](https://vietnam.travel/things-to-do/top-things-to-do-hoi-an)\n- [A girls' guide to a weekend in Hoi An](https://vietnam.travel/things-to-do/girls-guide-weekend-hoi-an)",
+      "answer_vi": "Nếu bạn chỉ có buổi sáng ở Hội An, dưới đây là một số trải nghiệm nên ưu tiên:\n\n1. **Khám Phá Phố Cổ**: Buổi sáng là thời điểm tuyệt vời để dạo quanh Phố Cổ Hội An khi chưa đông đúc. Bạn có thể đi bộ hoặc đạp xe dọc theo các con phố yên tĩnh, chiêm ngưỡng kiến trúc độc đáo và chụp ảnh với những ngôi nhà cổ kính.\n\n2. **Thưởng Thức Ẩm Thực Địa Phương**: Đừng bỏ lỡ cơ hội thưởng thức các món ăn đặc sản như bánh mì hay cao lầu tại các quán ăn địa phương. Đây là những món ăn nổi tiếng mà bạn nên thử khi đến Hội An.\n\n3. **Tham Gia Lớp Học Nấu Ăn**: Nếu bạn thích nấu ăn, hãy tham gia một lớp học nấu ăn. Nhiều lớp học sẽ bao gồm việc tham quan chợ địa phương hoặc làng rau, giúp bạn hiểu rõ hơn về văn hóa ẩm thực của Hội An.\n\nNhững hoạt động này sẽ giúp bạn có một buổi sáng thú vị và đáng nhớ tại Hội An. \n\nNguồn tham khảo:\n- [10 essential things to do in Hoi An](https://vietnam.travel/things-to-do/top-things-to-do-hoi-an)\n- [A girls' guide to a weekend in Hoi An](https://vietnam.travel/things-to-do/girls-guide-weekend-hoi-an)",
       "sources": [
         {
           "rank": 1,
@@ -265,7 +273,10 @@
       "status": "success",
       "error": null,
       "question_vi": "Mình đi Đà Lạt thì nên ăn gì để đúng chất địa phương? Nếu có lưu ý cần tránh thì nói rõ giúp mình.",
-      "query_en": "What local foods to try in Da Lat? Any tips to avoid?",
+      "query_en": "",
+      "retrieval_query": "What local foods to try in Da Lat? Any tips to avoid?",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
         "english_query": "What local foods to try in Da Lat? Any tips to avoid?",
         "detected_locations": [
@@ -273,7 +284,7 @@
         ],
         "intent": "cuisine"
       },
-      "answer_vi": "Khi đến Đà Lạt, bạn nên thử những món ăn đặc trưng sau để cảm nhận đúng chất địa phương:\n\n1. **Mì Quảng**: Đây là một món ăn nổi tiếng với nước dùng đậm đà, thường được làm từ chân giò heo, kết hợp với mì vàng từ nghệ. Món này thường có hương vị rất phong phú và khác biệt so với các nơi khác.\n\n2. **Bánh Bèo**: Món bánh này được làm từ bột gạo và bột năng, hấp trong những chén nhỏ. Bánh bèo thường được ăn kèm với nước mắm, hành phi, ớt tươi và da heo chiên giòn, rất ngon miệng.\n\n3. **Phở Bò Đà Lạt**: Phở ở đây có sự kết hợp giữa phong cách Hà Nội và những loại rau tươi ngon từ vùng núi, tạo nên một trải nghiệm ẩm thực độc đáo.\n\n4. **Bánh Mì Xíu Mại**: Khác với bánh mì ở Sài Gòn, bánh mì xíu mại ở Đà Lạt được phục vụ trong một bát nước dùng nóng, kèm theo bánh mì nướng và rau sống.\n\n5. **Bánh Căn**: Đây là món bánh được nướng trên than, thường có trứng cút hoặc trứng vịt trên mặt, rất thích hợp cho bữa sáng hoặc ăn nhẹ.\n\nKhi thưởng thức các món ăn này, bạn nên tránh những quán ăn không rõ nguồn gốc hoặc không đông khách, vì có thể ảnh hưởng đến chất lượng món ăn. Hãy tìm những nơi có đông người địa phương để đảm bảo bạn có trải nghiệm ẩm thực tốt nhất.\n\nNguồn tham khảo:\n- [Eating Da Lat with Chef Peter](https://vietnam.travel/things-to-do/eating-dalat-chef-peter)\n- [8 ways to appreciate Da Lat](https://vietnam.travel/things-to-do/8-things-to-do-in-dalat)",
+      "answer_vi": "Khi đến Đà Lạt, bạn nên thử những món ăn đặc trưng của địa phương để có trải nghiệm ẩm thực phong phú. Dưới đây là một số món ăn bạn không nên bỏ qua:\n\n1. **Mì Quảng**: Món mì này có nước dùng đậm đà, thường được làm từ chân giò heo, mang lại hương vị rất đặc biệt. Bạn có thể tìm thấy món này tại các chợ địa phương.\n\n2. **Bánh Bèo**: Đây là món ăn đơn giản nhưng rất ngon, được làm từ bột gạo và bột năng, hấp trong chén nhỏ. Món bánh này thường được ăn kèm với nước mắm, hành phi, ớt tươi và da heo chiên giòn.\n\n3. **Phở Bò Đà Lạt**: Phở ở đây có sự kết hợp giữa phong cách Hà Nội và các loại rau sống tươi ngon, đặc biệt là xà lách Đà Lạt, tạo nên một hương vị độc đáo.\n\n4. **Bánh Mì Xíu Mại**: Khác với bánh mì ở Sài Gòn, bánh mì xíu mại ở Đà Lạt được phục vụ nóng với nước dùng thịt viên, rất thích hợp cho thời tiết lạnh.\n\n5. **Bánh Căn**: Món bánh này được nướng trên bếp than với trứng cút hoặc trứng vịt, thường được ăn vào buổi sáng hoặc như một món ăn nhẹ.\n\nLưu ý, khi thưởng thức ẩm thực Đà Lạt, bạn nên tránh những món ăn không rõ nguồn gốc hoặc không được chế biến sạch sẽ để đảm bảo an toàn cho sức khỏe.\n\nNguồn tham khảo:\n- [Eating Da Lat with Chef Peter](https://vietnam.travel/things-to-do/eating-dalat-chef-peter)\n- [8 ways to appreciate Da Lat](https://vietnam.travel/things-to-do/8-things-to-do-in-dalat)",
       "sources": [
         {
           "rank": 1,
@@ -346,7 +357,10 @@
       "status": "success",
       "error": null,
       "question_vi": "Mình muốn hiểu hơn về văn hóa địa phương ở Ninh Bình, nên đi đâu?",
-      "query_en": "local culture attractions in Ninh Binh",
+      "query_en": "",
+      "retrieval_query": "local culture attractions in Ninh Binh",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
         "english_query": "local culture attractions in Ninh Binh",
         "detected_locations": [
@@ -354,7 +368,7 @@
         ],
         "intent": "culture"
       },
-      "answer_vi": "Để hiểu hơn về văn hóa địa phương ở Ninh Bình, bạn có thể tham khảo một số địa điểm sau:\n\n1. **Hoa Lư**: Đây là di tích lịch sử quan trọng, từng là kinh đô đầu tiên của Việt Nam. Tại đây, bạn có thể khám phá các ngôi đền, chùa và các hiện vật lịch sử, đồng thời tìm hiểu về những câu chuyện thú vị liên quan đến triều đại phong kiến đầu tiên của đất nước.\n\n2. **Bái Đính Pagoda**: Là một trong những quần thể chùa lớn nhất Đông Nam Á, Bái Đính không chỉ thu hút du khách bởi quy mô đồ sộ mà còn bởi giá trị văn hóa tâm linh. Bạn có thể chiêm ngưỡng hàng ngàn tượng Phật và các kiến trúc độc đáo tại đây.\n\n3. **Tham gia các hoạt động địa phương**: Bạn có thể tham gia vào các tour du lịch bằng thuyền tại Tam Cốc hoặc Tràng An, nơi bạn không chỉ được ngắm cảnh thiên nhiên tuyệt đẹp mà còn có cơ hội nghe những câu chuyện về đời sống và văn hóa của người dân địa phương từ những người chèo thuyền.\n\nNhững địa điểm này sẽ giúp bạn có cái nhìn sâu sắc hơn về văn hóa và lịch sử của Ninh Bình. \n\nNguồn tham khảo:\n- [10 must-do activities in Ninh Binh](https://vietnam.travel/things-to-do/10-must-do-activities-ninh-binh)\n- [A perfect day in Ninh Binh](https://vietnam.travel/things-to-do/perfect-day-ninh-binh)\n- [Ninh Binh: An oasis for nature lovers](https://vietnam.travel/things-to-do/ninh-binh-an-oasis-nature-lovers)",
+      "answer_vi": "Để hiểu hơn về văn hóa địa phương ở Ninh Bình, bạn có thể tham khảo một số địa điểm sau:\n\n1. **Hoa Lư**: Đây là di tích lịch sử quan trọng, từng là kinh đô của Việt Nam trong thế kỷ 10 và 11. Tại đây, bạn có thể khám phá các ngôi đền, chùa và các hiện vật lịch sử, đồng thời tìm hiểu về những câu chuyện thú vị liên quan đến triều đại đầu tiên của Việt Nam.\n\n2. **Bái Đính Pagoda**: Là một trong những ngôi chùa lớn nhất Đông Nam Á, Bái Đính không chỉ là nơi hành hương của nhiều Phật tử mà còn là nơi lưu giữ nhiều giá trị văn hóa và lịch sử. Bạn sẽ được chiêm ngưỡng hàng ngàn bức tượng Phật và các công trình kiến trúc độc đáo.\n\n3. **Tràng An**: Khu danh thắng Tràng An không chỉ nổi tiếng với cảnh quan thiên nhiên tuyệt đẹp mà còn chứa đựng nhiều giá trị văn hóa. Bạn có thể tham gia tour thuyền để khám phá các hang động và đền chùa nằm dọc theo dòng sông, đồng thời nghe hướng dẫn viên chia sẻ về lịch sử và văn hóa của khu vực này.\n\nNhững địa điểm này sẽ giúp bạn có cái nhìn sâu sắc hơn về văn hóa và lịch sử của Ninh Bình. \n\nNguồn tham khảo:\n- [10 must-do activities in Ninh Binh](https://vietnam.travel/things-to-do/10-must-do-activities-ninh-binh)\n- [A perfect day in Ninh Binh](https://vietnam.travel/things-to-do/perfect-day-ninh-binh)\n- [Ninh Binh: An oasis for nature lovers](https://vietnam.travel/things-to-do/ninh-binh-an-oasis-nature-lovers)",
       "sources": [
         {
           "rank": 1,
@@ -427,7 +441,10 @@
       "status": "success",
       "error": null,
       "question_vi": "Nên đi Phú Yên vào mùa nào để thời tiết dễ chịu?",
-      "query_en": "best season to visit Phu Yen for pleasant weather",
+      "query_en": "",
+      "retrieval_query": "best season to visit Phu Yen for pleasant weather",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
         "english_query": "best season to visit Phu Yen for pleasant weather",
         "detected_locations": [
@@ -435,7 +452,7 @@
         ],
         "intent": "weather"
       },
-      "answer_vi": "Phú Yên có thể được tham quan vào bất kỳ thời điểm nào trong năm nhờ vào đặc điểm thời tiết nhiệt đới. Tuy nhiên, bạn nên tránh mùa bão từ tháng 9 đến tháng 12 hàng năm để có trải nghiệm tốt nhất. \n\nNếu bạn muốn có thời tiết dễ chịu, thời điểm lý tưởng để đến Phú Yên là từ tháng 1 đến tháng 8, khi thời tiết thường nắng ấm và ít mưa hơn.\n\nNguồn tham khảo:\n- [Phú Yên](https://vietnam.travel/places-to-go/central-vietnam/phu-yen)",
+      "answer_vi": "Theo thông tin hiện có, bạn có thể đến Phú Yên vào bất kỳ thời điểm nào trong năm vì nơi đây có đặc điểm thời tiết nhiệt đới. Tuy nhiên, bạn nên tránh mùa bão từ tháng 9 đến tháng 12 hàng năm để có trải nghiệm tốt nhất. \n\nNếu bạn muốn có thời tiết dễ chịu và tránh mưa, thời gian từ tháng 1 đến tháng 8 có thể là lựa chọn lý tưởng. Trong khoảng thời gian này, thời tiết thường ấm áp và khô ráo hơn.\n\nNguồn tham khảo:\n- [Phú Yên](https://vietnam.travel/places-to-go/central-vietnam/phu-yen)",
       "sources": [
         {
           "rank": 1,
@@ -505,10 +522,13 @@
     },
     {
       "query_id": "traveler_need_q_0007",
-      "status": "partial",
-      "error": "answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Mình muốn hiểu hơn về văn hóa địa phương ở Phong Nha, nên đi đâu? Mình quan tâm đến trải nghiệm đáng tiền.",
-      "query_en": "best cultural experiences in Phong Nha",
+      "query_en": "",
+      "retrieval_query": "best cultural experiences in Phong Nha",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
         "english_query": "best cultural experiences in Phong Nha",
         "detected_locations": [
@@ -516,7 +536,7 @@
         ],
         "intent": "culture"
       },
-      "answer_vi": "",
+      "answer_vi": "Hiện tại, thông tin về các trải nghiệm văn hóa địa phương ở Phong Nha trong CONTEXT chưa đủ để cung cấp cho bạn. Tuy nhiên, bạn có thể tham khảo một số hoạt động thú vị mà Phong Nha mang lại, như tham gia các tour khám phá các hang động, trải nghiệm cuộc sống nông thôn tại các homestay hoặc farmstay, và thưởng thức ẩm thực địa phương tại các nhà hàng nhỏ trong thị trấn.\n\nNếu bạn muốn tìm hiểu sâu hơn về văn hóa và các hoạt động cụ thể, có thể tham khảo thêm thông tin từ các nguồn khác hoặc hỏi thêm về các tour văn hóa tại địa phương khi đến Phong Nha.\n\nNguồn tham khảo:\n- [Phong Nha - Hướng dẫn du lịch hoàn chỉnh](https://vietnam.travel/things-to-do/complete-guide-phong-nha)",
       "sources": [
         {
           "rank": 1,
@@ -586,52 +606,55 @@
     },
     {
       "query_id": "traveler_need_q_0008",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Nên chọn Mekong Delta hay Phong Nha cho chuyến đi mùa hè? Mình muốn tránh nơi quá đông nếu có thể.",
-      "query_en": "Nên chọn Mekong Delta hay Phong Nha cho chuyến đi mùa hè? Mình muốn tránh nơi quá đông nếu có thể.",
+      "query_en": "",
+      "retrieval_query": "Mekong Delta or Phong Nha for summer trip, avoid crowded places",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Nên chọn Mekong Delta hay Phong Nha cho chuyến đi mùa hè? Mình muốn tránh nơi quá đông nếu có thể.",
+        "english_query": "Mekong Delta or Phong Nha for summer trip, avoid crowded places",
         "detected_locations": [
-          "Mekong Delta"
+          "Mekong Delta",
+          "Phong Nha"
         ],
-        "intent": "comparison",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "comparison"
       },
-      "answer_vi": "Hiện tại, dữ liệu trong CONTEXT không cung cấp thông tin cụ thể về Mekong Delta hay Phong Nha, do đó tôi không thể so sánh hai địa điểm này cho bạn. Tuy nhiên, nếu bạn muốn tránh nơi quá đông, bạn có thể xem xét một số điểm đến khác trong mùa hè mà có thể ít đông đúc hơn.\n\nNếu bạn cần thông tin cụ thể hơn về Mekong Delta hoặc Phong Nha, hãy cho tôi biết để tôi có thể hỗ trợ bạn tốt hơn. \n\nNguồn tham khảo:\n- [Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch](https://2025.vietnam.travel/kien-giang-phu-quoc-day-manh-kich-cau-mo-rong-nguon-khach-du-lich)\n- [Phú Thọ sẵn sàng cho mùa du lịch hè 2025](https://2025.vietnam.travel/phu-tho-san-sang-cho-mua-du-lich-he-2025)\n- [Quảng Ninh: Cô Tô sôi động các hoạt động du lịch hè](https://2025.vietnam.travel/quang-ninh-co-to-soi-dong-cac-hoat-dong-du-lich-he)",
+      "answer_vi": "Dựa trên thông tin hiện có, nếu bạn muốn tránh những nơi đông đúc trong chuyến đi mùa hè, Mekong Delta có thể là một lựa chọn tốt hơn so với Phong Nha. \n\nMekong Delta nổi tiếng với những cảnh quan thiên nhiên yên bình, các làng quê và cuộc sống ven sông. Bạn có thể tham gia các tour sinh thái hoặc đạp xe để khám phá cuộc sống địa phương mà không phải chen chúc trong đám đông. Các hoạt động như đi thuyền trên các kênh nhỏ, tham quan các vườn trái cây, và trải nghiệm văn hóa địa phương sẽ mang lại cho bạn cảm giác thư giãn và gần gũi với thiên nhiên.\n\nNgược lại, thông tin về Phong Nha không có sẵn trong ngữ cảnh này, vì vậy tôi không thể cung cấp thông tin cụ thể về mức độ đông đúc ở đó. Tuy nhiên, nếu bạn muốn một trải nghiệm thiên nhiên và văn hóa phong phú, Mekong Delta có thể là lựa chọn lý tưởng cho bạn.\n\nNguồn tham khảo:\n- [4 memorable days in the Mekong Delta](https://vietnam.travel/things-to-do/4-memorable-days-mekong-delta)\n- [10 Incredible Places to Visit in Vietnam This Summer](https://vietnam.travel/things-to-do/10-incredible-places-visit-vietnam-summer)\n- [Day-tripping in the Mekong Delta](https://vietnam.travel/things-to-do/day-tripping-mekong-delta)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.029116,
+          "score": 0.028372,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b_chunk_0001",
-          "document_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b",
-          "document_title": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch",
-          "source_url": "https://2025.vietnam.travel/kien-giang-phu-quoc-day-manh-kich-cau-mo-rong-nguon-khach-du-lich",
-          "language": "vi",
-          "text_preview": "thu hút khách nội địa, nguồn khách quốc tế từ các thị trường gần cũng rất cần được chú trọng khai thác trong mùa thấp điểm. Phú Quốc cần nắm bắt cơ hội từ các chuyến bay thẳng từ nhiều quốc gia, mang đến sự thuận tiện đáng kể cho du khách từ các thị trường tiềm năng như Nhật Bản, Hàn Quốc, Đài Loan (Trung Quốc) hay các nước Đông Nam Á. “Việc triển..."
+          "chunk_id": "2fe76b64cbcdcd7ff11a88421285c21272a6e173feed129cbd951b1de11c2780_chunk_0004",
+          "document_id": "2fe76b64cbcdcd7ff11a88421285c21272a6e173feed129cbd951b1de11c2780",
+          "document_title": "4 memorable days in the Mekong Delta",
+          "source_url": "https://vietnam.travel/things-to-do/4-memorable-days-mekong-delta",
+          "language": "en",
+          "text_preview": "served with peanut sauce, herbs, pickles, and bánh hỏi: tiny vermicelli noodles woven into delicate bundles and topped with sauteed garlic. Spend a lazy afternoon discovering Can Tho town, buying souvenirs and wandering the bustling promenade of Ninh Kieu Park. For your final evening in the Delta, spring for a classy dinner cruise. TransMekong’s My..."
         },
         {
           "rank": 2,
-          "score": 0.028665,
+          "score": 0.028125,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "e5a19fe43e6df32af8c63fd4a3bd78b408db00adbd1c51e8e4ed4d2ab4794495_chunk_0002",
-          "document_id": "e5a19fe43e6df32af8c63fd4a3bd78b408db00adbd1c51e8e4ed4d2ab4794495",
-          "document_title": "Phú Thọ sẵn sàng cho mùa du lịch hè 2025",
-          "source_url": "https://2025.vietnam.travel/phu-tho-san-sang-cho-mua-du-lich-he-2025",
-          "language": "vi",
-          "text_preview": "thể mua về làm quà. Để mùa du lịch hè 2025 diễn ra hiệu quả và an toàn, tỉnh chú trọng nâng cao chất lượng dịch vụ, gắn với xây dựng môi trường du lịch văn minh, thân thiện. Việc giới thiệu sản phẩm mới mang đặc trưng vùng Đất Tổ không chỉ tăng lựa chọn cho du khách mà còn cụ thể hóa chương trình kích cầu du lịch “Phú Thọ – Đi để yêu”. Đây là hoạt..."
+          "chunk_id": "ba80a09f4b1e43c386d1a212f3fe82891143c6024ea9cb7f9a52135938ae1b43_chunk_0003",
+          "document_id": "ba80a09f4b1e43c386d1a212f3fe82891143c6024ea9cb7f9a52135938ae1b43",
+          "document_title": "10 Incredible Places to Visit in Vietnam This Summer",
+          "source_url": "https://vietnam.travel/things-to-do/10-incredible-places-visit-vietnam-summer",
+          "language": "en",
+          "text_preview": "leaning over the water, or check into the whimsical, Bill Bensley-designed JW Marriott Emerald Bay for a dose of maximalist luxury inspired by a mythical university. 10. The Mekong Delta The Riverine Rhythm To understand the agricultural soul of Vietnam, one must visit the Mekong Delta in the summer. This is fruit season, when the orchards of Can T..."
         },
         {
           "rank": 3,
-          "score": 0.027526,
+          "score": 0.027032,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "cb989053ad00f085175178773c7b44f1b24135c51b9525066b6736141ec6b04e_chunk_0000",
-          "document_id": "cb989053ad00f085175178773c7b44f1b24135c51b9525066b6736141ec6b04e",
-          "document_title": "Quảng Ninh: Cô Tô sôi động các hoạt động du lịch hè",
-          "source_url": "https://2025.vietnam.travel/quang-ninh-co-to-soi-dong-cac-hoat-dong-du-lich-he",
-          "language": "vi",
-          "text_preview": "Quảng Ninh: Cô Tô sôi động các hoạt động du lịch hè Cô Tô (Quảng Ninh) đang chuẩn bị đón mùa du lịch hè 2025 với các sản phẩm mới và trải nghiệm hấp dẫn. Các tour khám phá đảo, hoạt động thể thao biển, giải trí đêm và sáng kiến du lịch xanh, hứa hẹn mang đến một mùa hè sôi động, thu hút du khách. Theo kế hoạch phát triển du lịch, năm 2025, Cô Tô đặ..."
+          "chunk_id": "805f67798c3b99b627c20d3913e613151d506e70b1e272e3e8d483c54c1fda9d_chunk_0000",
+          "document_id": "805f67798c3b99b627c20d3913e613151d506e70b1e272e3e8d483c54c1fda9d",
+          "document_title": "Day-tripping in the Mekong Delta",
+          "source_url": "https://vietnam.travel/things-to-do/day-tripping-mekong-delta",
+          "language": "en",
+          "text_preview": "Day-tripping in the Mekong Delta All photography by Christian Berg There’s something soothing about Vietnam’s Mekong Delta . Just a short drive from Ho Chi Minh City, the Delta’s riverside towns, lush islets and lazy rivers will instantly make you feel more relaxed. You could easily spend weeks exploring the Delta, however if you only have a day to..."
         },
         {
           "rank": 4,
@@ -648,12 +671,12 @@
           "rank": 5,
           "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "659383d05c5e6a5ad61c37eb3a154cc4be42eedf4059900967da1463e96a42d0_chunk_0002",
-          "document_id": "659383d05c5e6a5ad61c37eb3a154cc4be42eedf4059900967da1463e96a42d0",
-          "document_title": "Du lịch biển đảo hè ở Quảng Ninh: Trải nghiệm mới, sức hút mới",
-          "source_url": "https://2025.vietnam.travel/du-lich-bien-dao-he-o-quang-ninh-trai-nghiem-moi-suc-hut-moi",
-          "language": "vi",
-          "text_preview": "tour khám phá 5 bãi biển của đảo Thanh Lân, lễ thượng cờ trên đảo tiền tiêu, bay dù, phố đi bộ đêm... cũng góp phần tạo nên không khí lễ hội rộn ràng suốt mùa hè. Một điểm sáng của mùa du lịch năm nay là sự đồng bộ và chuyên nghiệp trong tổ chức dịch vụ tại các địa phương biển đảo. Hàng loạt doanh nghiệp tung ra combo du lịch trọn gói từ phương tiệ..."
+          "chunk_id": "ea1231c53138faad2a43703c506119637b09115983cc6dd411e46186ad8f0434_chunk_0001",
+          "document_id": "ea1231c53138faad2a43703c506119637b09115983cc6dd411e46186ad8f0434",
+          "document_title": "5 reasons you'll love Cai Be",
+          "source_url": "https://vietnam.travel/things-to-do/5-reasons-youll-love-cai-be",
+          "language": "en",
+          "text_preview": "the water’s edge, all the while surrounded by lush greenery. TIP: Come tea time, pop into Hải Yến Bee Farm for a tour of their honey farm, and then relax with a delicious honeyed drink. Colourful riverside commerce Cái Bè town gets started early, and you’ll want to as well. Wake up at dawn for a magical ferry ride at sunrise, and ride a bicycle ove..."
         }
       ],
       "input_metadata": {
@@ -668,10 +691,13 @@
     },
     {
       "query_id": "traveler_need_q_0009",
-      "status": "partial",
-      "error": "answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Ở Hội An có trải nghiệm văn hóa hoặc di sản nào nên thử? Mình muốn có cả hoạt động thư giãn.",
-      "query_en": "cultural experiences or heritage in Hoi An, relaxing activities",
+      "query_en": "",
+      "retrieval_query": "cultural experiences or heritage in Hoi An, relaxing activities",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
         "english_query": "cultural experiences or heritage in Hoi An, relaxing activities",
         "detected_locations": [
@@ -679,7 +705,7 @@
         ],
         "intent": "culture|attraction"
       },
-      "answer_vi": "",
+      "answer_vi": "Ở Hội An, bạn có thể trải nghiệm nhiều hoạt động văn hóa và di sản thú vị, đồng thời cũng có những lựa chọn thư giãn tuyệt vời. Dưới đây là một số gợi ý:\n\n1. **Dạo bộ trong Phố Cổ**: Phố Cổ Hội An là một di sản văn hóa thế giới được UNESCO công nhận, nổi bật với kiến trúc cổ kính và những con phố được thắp sáng bằng đèn lồng vào ban đêm. Đây là nơi lý tưởng để bạn vừa khám phá lịch sử, vừa thư giãn.\n\n2. **Tham gia lớp học nấu ăn**: Bạn có thể tham gia lớp học nấu ăn để tìm hiểu về ẩm thực địa phương. Đây là một trải nghiệm thú vị, giúp bạn không chỉ học cách chế biến món ăn mà còn hiểu thêm về văn hóa ẩm thực của Hội An.\n\n3. **Thư giãn tại bãi biển An Bàng**: Sau khi tham quan, bạn có thể dành thời gian thư giãn tại bãi biển An Bàng. Nơi đây có nhiều quán cà phê và nhà hàng ven biển, nơi bạn có thể thưởng thức đồ ăn ngon và ngắm cảnh biển.\n\nNhững hoạt động này không chỉ mang lại trải nghiệm văn hóa phong phú mà còn giúp bạn có những giây phút thư giãn tuyệt vời trong chuyến đi của mình.\n\nNguồn tham khảo:\n- [Khám phá ẩm thực Hội An](https://vietnam.travel/things-to-do/explore-food-hoi-an)\n- [10 điều cần làm ở Hội An](https://vietnam.travel/things-to-do/top-things-to-do-hoi-an)",
       "sources": [
         {
           "rank": 1,
@@ -749,33 +775,57 @@
     },
     {
       "query_id": "traveler_need_q_0010",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). | answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Tối ở Huế nên đi đâu chơi cho vui? Mình quan tâm đến trải nghiệm đáng tiền.",
-      "query_en": "Tối ở Huế nên đi đâu chơi cho vui? Mình quan tâm đến trải nghiệm đáng tiền.",
+      "query_en": "",
+      "retrieval_query": "best nightlife activities in Hue for a memorable experience",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Tối ở Huế nên đi đâu chơi cho vui? Mình quan tâm đến trải nghiệm đáng tiền.",
+        "english_query": "best nightlife activities in Hue for a memorable experience",
         "detected_locations": [
-          "Huế"
+          "Hue"
         ],
-        "intent": "nightlife",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "nightlife"
       },
-      "answer_vi": "",
+      "answer_vi": "Hiện tại, thông tin về các hoạt động giải trí về đêm ở Huế chưa đủ để đưa ra gợi ý cụ thể. Tuy nhiên, bạn có thể tham khảo một số hoạt động thú vị mà nhiều du khách thường tham gia tại Huế vào buổi tối, như:\n\n1. **Thưởng thức ẩm thực đường phố**: Huế nổi tiếng với các món ăn đặc sản, bạn có thể tìm đến các quán ăn vỉa hè để thưởng thức bún bò Huế, cơm hến hay các món ăn nhẹ khác.\n\n2. **Tham quan các địa điểm nổi bật**: Một số địa điểm như cầu Tràng Tiền hay bờ sông Hương thường được nhiều người ghé thăm vào buổi tối để tận hưởng không khí yên bình và ngắm cảnh.\n\n3. **Tham gia các hoạt động văn hóa**: Nếu có cơ hội, bạn có thể tìm hiểu về các buổi biểu diễn nghệ thuật truyền thống hoặc tham gia vào các tour du lịch đêm để khám phá vẻ đẹp của Huế về đêm.\n\nNếu bạn cần thêm thông tin chi tiết hơn về các hoạt động cụ thể, vui lòng cho biết! \n\nNguồn tham khảo:\n- [3 days in Hue for culture seekers](https://vietnam.travel/things-to-do/hue-itinerary)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.025808,
+          "score": 0.028372,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "421fbad19e09542b55fe55d2db1c7d0772600cf0f940f33fa2fdfce12c94c633_chunk_0004",
-          "document_id": "421fbad19e09542b55fe55d2db1c7d0772600cf0f940f33fa2fdfce12c94c633",
-          "document_title": "Lạng Sơn: Kích cầu du lịch dịp nghỉ lễ",
-          "source_url": "https://2025.vietnam.travel/lang-son-kich-cau-du-lich-dip-nghi-le",
-          "language": "vi",
-          "text_preview": "đối với khách hàng nghỉ lại từ 1 đến 3 đêm sẽ được chiết khấu từ 15 đến 20% từ đêm thứ 2 trở đi. Đối với khối ẩm thực, hiện tại chúng tôi đang có chương trình ưu đãi tất cả các ngày trong tuần với những ưu đãi, khuyến mại dành cho các đối tượng khách hàng địa phương. Qua khảo sát chúng tôi được biết, trong dịp lễ 30/4 – 01/5 lượng khách đặt phòng đ..."
+          "chunk_id": "f1a2ba1df4d20804db1eaf0d8680f800db5f99bbbce6ff394b9cc229f5f9f5df_chunk_0000",
+          "document_id": "f1a2ba1df4d20804db1eaf0d8680f800db5f99bbbce6ff394b9cc229f5f9f5df",
+          "document_title": "Nha Trang Best Beaches for a Sustainable Vacation",
+          "source_url": "https://vietnam.travel/things-to-do/nha-trang-best-beaches-sustainable-vacation",
+          "language": "en",
+          "text_preview": "Nha Trang Best Beaches for a Sustainable Vacation Nha Trang is a beach resort city, simultaneously laid back and frenetic, a place both for lazy sunbathing days and partying through the night. The shoreline is a world-famous crescent moon of white sand framed by grassy parks and promenades. Beyond the beach, modern skyscrapers offer fine dining and..."
         },
         {
           "rank": 2,
+          "score": 0.028219,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "c065f14a4aa16dff4a725704886a1d536219b7e606689e93ad8c4e5713bcd7a0_chunk_0000",
+          "document_id": "c065f14a4aa16dff4a725704886a1d536219b7e606689e93ad8c4e5713bcd7a0",
+          "document_title": "Comfort Meets Culture at Hanoi's Luxury Hotels",
+          "source_url": "https://vietnam.travel/things-to-do/comfort-meet-culture-hanoi-luxury-hotels",
+          "language": "en",
+          "text_preview": "Comfort Meets Culture at Hanoi's Luxury Hotels Vietnam is a place of paradox and a country of contrast. Modern metropolises sprawl out into the arms of ancient mountains, and families of farmers cultivate expansive rice paddies kilometers from colonial architecture. Backpacker-budget accommodation options are abundant everywhere, but Vietnam also b..."
+        },
+        {
+          "rank": 3,
+          "score": 0.027973,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "7e032311b0bf013b94cadc08a1680d09ab3200900d22914e83d2082ed58285ca_chunk_0002",
+          "document_id": "7e032311b0bf013b94cadc08a1680d09ab3200900d22914e83d2082ed58285ca",
+          "document_title": "7 romantic destinations in Vietnam",
+          "source_url": "https://vietnam.travel/things-to-do/7-romantic-destinations-vietnam",
+          "language": "en",
+          "text_preview": "can expect here. Cam Ranh is favoured by a number of luxury resorts, making it the perfect choice for a stress-free couples escape. The Hon Ba Nature Reserve nearby offers trekkers a healthy diversion, and if you're up for a spot of nightlife, the rooftop and beach bars of the city are just a hour's drive away. Spend a few days ensconced in a beach..."
+        },
+        {
+          "rank": 4,
           "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
           "chunk_id": "a0639ba7eaace37c45c63da95451c7ab11a75d25a3aa9723777dfc174da0a465_chunk_0003",
@@ -786,37 +836,15 @@
           "text_preview": "treat yourself at La Residence Hotel, a restored 1930s art-deco mansion with a sublime fine-dining restaurant near the river. Both restaurants are on your way back from Thiên Mụ. Day 3 - Hue Beaches, Hến Island and the Chinese Quarter Morning – Make the most of your final day by getting up early and heading straight to Thuận An Beach. The beach is..."
         },
         {
-          "rank": 3,
+          "rank": 5,
           "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b_chunk_0002",
-          "document_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b",
-          "document_title": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch",
-          "source_url": "https://2025.vietnam.travel/kien-giang-phu-quoc-day-manh-kich-cau-mo-rong-nguon-khach-du-lich",
-          "language": "vi",
-          "text_preview": "nước ngoài thích thú khi trải nghiệm tour đi bộ ngắm san hô tại Phú Quốc Ông Doãn Minh Tuấn – Giám đốc kinh doanh hệ thống Ngọc Hiền Phú Quốc cho rằng điều quan trọng là Phú Quốc phải gia tăng trải nghiệm và sản phẩm để giữ chân du khách lâu hơn: “Khách nước ngoài thường lưu trú dài ngày tại Phú Quốc, vậy nên cần thêm những điểm vui chơi, khám phá..."
-        },
-        {
-          "rank": 4,
-          "score": 0.016129,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "a7d7302c584e64baccdf25206384e7e3724e0293286163397b616f5120edcd08_chunk_0002",
-          "document_id": "a7d7302c584e64baccdf25206384e7e3724e0293286163397b616f5120edcd08",
-          "document_title": "Experience Nha Trang like a local",
-          "source_url": "https://vietnam.travel/things-to-do/experience-nha-trang-like-a-local",
+          "chunk_id": "01e131dc38d047d4f180a5e054b2da05b8cf02c4c7d7fe0141cd91ea93f2bcef_chunk_0001",
+          "document_id": "01e131dc38d047d4f180a5e054b2da05b8cf02c4c7d7fe0141cd91ea93f2bcef",
+          "document_title": "7 stunning rooftop bars in Vietnam",
+          "source_url": "https://vietnam.travel/things-to-do/7-stunning-rooftop-bars-vietnam",
           "language": "en",
-          "text_preview": "area. But day visitors are welcome, too. There are four bars and restaurants on-site. And the Ferris wheel? That’s at Vinpearl Land. You can get to the mega-amusement park via speedboat, canoe, or cable car. Kids will love the journey − and the many thrilling rides. SPEND TIME AT THE OCEANOGRAPHIC MUSEUM OF VIETNAM Since 1922, this museum has educa..."
-        },
-        {
-          "rank": 5,
-          "score": 0.016129,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "659383d05c5e6a5ad61c37eb3a154cc4be42eedf4059900967da1463e96a42d0_chunk_0002",
-          "document_id": "659383d05c5e6a5ad61c37eb3a154cc4be42eedf4059900967da1463e96a42d0",
-          "document_title": "Du lịch biển đảo hè ở Quảng Ninh: Trải nghiệm mới, sức hút mới",
-          "source_url": "https://2025.vietnam.travel/du-lich-bien-dao-he-o-quang-ninh-trai-nghiem-moi-suc-hut-moi",
-          "language": "vi",
-          "text_preview": "tour khám phá 5 bãi biển của đảo Thanh Lân, lễ thượng cờ trên đảo tiền tiêu, bay dù, phố đi bộ đêm... cũng góp phần tạo nên không khí lễ hội rộn ràng suốt mùa hè. Một điểm sáng của mùa du lịch năm nay là sự đồng bộ và chuyên nghiệp trong tổ chức dịch vụ tại các địa phương biển đảo. Hàng loạt doanh nghiệp tung ra combo du lịch trọn gói từ phương tiệ..."
+          "text_preview": "transformed dramatically since the time journalists used to gather at the bar to trade news and gossip. Wooden tables around the perimeter look over the Opera House and the iconic Lam Sơn Square. Modernity sneaks in through creative drinks on the menu. Kick back with a Miss Saigon, one of the bar's most popular orders, and watch as the city shifts..."
         }
       ],
       "input_metadata": {
@@ -831,74 +859,76 @@
     },
     {
       "query_id": "traveler_need_q_0011",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). | answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Đi Cát Bà buổi tối thì ngày đầu nên tham quan những đâu? Mình quan tâm đến trải nghiệm đáng tiền.",
-      "query_en": "Đi Cát Bà buổi tối thì ngày đầu nên tham quan những đâu? Mình quan tâm đến trải nghiệm đáng tiền.",
+      "query_en": "",
+      "retrieval_query": "best attractions in Cat Ba at night for valuable experiences",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Đi Cát Bà buổi tối thì ngày đầu nên tham quan những đâu? Mình quan tâm đến trải nghiệm đáng tiền.",
+        "english_query": "best attractions in Cat Ba at night for valuable experiences",
         "detected_locations": [
-          "Cát Bà"
+          "Cat Ba"
         ],
-        "intent": "itinerary",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "attraction|nightlife"
       },
-      "answer_vi": "",
+      "answer_vi": "Hiện tại, thông tin trong CONTEXT không cung cấp chi tiết về các hoạt động hoặc điểm tham quan cụ thể tại Cát Bà vào buổi tối. Tuy nhiên, bạn có thể tham khảo một số hoạt động phổ biến mà du khách thường tham gia khi đến Cát Bà, như:\n\n1. **Tham quan các làng chài**: Bạn có thể ghé thăm các làng chài gần đó để trải nghiệm cuộc sống của người dân địa phương và thưởng thức hải sản tươi ngon.\n\n2. **Đi dạo ven biển**: Buổi tối, bạn có thể đi dạo dọc bãi biển, tận hưởng không khí trong lành và ngắm nhìn cảnh biển về đêm.\n\n3. **Thưởng thức ẩm thực địa phương**: Cát Bà nổi tiếng với các món hải sản. Bạn có thể tìm đến các nhà hàng địa phương để thưởng thức các món ăn đặc sản.\n\nNếu bạn cần thêm thông tin cụ thể hơn về các hoạt động buổi tối tại Cát Bà, có thể cần tham khảo thêm từ các nguồn khác hoặc trang web du lịch. \n\nNguồn tham khảo:\n- [Halong Bay - Cat Ba inter-provincial World Heritage Site: Trending destination in Vietnam](https://vietnam.travel/things-to-do/halong-bay-cat-ba-inter-provincial-world-heritage-site-trending-destination-vietnam-0)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.028612,
+          "score": 0.032018,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0001",
-          "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
-          "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
-          "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
-          "language": "vi",
-          "text_preview": "ăn đám giỗ. Tại đây, du khách sẽ được trải nghiệm các lễ cúng giỗ và nề nếp sinh hoạt dân gian. Trong ngày này, con cháu khắp nơi sẽ tề tựu về cùng chuẩn bị các nghi thức, mâm quả cho ngày giỗ ông bà tổ tiên. Tham gia tour Đám giỗ bên cồn, bà Đỗ Thị Kim Chi, Giám đốc Công ty Du lịch Khám phá Mê Kông, nhìn nhận: “Đây là lần đầu tôi trải nghiệm đám g..."
+          "chunk_id": "f0544666695bfaf95aee7c3327203d56fc17f612039ecf1e12fcc535ba3e1e53_chunk_0001",
+          "document_id": "f0544666695bfaf95aee7c3327203d56fc17f612039ecf1e12fcc535ba3e1e53",
+          "document_title": "Halong Bay - Cat Ba inter-provincial World Heritage Site: Trending destination in Vietnam",
+          "source_url": "https://vietnam.travel/things-to-do/halong-bay-cat-ba-inter-provincial-world-heritage-site-trending-destination-vietnam-0",
+          "language": "en",
+          "text_preview": "Archipelago becomes a world heritage site, it is expected this will be a new tour route add up to international tourists’ experience in Quang Ninh. With scenic spots recognized by international organizations and positive signs of recovery after Covid-19, Vietnam is a rising star in the tourism map of Southeast Asia in particular and world in genera..."
         },
         {
           "rank": 2,
-          "score": 0.026709,
+          "score": 0.032002,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8_chunk_0001",
-          "document_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8",
-          "document_title": "Huyện Vân Đồn (Quảng Ninh): Sôi động, đa sắc và giàu trải nghiệm",
-          "source_url": "https://2025.vietnam.travel/huyen-van-don-quang-ninh-soi-dong-da-sac-va-giau-trai-nghiem",
-          "language": "vi",
-          "text_preview": "– giải trí mùa hè hấp dẫn du khách mọi lứa tuổi. Năm 2025, du lịch Vân Đồn chứng kiến sự ra mắt của nhiều sản phẩm độc đáo, giàu trải nghiệm và đậm đà bản sắc văn hóa địa phương. Tiêu biểu là tour Trải nghiệm Làng văn hóa – du lịch dân tộc Sán Dìu tại xã Bình Dân. Du khách sẽ được hòa mình vào không gian văn hóa dân tộc Sán Dìu, thưởng thức ẩm thực..."
+          "chunk_id": "f0544666695bfaf95aee7c3327203d56fc17f612039ecf1e12fcc535ba3e1e53_chunk_0002",
+          "document_id": "f0544666695bfaf95aee7c3327203d56fc17f612039ecf1e12fcc535ba3e1e53",
+          "document_title": "Halong Bay - Cat Ba inter-provincial World Heritage Site: Trending destination in Vietnam",
+          "source_url": "https://vietnam.travel/things-to-do/halong-bay-cat-ba-inter-provincial-world-heritage-site-trending-destination-vietnam-0",
+          "language": "en",
+          "text_preview": "for weekend getaways trips, such as Flamingo Cat Ba, Hôtel Perle d'Orient Cat Ba - MGallery, Vinpearl Ha Long, FLC Ha Long, etc. Besides, following the trending period of the destination, connecting nearby tourist attractions from Hanoi, Halong Bay to Sapa or Ninh Binh is also a great option for travel agents to extend their travel product lines. A..."
         },
         {
           "rank": 3,
-          "score": 0.016393,
+          "score": 0.030798,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "a7d7302c584e64baccdf25206384e7e3724e0293286163397b616f5120edcd08_chunk_0002",
-          "document_id": "a7d7302c584e64baccdf25206384e7e3724e0293286163397b616f5120edcd08",
-          "document_title": "Experience Nha Trang like a local",
-          "source_url": "https://vietnam.travel/things-to-do/experience-nha-trang-like-a-local",
+          "chunk_id": "f0544666695bfaf95aee7c3327203d56fc17f612039ecf1e12fcc535ba3e1e53_chunk_0000",
+          "document_id": "f0544666695bfaf95aee7c3327203d56fc17f612039ecf1e12fcc535ba3e1e53",
+          "document_title": "Halong Bay - Cat Ba inter-provincial World Heritage Site: Trending destination in Vietnam",
+          "source_url": "https://vietnam.travel/things-to-do/halong-bay-cat-ba-inter-provincial-world-heritage-site-trending-destination-vietnam-0",
           "language": "en",
-          "text_preview": "area. But day visitors are welcome, too. There are four bars and restaurants on-site. And the Ferris wheel? That’s at Vinpearl Land. You can get to the mega-amusement park via speedboat, canoe, or cable car. Kids will love the journey − and the many thrilling rides. SPEND TIME AT THE OCEANOGRAPHIC MUSEUM OF VIETNAM Since 1922, this museum has educa..."
+          "text_preview": "Halong Bay - Cat Ba inter-provincial World Heritage Site: Trending destination in Vietnam After being recognized as an inter-provincial World Heritage Site by UNESCO, Halong Bay - Cat Ba Archipelago drew the attention of both domestic and international tourists. UNESCO Halong Bay - Cat Ba Archipelago Heritage Proudly announce that the first inter-p..."
         },
         {
           "rank": 4,
-          "score": 0.016393,
+          "score": 0.030092,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b_chunk_0002",
-          "document_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b",
-          "document_title": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch",
-          "source_url": "https://2025.vietnam.travel/kien-giang-phu-quoc-day-manh-kich-cau-mo-rong-nguon-khach-du-lich",
-          "language": "vi",
-          "text_preview": "nước ngoài thích thú khi trải nghiệm tour đi bộ ngắm san hô tại Phú Quốc Ông Doãn Minh Tuấn – Giám đốc kinh doanh hệ thống Ngọc Hiền Phú Quốc cho rằng điều quan trọng là Phú Quốc phải gia tăng trải nghiệm và sản phẩm để giữ chân du khách lâu hơn: “Khách nước ngoài thường lưu trú dài ngày tại Phú Quốc, vậy nên cần thêm những điểm vui chơi, khám phá..."
+          "chunk_id": "3907d4edb9537acc7b10bf673deb4e20ea33320f5b2f6f2979ce1f27f056f18f_chunk_0003",
+          "document_id": "3907d4edb9537acc7b10bf673deb4e20ea33320f5b2f6f2979ce1f27f056f18f",
+          "document_title": "7 amazing national parks in Vietnam",
+          "source_url": "https://vietnam.travel/things-to-do/7-amazing-national-parks-vietnam",
+          "language": "en",
+          "text_preview": "a week or longer here without getting bored. Cat Then is great option for those who like steamy jungle treks. Multi-day tours will take you deep into the parks to spot endemic wildlife, including bears, crocodiles, bats, snakes, and tropical birds. Don’t miss the chance to take a night safari for encounters with extraordinary insects and colourful..."
         },
         {
           "rank": 5,
-          "score": 0.016129,
+          "score": 0.02904,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "421fbad19e09542b55fe55d2db1c7d0772600cf0f940f33fa2fdfce12c94c633_chunk_0004",
-          "document_id": "421fbad19e09542b55fe55d2db1c7d0772600cf0f940f33fa2fdfce12c94c633",
-          "document_title": "Lạng Sơn: Kích cầu du lịch dịp nghỉ lễ",
-          "source_url": "https://2025.vietnam.travel/lang-son-kich-cau-du-lich-dip-nghi-le",
-          "language": "vi",
-          "text_preview": "đối với khách hàng nghỉ lại từ 1 đến 3 đêm sẽ được chiết khấu từ 15 đến 20% từ đêm thứ 2 trở đi. Đối với khối ẩm thực, hiện tại chúng tôi đang có chương trình ưu đãi tất cả các ngày trong tuần với những ưu đãi, khuyến mại dành cho các đối tượng khách hàng địa phương. Qua khảo sát chúng tôi được biết, trong dịp lễ 30/4 – 01/5 lượng khách đặt phòng đ..."
+          "chunk_id": "5e1924c57b00df1d96aa9fb5448a66e1394aa6426d6673115b85c7a6cc8990a7_chunk_0001",
+          "document_id": "5e1924c57b00df1d96aa9fb5448a66e1394aa6426d6673115b85c7a6cc8990a7",
+          "document_title": "Amazing adventure holidays in Vietnam",
+          "source_url": "https://vietnam.travel/things-to-do/4-best-adventure-holidays-vietnam",
+          "language": "en",
+          "text_preview": "There are cultural experiences, too, with centuries-old floating villages nestled within the bay. Look no further than Britain-based SwimTrek for open water swimming tours in the quietest pockets of Lan Ha Bay. SwimTrek’s seven-day trip is based on Cat Ba Island, and boasts a tremendous variety of swimming opportunities, including island crossings..."
         }
       ],
       "input_metadata": {
@@ -913,56 +943,25 @@
     },
     {
       "query_id": "traveler_need_q_0012",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). | answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Ở Phong Nha có trải nghiệm văn hóa hoặc di sản nào nên thử? Mình muốn có cả hoạt động thư giãn.",
-      "query_en": "Ở Phong Nha có trải nghiệm văn hóa hoặc di sản nào nên thử? Mình muốn có cả hoạt động thư giãn.",
+      "query_en": "",
+      "retrieval_query": "cultural heritage experiences in Phong Nha with relaxation activities",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Ở Phong Nha có trải nghiệm văn hóa hoặc di sản nào nên thử? Mình muốn có cả hoạt động thư giãn.",
+        "english_query": "cultural heritage experiences in Phong Nha with relaxation activities",
         "detected_locations": [
           "Phong Nha"
         ],
-        "intent": "culture",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "culture|attraction"
       },
-      "answer_vi": "",
+      "answer_vi": "Hiện tại, thông tin trong CONTEXT không đề cập đến các trải nghiệm văn hóa hoặc di sản cụ thể tại Phong Nha, cũng như các hoạt động thư giãn liên quan. Do đó, tôi không thể cung cấp gợi ý cụ thể cho yêu cầu của bạn về trải nghiệm văn hóa và thư giãn tại Phong Nha.\n\nNếu bạn cần thêm thông tin hoặc có câu hỏi khác, hãy cho tôi biết! \n\nNguồn tham khảo: \n- [Cần Thơ: Phát triển sản phẩm du lịch văn hóa](https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.031258,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0004",
-          "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
-          "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
-          "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
-          "language": "vi",
-          "text_preview": "khá thú vị và có thể thu hút du khách”. Việc xây dựng sản phẩm du lịch văn hóa cần có quá trình nghiên cứu và đầu tư. Mỗi một địa phương, điểm đến, di tích, lễ hội... đều chứa đựng trong đó câu chuyện gắn liền những giá trị văn hóa khác biệt. Khi làm sản phẩm du lịch, không đơn giản chỉ là khai thác tiềm năng sẵn có mà còn là quá trình tìm hiểu, kể..."
-        },
-        {
-          "rank": 2,
-          "score": 0.030366,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8_chunk_0001",
-          "document_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8",
-          "document_title": "Huyện Vân Đồn (Quảng Ninh): Sôi động, đa sắc và giàu trải nghiệm",
-          "source_url": "https://2025.vietnam.travel/huyen-van-don-quang-ninh-soi-dong-da-sac-va-giau-trai-nghiem",
-          "language": "vi",
-          "text_preview": "– giải trí mùa hè hấp dẫn du khách mọi lứa tuổi. Năm 2025, du lịch Vân Đồn chứng kiến sự ra mắt của nhiều sản phẩm độc đáo, giàu trải nghiệm và đậm đà bản sắc văn hóa địa phương. Tiêu biểu là tour Trải nghiệm Làng văn hóa – du lịch dân tộc Sán Dìu tại xã Bình Dân. Du khách sẽ được hòa mình vào không gian văn hóa dân tộc Sán Dìu, thưởng thức ẩm thực..."
-        },
-        {
-          "rank": 3,
-          "score": 0.030303,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0000",
-          "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
-          "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
-          "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
-          "language": "vi",
-          "text_preview": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa Văn hóa bản địa là yếu tố quan trọng trong xây dựng sản phẩm du lịch đặc trưng của địa phương, tạo điểm nhấn thu hút du khách. Tại Cần Thơ, sản phẩm du lịch văn hóa đang được chú trọng đầu tư và xây dựng. Đền thờ Vua Hùng là điểm đến trong hành trình tour trải nghiệm du lịch văn hóa tại Cần Thơ. Ảnh: Kiề..."
-        },
-        {
-          "rank": 4,
-          "score": 0.03009,
+          "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
           "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0001",
           "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
@@ -972,15 +971,48 @@
           "text_preview": "ăn đám giỗ. Tại đây, du khách sẽ được trải nghiệm các lễ cúng giỗ và nề nếp sinh hoạt dân gian. Trong ngày này, con cháu khắp nơi sẽ tề tựu về cùng chuẩn bị các nghi thức, mâm quả cho ngày giỗ ông bà tổ tiên. Tham gia tour Đám giỗ bên cồn, bà Đỗ Thị Kim Chi, Giám đốc Công ty Du lịch Khám phá Mê Kông, nhìn nhận: “Đây là lần đầu tôi trải nghiệm đám g..."
         },
         {
-          "rank": 5,
-          "score": 0.028958,
+          "rank": 2,
+          "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0003",
+          "chunk_id": "c5868551ca171c19072d05832c45a77ce1287c1c5cbb59fb8969ac2037ae3ba1_chunk_0000",
+          "document_id": "c5868551ca171c19072d05832c45a77ce1287c1c5cbb59fb8969ac2037ae3ba1",
+          "document_title": "Vietnam's best outdoor activities",
+          "source_url": "https://vietnam.travel/things-to-do/vietnams-best-outdoor-activities",
+          "language": "en",
+          "text_preview": "Vietnam's best outdoor activities Take a walk on the wild side in Vietnam, a country overflowing with outdoor adventures. Go kitesurfing off the rugged coastline, scale mountains for spectacular views, or burrow inside the world’s largest caves -- so much awaits you in Vietnam’s wonderful outdoors. Here’s the “what, where, and how” on seven must-tr..."
+        },
+        {
+          "rank": 3,
+          "score": 0.016129,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "c3cf2016d93e7d45d104442bf81b3c6daf39c58ba38a906cbc84a80bd92e23e3_chunk_0005",
+          "document_id": "c3cf2016d93e7d45d104442bf81b3c6daf39c58ba38a906cbc84a80bd92e23e3",
+          "document_title": "Bắc Ninh - điểm đến du lịch hội tụ tinh hoa văn hoá",
+          "source_url": "https://2025.vietnam.travel/bac-ninh-diem-den-du-lich-hoi-tu-tinh-hoa-van-hoa",
+          "language": "vi",
+          "text_preview": "thành một điểm du lịch; Sản phẩm du lịch phát huy, khai thác từ giá trị các loại hình nghệ thuật dân gian truyền thống như: Múa Rối nước, hát Trống Quân, nghệ thuật Chèo, Tuồng...Xây dựng các chương trình biểu diễn định kỳ, có lịch biểu diễn, thời gian biểu diễn và giá bán cụ thể. Trên cơ sở đó liên kết với các công ty lữ hành để xây dựng tour du l..."
+        },
+        {
+          "rank": 4,
+          "score": 0.016129,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "f0544666695bfaf95aee7c3327203d56fc17f612039ecf1e12fcc535ba3e1e53_chunk_0000",
+          "document_id": "f0544666695bfaf95aee7c3327203d56fc17f612039ecf1e12fcc535ba3e1e53",
+          "document_title": "Halong Bay - Cat Ba inter-provincial World Heritage Site: Trending destination in Vietnam",
+          "source_url": "https://vietnam.travel/things-to-do/halong-bay-cat-ba-inter-provincial-world-heritage-site-trending-destination-vietnam-0",
+          "language": "en",
+          "text_preview": "Halong Bay - Cat Ba inter-provincial World Heritage Site: Trending destination in Vietnam After being recognized as an inter-provincial World Heritage Site by UNESCO, Halong Bay - Cat Ba Archipelago drew the attention of both domestic and international tourists. UNESCO Halong Bay - Cat Ba Archipelago Heritage Proudly announce that the first inter-p..."
+        },
+        {
+          "rank": 5,
+          "score": 0.015873,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0000",
           "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
           "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
           "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
           "language": "vi",
-          "text_preview": "Giám đốc Trung tâm Phát triển Du lịch TP Cần Thơ, cho biết: “Trong những năm qua, Sở Văn hóa, Thể thao và Du lịch, Trung tâm Phát triển Du lịch TP Cần Thơ thường xuyên tổ chức các chuyến khảo sát để tư vấn, xây dựng sản phẩm, đồng thời tạo điều kiện kết nối để các đơn vị lữ hành, doanh nghiệp xây dựng tuyến điểm mới. Từng đợt khảo sát đều có chuyên..."
+          "text_preview": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa Văn hóa bản địa là yếu tố quan trọng trong xây dựng sản phẩm du lịch đặc trưng của địa phương, tạo điểm nhấn thu hút du khách. Tại Cần Thơ, sản phẩm du lịch văn hóa đang được chú trọng đầu tư và xây dựng. Đền thờ Vua Hùng là điểm đến trong hành trình tour trải nghiệm du lịch văn hóa tại Cần Thơ. Ảnh: Kiề..."
         }
       ],
       "input_metadata": {
@@ -995,67 +1027,25 @@
     },
     {
       "query_id": "traveler_need_q_0013",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). | answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Ở Cần Thơ có nên thuê xe, đi taxi hay dùng phương tiện công cộng? Mình quan tâm đến trải nghiệm đáng tiền.",
-      "query_en": "Ở Cần Thơ có nên thuê xe, đi taxi hay dùng phương tiện công cộng? Mình quan tâm đến trải nghiệm đáng tiền.",
+      "query_en": "",
+      "retrieval_query": "Should I rent a car, take a taxi, or use public transport in Can Tho for a worthwhile experience?",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Ở Cần Thơ có nên thuê xe, đi taxi hay dùng phương tiện công cộng? Mình quan tâm đến trải nghiệm đáng tiền.",
+        "english_query": "Should I rent a car, take a taxi, or use public transport in Can Tho for a worthwhile experience?",
         "detected_locations": [
-          "Cần Thơ"
+          "Can Tho"
         ],
-        "intent": "transport",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "transportation|practical_tip"
       },
-      "answer_vi": "",
+      "answer_vi": "Hiện tại, dữ liệu trong CONTEXT không cung cấp thông tin cụ thể về phương tiện di chuyển tại Cần Thơ. Do đó, mình không thể đưa ra gợi ý chính xác về việc có nên thuê xe, đi taxi hay sử dụng phương tiện công cộng tại đây. \n\nNếu bạn cần thêm thông tin về Cần Thơ, hãy cho mình biết để mình có thể hỗ trợ tốt hơn! \n\nNguồn tham khảo: Không có.",
       "sources": [
         {
           "rank": 1,
-          "score": 0.030536,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b_chunk_0001",
-          "document_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b",
-          "document_title": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch",
-          "source_url": "https://2025.vietnam.travel/kien-giang-phu-quoc-day-manh-kich-cau-mo-rong-nguon-khach-du-lich",
-          "language": "vi",
-          "text_preview": "thu hút khách nội địa, nguồn khách quốc tế từ các thị trường gần cũng rất cần được chú trọng khai thác trong mùa thấp điểm. Phú Quốc cần nắm bắt cơ hội từ các chuyến bay thẳng từ nhiều quốc gia, mang đến sự thuận tiện đáng kể cho du khách từ các thị trường tiềm năng như Nhật Bản, Hàn Quốc, Đài Loan (Trung Quốc) hay các nước Đông Nam Á. “Việc triển..."
-        },
-        {
-          "rank": 2,
-          "score": 0.029958,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0003",
-          "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
-          "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
-          "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
-          "language": "vi",
-          "text_preview": "Giám đốc Trung tâm Phát triển Du lịch TP Cần Thơ, cho biết: “Trong những năm qua, Sở Văn hóa, Thể thao và Du lịch, Trung tâm Phát triển Du lịch TP Cần Thơ thường xuyên tổ chức các chuyến khảo sát để tư vấn, xây dựng sản phẩm, đồng thời tạo điều kiện kết nối để các đơn vị lữ hành, doanh nghiệp xây dựng tuyến điểm mới. Từng đợt khảo sát đều có chuyên..."
-        },
-        {
-          "rank": 3,
-          "score": 0.016393,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "51a0774eb711642349563a2e3bc36940d65122b784df91acd5cc0fc93b643537_chunk_0002",
-          "document_id": "51a0774eb711642349563a2e3bc36940d65122b784df91acd5cc0fc93b643537",
-          "document_title": "Inspired ideas for responsible travellers",
-          "source_url": "https://vietnam.travel/things-to-do/inspired-ideas-responsible-travellers",
-          "language": "en",
-          "text_preview": "Reaching Out Vietnam runs a teahouse and craft shop, with profits going to speech ability programs and educational drives to create a better life for disabled people in Central Vietnam. The shop is the perfect place to go for elegant tea sets, jewellery and Vietnamese teas. Textile lovers in Sapa can shop at Indigo Cat , where handmade products are..."
-        },
-        {
-          "rank": 4,
-          "score": 0.016393,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0000",
-          "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
-          "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
-          "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
-          "language": "vi",
-          "text_preview": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa Văn hóa bản địa là yếu tố quan trọng trong xây dựng sản phẩm du lịch đặc trưng của địa phương, tạo điểm nhấn thu hút du khách. Tại Cần Thơ, sản phẩm du lịch văn hóa đang được chú trọng đầu tư và xây dựng. Đền thờ Vua Hùng là điểm đến trong hành trình tour trải nghiệm du lịch văn hóa tại Cần Thơ. Ảnh: Kiề..."
-        },
-        {
-          "rank": 5,
-          "score": 0.016129,
+          "score": 0.032522,
           "retriever": "hybrid_bm25_dense_rrf",
           "chunk_id": "d3b0dcfc29b7ce60348489cd3bee3c669e563c131eba68a4070134874f6cfa6e_chunk_0001",
           "document_id": "d3b0dcfc29b7ce60348489cd3bee3c669e563c131eba68a4070134874f6cfa6e",
@@ -1063,6 +1053,50 @@
           "source_url": "https://vietnam.travel/places-to-go/northern-vietnam/ha-giang",
           "language": "en",
           "text_preview": "to the province, and approximately 300km from Hanoi. Buses run day and night from the capital, ranging from sleepers to smaller VIP mini-vans. Depending on the vehicle and driver, the journey there takes around six hours. Public transport around Ha Giang Province is limited. Experienced drivers can rent a motorcycle in town. Another option is to bo..."
+        },
+        {
+          "rank": 2,
+          "score": 0.029031,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "b3fd7efb387b2b7d9496cdbdb641b372a6835a4ec5317f8374760bb1cecc2e23_chunk_0003",
+          "document_id": "b3fd7efb387b2b7d9496cdbdb641b372a6835a4ec5317f8374760bb1cecc2e23",
+          "document_title": "Sapa for sustainable travellers",
+          "source_url": "https://vietnam.travel/things-to-do/sapa-itinerary-sustainable-travellers",
+          "language": "en",
+          "text_preview": "take about five to six hours, and will drop you off in Sapa town, where you can take a taxi to homestays and lodges in the surrounding valleys. Many travellers take the eight-hour night train (from 900,000 VND) from Hanoi to Lào Cai, where another hour-long ride is required to reach Sapa town. To hire a private car and driver from Hanoi to Sapa cos..."
+        },
+        {
+          "rank": 3,
+          "score": 0.016393,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "b3e0c1ee063af55519660474921f99b1ad009f1b9d725f706f85bc81b1b82636_chunk_0002",
+          "document_id": "b3e0c1ee063af55519660474921f99b1ad009f1b9d725f706f85bc81b1b82636",
+          "document_title": "Pu Luong for nature lovers",
+          "source_url": "https://vietnam.travel/things-to-do/pu-luong-nature-lovers",
+          "language": "en",
+          "text_preview": "options in Pu Luong. The good news is, each one is secluded and tranquil and you can take your pick from mountainside huts to stilted homes in the rice terraces. While there are also a handful of retreats, lodges and even treehouses on offer, homestays will give you a memorable experience deep in the serenity of the reserve. TIP: Even rural Vietnam..."
+        },
+        {
+          "rank": 4,
+          "score": 0.016129,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "a7d7302c584e64baccdf25206384e7e3724e0293286163397b616f5120edcd08_chunk_0002",
+          "document_id": "a7d7302c584e64baccdf25206384e7e3724e0293286163397b616f5120edcd08",
+          "document_title": "Experience Nha Trang like a local",
+          "source_url": "https://vietnam.travel/things-to-do/experience-nha-trang-like-a-local",
+          "language": "en",
+          "text_preview": "area. But day visitors are welcome, too. There are four bars and restaurants on-site. And the Ferris wheel? That’s at Vinpearl Land. You can get to the mega-amusement park via speedboat, canoe, or cable car. Kids will love the journey − and the many thrilling rides. SPEND TIME AT THE OCEANOGRAPHIC MUSEUM OF VIETNAM Since 1922, this museum has educa..."
+        },
+        {
+          "rank": 5,
+          "score": 0.015873,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "169db389f881b3fb17395db7b2f9a2a269a8891d2fb4a4e02ee52c404b1b445a_chunk_0001",
+          "document_id": "169db389f881b3fb17395db7b2f9a2a269a8891d2fb4a4e02ee52c404b1b445a",
+          "document_title": "Ha Long",
+          "source_url": "https://vietnam.travel/places-to-go/northern-vietnam/ha-long",
+          "language": "en",
+          "text_preview": "December to March making the bay look all the more mysterious. April and May offer sunshine and a refreshing breeze, while the monsoon season can make visits unpredictable from June to August. Most visitors to Ha Long Bay opt for a packaged cruise, including transport to and from Hanoi. Independent travellers can take a bus to Ha Long City or Hai P..."
         }
       ],
       "input_metadata": {
@@ -1077,67 +1111,69 @@
     },
     {
       "query_id": "traveler_need_q_0014",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). | answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Đi TP. Hồ Chí Minh buổi tối thì nên sắp xếp ăn uống thế nào cho tiện? Ưu tiên lựa chọn dễ đi cho người lần đầu.",
-      "query_en": "Đi TP. Hồ Chí Minh buổi tối thì nên sắp xếp ăn uống thế nào cho tiện? Ưu tiên lựa chọn dễ đi cho người lần đầu.",
+      "query_en": "",
+      "retrieval_query": "dining options in Ho Chi Minh City at night for first-time visitors",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Đi TP. Hồ Chí Minh buổi tối thì nên sắp xếp ăn uống thế nào cho tiện? Ưu tiên lựa chọn dễ đi cho người lần đầu.",
+        "english_query": "dining options in Ho Chi Minh City at night for first-time visitors",
         "detected_locations": [
-          "TP. Hồ Chí Minh"
+          "Ho Chi Minh City"
         ],
-        "intent": "food",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "cuisine|nightlife|practical_tip"
       },
-      "answer_vi": "",
+      "answer_vi": "Khi đến TP. Hồ Chí Minh vào buổi tối, bạn có thể sắp xếp ăn uống theo những gợi ý sau để thuận tiện, đặc biệt nếu đây là lần đầu bạn đến thành phố này:\n\n1. **Ăn vặt trên đường phố**: Bạn có thể thử các món ăn vặt nổi tiếng như bánh mì, bánh tráng trộn, hoặc hủ tiếu. Những món này thường có sẵn ở nhiều quán ăn vỉa hè và rất dễ tìm.\n\n2. **Nhà hàng hải sản và ốc**: Khu phố Vĩnh Khánh (Quận 4) là một địa điểm lý tưởng để thưởng thức hải sản và ốc vào buổi tối. Tại đây, bạn có thể chọn từ nhiều loại ốc và hải sản tươi sống, được chế biến theo nhiều cách khác nhau. Không khí nhộn nhịp và đông đúc sẽ mang lại trải nghiệm thú vị cho bạn.\n\n3. **Quán ăn ven kênh Nhiêu Lộc – Thị Nghè**: Đây là một khu vực phổ biến cho những ai muốn thưởng thức ẩm thực địa phương trong không gian thoáng đãng. Bạn có thể tìm thấy nhiều quán ăn phục vụ các món ăn đặc sản của thành phố.\n\nNhững gợi ý này sẽ giúp bạn có một trải nghiệm ẩm thực thú vị và dễ dàng trong chuyến đi của mình. \n\nNguồn tham khảo:\n- [Khám phá các món ăn ngon ở TP. Hồ Chí Minh](https://vietnam.travel/things-to-do/explore-delicious-dishes-ho-chi-minh-city)\n- [Ăn uống như người địa phương ở TP. Hồ Chí Minh](https://vietnam.travel/things-to-do/eating-local-hcmc)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.016393,
+          "score": 0.028992,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "974d472e49b984c586618ab3a05eeedd9ca8e71c0417f84949daf53dbf049e76_chunk_0003",
+          "chunk_id": "974d472e49b984c586618ab3a05eeedd9ca8e71c0417f84949daf53dbf049e76_chunk_0002",
           "document_id": "974d472e49b984c586618ab3a05eeedd9ca8e71c0417f84949daf53dbf049e76",
           "document_title": "Explore delicious dishes in Ho Chi Minh City",
           "source_url": "https://vietnam.travel/things-to-do/explore-delicious-dishes-ho-chi-minh-city",
           "language": "en",
-          "text_preview": "ginkgo, water chestnut, ginseng tonic, and braised chicken egg (like flan), chicken egg soaked in black tea, steamed papaya. Strolling along streets of District 1, 5 and 10, you can find your favourite sweet soup shop. If you want to enjoy sweet soup with Southern flavours, you can visit the sweet soup shop on Su Van Hanh street. Here, they serve 1..."
+          "text_preview": "City. A bowl of rice vermicelli with lots of meat and rolls, which looks fuller than in Hue. The broth has a sweet taste of sugar, reducing the strong smell of shrimp paste. Xôi (Sticky rice) You can have sticky rice by morning, noon, afternoon, evening and even late at night. Vendors selling sticky rice will offer you with both meat and sweet stic..."
         },
         {
           "rank": 2,
-          "score": 0.016393,
+          "score": 0.02886,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0001",
-          "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
-          "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
-          "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
-          "language": "vi",
-          "text_preview": "ăn đám giỗ. Tại đây, du khách sẽ được trải nghiệm các lễ cúng giỗ và nề nếp sinh hoạt dân gian. Trong ngày này, con cháu khắp nơi sẽ tề tựu về cùng chuẩn bị các nghi thức, mâm quả cho ngày giỗ ông bà tổ tiên. Tham gia tour Đám giỗ bên cồn, bà Đỗ Thị Kim Chi, Giám đốc Công ty Du lịch Khám phá Mê Kông, nhìn nhận: “Đây là lần đầu tôi trải nghiệm đám g..."
+          "chunk_id": "974d472e49b984c586618ab3a05eeedd9ca8e71c0417f84949daf53dbf049e76_chunk_0000",
+          "document_id": "974d472e49b984c586618ab3a05eeedd9ca8e71c0417f84949daf53dbf049e76",
+          "document_title": "Explore delicious dishes in Ho Chi Minh City",
+          "source_url": "https://vietnam.travel/things-to-do/explore-delicious-dishes-ho-chi-minh-city",
+          "language": "en",
+          "text_preview": "Explore delicious dishes in Ho Chi Minh City Ho Chi Minh City, the economic heart of Vietnam, boasts soaring skyscrapers that tower over charming French colonial structures and traditional pagodas. This high-octane city of commerce and culture will give you everything you want to, from world-class museums and Vietnam's most pulsating energy to frag..."
         },
         {
           "rank": 3,
-          "score": 0.016129,
+          "score": 0.028814,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "dd56758e462587a9d61579111e8ad268a19a42f3cb230de0659a03444457b528_chunk_0001",
-          "document_id": "dd56758e462587a9d61579111e8ad268a19a42f3cb230de0659a03444457b528",
-          "document_title": "Ho Chi Minh City",
-          "source_url": "https://vietnam.travel/places-to-go/southern-vietnam/ho-chi-minh-city",
+          "chunk_id": "6b41e7cff157218baed98e1b7e9ae6e8658b3995ba4a27317e574edccd481418_chunk_0001",
+          "document_id": "6b41e7cff157218baed98e1b7e9ae6e8658b3995ba4a27317e574edccd481418",
+          "document_title": "How to see HCMC like a local",
+          "source_url": "https://vietnam.travel/things-to-do/how-see-hcmc-local",
           "language": "en",
-          "text_preview": "tables across the city for incredible roadside feasts. Don't miss highlights such as bánh mì, southern-style savoury pancakes (bánh xèo) and broken rice (cơm tấm) . Ho Chi Minh City has consistent temperatures year-round, and the weather is generally warm. Heatwaves hit the city from April to May, welcoming the rainy season from May to November. Sl..."
+          "text_preview": "you’ve been in one of their late-night karaoke bars. Prepare (if you can) for an unusual experience. Karaoke bars in Ho Chi Minh City are private rooms where you have full control of what you sing. Sip sundowners by the river This should actually be a must-do for anybody who loves sunset cocktails with a view. Ho Chi Minh City is set along a river,..."
         },
         {
           "rank": 4,
-          "score": 0.016129,
+          "score": 0.027313,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "c3cf2016d93e7d45d104442bf81b3c6daf39c58ba38a906cbc84a80bd92e23e3_chunk_0006",
-          "document_id": "c3cf2016d93e7d45d104442bf81b3c6daf39c58ba38a906cbc84a80bd92e23e3",
-          "document_title": "Bắc Ninh - điểm đến du lịch hội tụ tinh hoa văn hoá",
-          "source_url": "https://2025.vietnam.travel/bac-ninh-diem-den-du-lich-hoi-tu-tinh-hoa-van-hoa",
-          "language": "vi",
-          "text_preview": "tượng văn hóa Quan họ (được làm bằng các chất liệu gốm, gỗ, đồng, mây tre, pha lê, thủy tinh, áo thun, quạt, nón quai thao...) Du lịch làng nghề, du lịch cộng đồng và dịch vụ nghỉ tại nhà dân (Homestay): Đề xuất xây dựng đề án phát triển du lịch cộng đồng tỉnh Bắc Ninh giai đoạn 2022-2030, trong đó ưu tiên phát triển tại 04 khu vực gắn với làng ngh..."
+          "chunk_id": "f6080d6568213623e8d662ca3b614d378ecdc5eeb6ccb783e7d35854cd2a7ca5_chunk_0000",
+          "document_id": "f6080d6568213623e8d662ca3b614d378ecdc5eeb6ccb783e7d35854cd2a7ca5",
+          "document_title": "Cities",
+          "source_url": "https://vietnam.travel/things-to-do/cities",
+          "language": "en",
+          "text_preview": "Cities changing cities While Vietnam’s countryside casts a serene spell, its cities have an appeal all their own. Get a taste of urban Vietnamese culture by spending a few days in Hanoi or Ho Chi Minh City. Here you’ll have world-class dining alongside cheap-as-chips street food, ancient pagodas next to five-star hotels, and glittering shopping mal..."
         },
         {
           "rank": 5,
-          "score": 0.015873,
+          "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
           "chunk_id": "eed78f2151e2f9864409849818dab44293302401ee58ebeee8c56b9bdd772d2f_chunk_0001",
           "document_id": "eed78f2151e2f9864409849818dab44293302401ee58ebeee8c56b9bdd772d2f",
@@ -1159,45 +1195,47 @@
     },
     {
       "query_id": "traveler_need_q_0015",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). | answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Mình muốn tiết kiệm chi phí, nên chọn trải nghiệm nào ở Sa Pa để không quá mệt? Mình thích chỗ có trải nghiệm địa phương.",
-      "query_en": "Mình muốn tiết kiệm chi phí, nên chọn trải nghiệm nào ở Sa Pa để không quá mệt? Mình thích chỗ có trải nghiệm địa phương.",
+      "query_en": "",
+      "retrieval_query": "affordable local experiences in Sa Pa that are not too tiring",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Mình muốn tiết kiệm chi phí, nên chọn trải nghiệm nào ở Sa Pa để không quá mệt? Mình thích chỗ có trải nghiệm địa phương.",
+        "english_query": "affordable local experiences in Sa Pa that are not too tiring",
         "detected_locations": [
           "Sa Pa"
         ],
-        "intent": "attraction",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "attraction"
       },
-      "answer_vi": "",
+      "answer_vi": "Hiện tại, thông tin trong CONTEXT không cung cấp chi tiết về các trải nghiệm cụ thể ở Sa Pa mà không quá mệt và tiết kiệm chi phí. Tuy nhiên, bạn có thể tham khảo một số hoạt động địa phương phổ biến tại Sa Pa như:\n\n1. **Tham quan chợ phiên**: Đây là nơi bạn có thể trải nghiệm văn hóa địa phương, ngắm nhìn trang phục truyền thống của các dân tộc thiểu số và mua sắm các sản phẩm địa phương.\n\n2. **Đi bộ ngắm cảnh**: Bạn có thể chọn những đoạn đường đi bộ ngắn để khám phá vẻ đẹp thiên nhiên của Sa Pa, như đi dạo quanh các thửa ruộng bậc thang hoặc tham quan các làng dân tộc gần đó.\n\n3. **Thưởng thức ẩm thực địa phương**: Hãy thử các món ăn đặc sản của Sa Pa tại các quán ăn địa phương, đây cũng là một cách tuyệt vời để trải nghiệm văn hóa mà không tốn quá nhiều sức lực.\n\nNếu bạn cần thêm thông tin cụ thể hơn về các hoạt động hoặc địa điểm, vui lòng cho biết! \n\nNguồn tham khảo:\n- [Vietnam In Depth](https://vietnam.travel/plan-your-trip/recommended-trip/vietnam-photo-lovers)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.029412,
+          "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8_chunk_0002",
-          "document_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8",
-          "document_title": "Huyện Vân Đồn (Quảng Ninh): Sôi động, đa sắc và giàu trải nghiệm",
-          "source_url": "https://2025.vietnam.travel/huyen-van-don-quang-ninh-soi-dong-da-sac-va-giau-trai-nghiem",
+          "chunk_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b_chunk_0001",
+          "document_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b",
+          "document_title": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch",
+          "source_url": "https://2025.vietnam.travel/kien-giang-phu-quoc-day-manh-kich-cau-mo-rong-nguon-khach-du-lich",
           "language": "vi",
-          "text_preview": "rộn ràng giữa những người tham gia khiến tôi cảm thấy như được sống chậm lại và hòa mình vào đời sống thực thụ của đảo. Không thể không nhắc đến chợ đêm nội khu Sonasea Vân Đồn Harbor City, nơi du khách có thể dạo bước trong không gian sầm uất, thưởng thức các món ẩm thực đường phố đặc sắc từ ba miền, mua sắm quà lưu niệm, đặc sản địa phương và tha..."
+          "text_preview": "thu hút khách nội địa, nguồn khách quốc tế từ các thị trường gần cũng rất cần được chú trọng khai thác trong mùa thấp điểm. Phú Quốc cần nắm bắt cơ hội từ các chuyến bay thẳng từ nhiều quốc gia, mang đến sự thuận tiện đáng kể cho du khách từ các thị trường tiềm năng như Nhật Bản, Hàn Quốc, Đài Loan (Trung Quốc) hay các nước Đông Nam Á. “Việc triển..."
         },
         {
           "rank": 2,
-          "score": 0.029052,
+          "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8_chunk_0001",
-          "document_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8",
-          "document_title": "Huyện Vân Đồn (Quảng Ninh): Sôi động, đa sắc và giàu trải nghiệm",
-          "source_url": "https://2025.vietnam.travel/huyen-van-don-quang-ninh-soi-dong-da-sac-va-giau-trai-nghiem",
-          "language": "vi",
-          "text_preview": "– giải trí mùa hè hấp dẫn du khách mọi lứa tuổi. Năm 2025, du lịch Vân Đồn chứng kiến sự ra mắt của nhiều sản phẩm độc đáo, giàu trải nghiệm và đậm đà bản sắc văn hóa địa phương. Tiêu biểu là tour Trải nghiệm Làng văn hóa – du lịch dân tộc Sán Dìu tại xã Bình Dân. Du khách sẽ được hòa mình vào không gian văn hóa dân tộc Sán Dìu, thưởng thức ẩm thực..."
+          "chunk_id": "0380ffadb2d622ba87a491bfb779b9e4729963bd13bed069ce7938cb872f0cd5_chunk_0001",
+          "document_id": "0380ffadb2d622ba87a491bfb779b9e4729963bd13bed069ce7938cb872f0cd5",
+          "document_title": "Vietnam In Depth",
+          "source_url": "https://vietnam.travel/plan-your-trip/recommended-trip/vietnam-photo-lovers",
+          "language": "en",
+          "text_preview": "one Transfer to the Hanoi Railway Station for the overnight train to Lao Cai Overnight on train DAY 3 Lao Cai – Weekly ethnic market – Sa Pa Arrive at Lao Cai Railway Station in the early morning. Take a drive along the winding mountainous road to visit a weekly ethnic market where Flower H’mong, Dzao, Tay and other ethnic people come from surround..."
         },
         {
           "rank": 3,
-          "score": 0.016393,
+          "score": 0.016129,
           "retriever": "hybrid_bm25_dense_rrf",
           "chunk_id": "a7d7302c584e64baccdf25206384e7e3724e0293286163397b616f5120edcd08_chunk_0002",
           "document_id": "a7d7302c584e64baccdf25206384e7e3724e0293286163397b616f5120edcd08",
@@ -1210,23 +1248,23 @@
           "rank": 4,
           "score": 0.016129,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "2692203d4c9ced6f5fc266237381e4d74f6d8914c75d522797abaf928b9b2238_chunk_0002",
-          "document_id": "2692203d4c9ced6f5fc266237381e4d74f6d8914c75d522797abaf928b9b2238",
-          "document_title": "Thái Nguyên: City tour - sản phẩm du lịch mới nơi 'đất thép - xứ trà'",
-          "source_url": "https://2025.vietnam.travel/thai-nguyen-city-tour-san-pham-du-lich-moi-noi-dat-thep-xu-tra",
-          "language": "vi",
-          "text_preview": "Tour – một hành trình ngắn nhưng mang lại cho tôi và các thành viên trong đoàn đầy ắp cảm xúc. Nếu có dịp trở lại Thái Nguyên, chúng tôi sẽ đặt City tour để trải nghiệm, khám phá. Có thể là hành trình 1⁄2 ngày hoặc 1 ngày trọn vẹn. Tùy thuộc vào thời gian lưu trú và nhu cầu trải nghiệm của các thành viên đoàn. Du khách tham quan Khu di tích lịch sử..."
+          "chunk_id": "0380ffadb2d622ba87a491bfb779b9e4729963bd13bed069ce7938cb872f0cd5_chunk_0000",
+          "document_id": "0380ffadb2d622ba87a491bfb779b9e4729963bd13bed069ce7938cb872f0cd5",
+          "document_title": "Vietnam In Depth",
+          "source_url": "https://vietnam.travel/plan-your-trip/recommended-trip/vietnam-photo-lovers",
+          "language": "en",
+          "text_preview": "Vietnam In Depth Route HIGHLIGHTS Day 1: Hanoi Arrival Day 2: Hanoi city’s highlights – Lao Cai Day 3: Lao Cai – Weekly ethnic market – Sa Pa Day 4: Sa Pa Day 5: Sa Pa – Hanoi Day 6: Hanoi – Ha Long Bay Day 7: Ha Long Bay – Da Nang – Hoi An Day 8: Hoi An Day 9: Hoi An – Hue Day 10: Hue Day 11: Hue – Ho Chi Minh City Day 12: Cu Chi Tunnels & Ho Chi..."
         },
         {
           "rank": 5,
-          "score": 0.016129,
+          "score": 0.015873,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0004",
-          "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
-          "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
-          "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
-          "language": "vi",
-          "text_preview": "khá thú vị và có thể thu hút du khách”. Việc xây dựng sản phẩm du lịch văn hóa cần có quá trình nghiên cứu và đầu tư. Mỗi một địa phương, điểm đến, di tích, lễ hội... đều chứa đựng trong đó câu chuyện gắn liền những giá trị văn hóa khác biệt. Khi làm sản phẩm du lịch, không đơn giản chỉ là khai thác tiềm năng sẵn có mà còn là quá trình tìm hiểu, kể..."
+          "chunk_id": "d1f9e332ae6e04243a6c0dfde5eccdcb03693866e7ebf519af6b81b9eaea920e_chunk_0002",
+          "document_id": "d1f9e332ae6e04243a6c0dfde5eccdcb03693866e7ebf519af6b81b9eaea920e",
+          "document_title": "Roadside adventures in Ha Giang",
+          "source_url": "https://vietnam.travel/things-to-do/ha-giang-adventures",
+          "language": "en",
+          "text_preview": "north. TIP: Ask your tour guide or homestay hosts about the schedule of the local markets and the best times to visit, as timetables can be difficult to pinpoint. Sustainable souvenirs in Lùng Tám Lùng Tám Linen Co-op is a social enterprise run by the ethnic Flower H’mong, located in the foothills of Quản Bạ District. Pay a visit to the workshop to..."
         }
       ],
       "input_metadata": {
@@ -1241,23 +1279,37 @@
     },
     {
       "query_id": "traveler_need_q_0016",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). | answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Phú Yên phù hợp hơn cho đi cùng người lớn tuổi hay Đà Nẵng? Nếu có lưu ý cần tránh thì nói rõ giúp mình.",
-      "query_en": "Phú Yên phù hợp hơn cho đi cùng người lớn tuổi hay Đà Nẵng? Nếu có lưu ý cần tránh thì nói rõ giúp mình.",
+      "query_en": "",
+      "retrieval_query": "Is Phu Yen better for elderly travelers than Da Nang? Any tips to avoid?",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Phú Yên phù hợp hơn cho đi cùng người lớn tuổi hay Đà Nẵng? Nếu có lưu ý cần tránh thì nói rõ giúp mình.",
+        "english_query": "Is Phu Yen better for elderly travelers than Da Nang? Any tips to avoid?",
         "detected_locations": [
-          "Phú Yên"
+          "Phu Yen",
+          "Da Nang"
         ],
-        "intent": "comparison",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "comparison|practical_tip"
       },
-      "answer_vi": "",
+      "answer_vi": "Dựa trên thông tin hiện có, Phú Yên có thể là một lựa chọn tốt cho du khách lớn tuổi, nhờ vào cảnh quan thiên nhiên yên bình, bãi biển đẹp và không khí trong lành. Tuy nhiên, Đà Nẵng cũng là một điểm đến phổ biến với nhiều tiện nghi và dịch vụ phục vụ du khách, bao gồm các hoạt động giải trí và tham quan dễ dàng tiếp cận.\n\nMột số lưu ý khi đi du lịch cùng người lớn tuổi tại Phú Yên:\n1. **Tránh mùa bão**: Nên tránh đi vào mùa bão từ tháng 9 đến tháng 12, vì thời tiết có thể không thuận lợi cho việc tham quan.\n2. **Di chuyển**: Phú Yên có Tuy Hòa Airport gần trung tâm thành phố, thuận tiện cho việc di chuyển. Nếu đi bằng tàu, cảnh sắc trên đường đi cũng rất đẹp, nhưng có thể mất thời gian hơn.\n3. **Hoạt động nhẹ nhàng**: Nên chọn những hoạt động nhẹ nhàng như đi dạo trên bãi biển hoặc tham quan các điểm du lịch gần gũi với thiên nhiên, tránh những hoạt động thể thao mạo hiểm.\n\nTóm lại, cả Phú Yên và Đà Nẵng đều có những ưu điểm riêng, nhưng Phú Yên có thể mang lại trải nghiệm yên bình hơn cho người lớn tuổi. Tuy nhiên, thông tin về Đà Nẵng không được đề cập trong context, vì vậy bạn nên tìm hiểu thêm về các hoạt động và dịch vụ tại đó.\n\nNguồn tham khảo:\n- [Phú Yên](https://vietnam.travel/places-to-go/central-vietnam/phu-yen)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.032787,
+          "score": 0.032522,
+          "retriever": "hybrid_bm25_dense_rrf",
+          "chunk_id": "6256674b387b32bee88a8444ec51e7c2c25d9861be9d2d2696f84493c436a974_chunk_0001",
+          "document_id": "6256674b387b32bee88a8444ec51e7c2c25d9861be9d2d2696f84493c436a974",
+          "document_title": "Phu Yen",
+          "source_url": "https://vietnam.travel/places-to-go/central-vietnam/phu-yen",
+          "language": "en",
+          "text_preview": "Yen is a beach-front land with the typical features of tropical weather, so you can visit this land of yellow flowers at any time. Avoid the storm season which takes place from September to December every year. Tuy Hoa Airport is only 10 km away from the city centre and there are several flights from major cities like Ha Noi and Ho Chi Minh City to..."
+        },
+        {
+          "rank": 2,
+          "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
           "chunk_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b_chunk_0002",
           "document_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b",
@@ -1267,48 +1319,37 @@
           "text_preview": "nước ngoài thích thú khi trải nghiệm tour đi bộ ngắm san hô tại Phú Quốc Ông Doãn Minh Tuấn – Giám đốc kinh doanh hệ thống Ngọc Hiền Phú Quốc cho rằng điều quan trọng là Phú Quốc phải gia tăng trải nghiệm và sản phẩm để giữ chân du khách lâu hơn: “Khách nước ngoài thường lưu trú dài ngày tại Phú Quốc, vậy nên cần thêm những điểm vui chơi, khám phá..."
         },
         {
-          "rank": 2,
-          "score": 0.031754,
-          "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b_chunk_0001",
-          "document_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b",
-          "document_title": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch",
-          "source_url": "https://2025.vietnam.travel/kien-giang-phu-quoc-day-manh-kich-cau-mo-rong-nguon-khach-du-lich",
-          "language": "vi",
-          "text_preview": "thu hút khách nội địa, nguồn khách quốc tế từ các thị trường gần cũng rất cần được chú trọng khai thác trong mùa thấp điểm. Phú Quốc cần nắm bắt cơ hội từ các chuyến bay thẳng từ nhiều quốc gia, mang đến sự thuận tiện đáng kể cho du khách từ các thị trường tiềm năng như Nhật Bản, Hàn Quốc, Đài Loan (Trung Quốc) hay các nước Đông Nam Á. “Việc triển..."
-        },
-        {
           "rank": 3,
-          "score": 0.030331,
+          "score": 0.016129,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b_chunk_0000",
-          "document_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b",
-          "document_title": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch",
-          "source_url": "https://2025.vietnam.travel/kien-giang-phu-quoc-day-manh-kich-cau-mo-rong-nguon-khach-du-lich",
-          "language": "vi",
-          "text_preview": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch Các chương trình du lịch hè tại Phú Quốc (Kiên Giang) hứa hẹn mang đến cho du khách những gói sản phẩm trải nghiệm thú vị và khác biệt, không chỉ thu hút khách trong nước mà còn chào đón du khách quốc tế khám phá vẻ đẹp của đảo Ngọc. Theo Trung tâm Xúc tiến Đầu tư, Thương mại và Du..."
+          "chunk_id": "6256674b387b32bee88a8444ec51e7c2c25d9861be9d2d2696f84493c436a974_chunk_0000",
+          "document_id": "6256674b387b32bee88a8444ec51e7c2c25d9861be9d2d2696f84493c436a974",
+          "document_title": "Phu Yen",
+          "source_url": "https://vietnam.travel/places-to-go/central-vietnam/phu-yen",
+          "language": "en",
+          "text_preview": "Phu Yen Phu Yen, dubbed the land of the rising sun, is Vietnam's easternmost province. Perched enchanting geography, fabulous culinary delights, and an abundance of thrilling activities. Plus, a quiet beach with romantic scenery, isolated islands and marvellous stone cliffs, Phu Yen is truly a precious gem in Central Vietnam. Top things to do in Ph..."
         },
         {
           "rank": 4,
-          "score": 0.030159,
+          "score": 0.015873,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8_chunk_0001",
-          "document_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8",
-          "document_title": "Huyện Vân Đồn (Quảng Ninh): Sôi động, đa sắc và giàu trải nghiệm",
-          "source_url": "https://2025.vietnam.travel/huyen-van-don-quang-ninh-soi-dong-da-sac-va-giau-trai-nghiem",
+          "chunk_id": "4a4c843b64bb9c774ab2c24cf8c867eddd4ad7de74bb1494b530af1d581d122b_chunk_0000",
+          "document_id": "4a4c843b64bb9c774ab2c24cf8c867eddd4ad7de74bb1494b530af1d581d122b",
+          "document_title": "Du lịch Quảng Ngãi sẵn sàng đón khách dịp lễ 30/4 - 01/5",
+          "source_url": "https://2025.vietnam.travel/du-lich-quang-ngai-san-sang-don-khach-dip-le-30-4-01-5",
           "language": "vi",
-          "text_preview": "– giải trí mùa hè hấp dẫn du khách mọi lứa tuổi. Năm 2025, du lịch Vân Đồn chứng kiến sự ra mắt của nhiều sản phẩm độc đáo, giàu trải nghiệm và đậm đà bản sắc văn hóa địa phương. Tiêu biểu là tour Trải nghiệm Làng văn hóa – du lịch dân tộc Sán Dìu tại xã Bình Dân. Du khách sẽ được hòa mình vào không gian văn hóa dân tộc Sán Dìu, thưởng thức ẩm thực..."
+          "text_preview": "Du lịch Quảng Ngãi sẵn sàng đón khách dịp lễ 30/4 - 01/5 Kỳ nghỉ lễ 30/4 – 01/5 năm nay kéo dài 5 ngày, tạo điều kiện lý tưởng cho du khách đi tham quan, du lịch, nghỉ dưỡng. Quảng Ngãi nâng cao chất lượng phục vụ và mang đến cho du khách những trải nghiệm trọn vẹn, an toàn Hiện các khu, điểm du lịch và cơ sở lưu trú trên địa bàn tỉnh Quảng Ngãi đa..."
         },
         {
           "rank": 5,
-          "score": 0.029877,
+          "score": 0.015873,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8_chunk_0002",
-          "document_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8",
-          "document_title": "Huyện Vân Đồn (Quảng Ninh): Sôi động, đa sắc và giàu trải nghiệm",
-          "source_url": "https://2025.vietnam.travel/huyen-van-don-quang-ninh-soi-dong-da-sac-va-giau-trai-nghiem",
-          "language": "vi",
-          "text_preview": "rộn ràng giữa những người tham gia khiến tôi cảm thấy như được sống chậm lại và hòa mình vào đời sống thực thụ của đảo. Không thể không nhắc đến chợ đêm nội khu Sonasea Vân Đồn Harbor City, nơi du khách có thể dạo bước trong không gian sầm uất, thưởng thức các món ẩm thực đường phố đặc sắc từ ba miền, mua sắm quà lưu niệm, đặc sản địa phương và tha..."
+          "chunk_id": "71ae10881456e34b8ffddd131e109070e21ee97303fe2ab7adad2f2e3599a251_chunk_0000",
+          "document_id": "71ae10881456e34b8ffddd131e109070e21ee97303fe2ab7adad2f2e3599a251",
+          "document_title": "Vietnam’s New Provincial System: 34 Names You Should Know",
+          "source_url": "https://vietnam.travel/things-to-do/vietnam’s-new-provincial-system-34-names-you-should-know",
+          "language": "en",
+          "text_preview": "Vietnam’s New Provincial System: 34 Names You Should Know Pursuant to the Resolution passed by the 15th National Assembly during its 9th session on 12 th June 2025, Vietnam officially has 34 provincial-level administrative units , comprising 28 provinces and 6 centrally governed cities . 23 Newly Formed Provinces and Cities: - Lao Cai Province : Af..."
         }
       ],
       "input_metadata": {
@@ -1323,67 +1364,69 @@
     },
     {
       "query_id": "traveler_need_q_0017",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). | answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Có chỗ nào ở Phú Quốc ngắm cảnh đêm đẹp không?",
-      "query_en": "Có chỗ nào ở Phú Quốc ngắm cảnh đêm đẹp không?",
+      "query_en": "",
+      "retrieval_query": "best night view spots in Phu Quoc",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Có chỗ nào ở Phú Quốc ngắm cảnh đêm đẹp không?",
+        "english_query": "best night view spots in Phu Quoc",
         "detected_locations": [
-          "Phú Quốc"
+          "Phu Quoc"
         ],
-        "intent": "nightlife",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "attraction|nightlife"
       },
-      "answer_vi": "",
+      "answer_vi": "Phú Quốc có nhiều địa điểm thú vị để ngắm cảnh đêm. Một trong những nơi nổi bật là chợ đêm Phú Quốc, nơi bạn có thể thưởng thức ẩm thực địa phương và mua sắm các món quà lưu niệm. Không khí ở đây rất sôi động và đầy màu sắc, mang đến trải nghiệm thú vị cho du khách.\n\nNgoài ra, bạn cũng có thể ghé thăm các quán bar ven biển như Sailing Club, nơi không chỉ có đồ uống ngon mà còn có các chương trình giải trí như nhạc sống và biểu diễn lửa vào buổi tối. Đây là một địa điểm lý tưởng để thư giãn và ngắm hoàng hôn trước khi trời tối.\n\nNếu bạn muốn có một trải nghiệm độc đáo hơn, hãy thử tham gia câu mực vào ban đêm. Đây là một hoạt động thú vị và mang lại cho bạn cơ hội trải nghiệm văn hóa địa phương.\n\nTuy nhiên, thông tin cụ thể về các địa điểm ngắm cảnh đêm đẹp nhất ở Phú Quốc vẫn chưa đủ trong dữ liệu hiện tại. \n\nNguồn tham khảo:\n- [Phú Quốc: Một điểm đến thư giãn](https://vietnam.travel/things-to-do/phu-quoc-island-laid-back-leisure-getaway)\n- [Ngắm hoàng hôn ở Phú Quốc](https://vietnam.travel/things-to-do/sunset-in-phu-quoc)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.032018,
+          "score": 0.02901,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b_chunk_0001",
-          "document_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b",
-          "document_title": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch",
-          "source_url": "https://2025.vietnam.travel/kien-giang-phu-quoc-day-manh-kich-cau-mo-rong-nguon-khach-du-lich",
-          "language": "vi",
-          "text_preview": "thu hút khách nội địa, nguồn khách quốc tế từ các thị trường gần cũng rất cần được chú trọng khai thác trong mùa thấp điểm. Phú Quốc cần nắm bắt cơ hội từ các chuyến bay thẳng từ nhiều quốc gia, mang đến sự thuận tiện đáng kể cho du khách từ các thị trường tiềm năng như Nhật Bản, Hàn Quốc, Đài Loan (Trung Quốc) hay các nước Đông Nam Á. “Việc triển..."
+          "chunk_id": "f14b22c1f6b7db799098d8ba7223ca9444ba115f82b30a48a3ab32fe8c958bea_chunk_0002",
+          "document_id": "f14b22c1f6b7db799098d8ba7223ca9444ba115f82b30a48a3ab32fe8c958bea",
+          "document_title": "Phu Quoc Island: A Laid back, Leisure Getaway",
+          "source_url": "https://vietnam.travel/things-to-do/phu-quoc-island-laid-back-leisure-getaway",
+          "language": "en",
+          "text_preview": "after (having swum, hiked, snorkeled and biked), Phu Quoc provides an abundance of options. You can find some of the most notable roof-top and beachview bars and pubs here. For a more cerebral experience, Phu Quoc also offers a few museum options. Phu Quoc Prison (Coconut Tree Prison) was built by the French in 1948, it’s now an historical site and..."
         },
         {
           "rank": 2,
-          "score": 0.030769,
+          "score": 0.028372,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8_chunk_0002",
-          "document_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8",
-          "document_title": "Huyện Vân Đồn (Quảng Ninh): Sôi động, đa sắc và giàu trải nghiệm",
-          "source_url": "https://2025.vietnam.travel/huyen-van-don-quang-ninh-soi-dong-da-sac-va-giau-trai-nghiem",
-          "language": "vi",
-          "text_preview": "rộn ràng giữa những người tham gia khiến tôi cảm thấy như được sống chậm lại và hòa mình vào đời sống thực thụ của đảo. Không thể không nhắc đến chợ đêm nội khu Sonasea Vân Đồn Harbor City, nơi du khách có thể dạo bước trong không gian sầm uất, thưởng thức các món ẩm thực đường phố đặc sắc từ ba miền, mua sắm quà lưu niệm, đặc sản địa phương và tha..."
+          "chunk_id": "9e61bf0dbc9cc953c292bc99175e16f5d3e6b3f8bb082aac8248496f81cade44_chunk_0002",
+          "document_id": "9e61bf0dbc9cc953c292bc99175e16f5d3e6b3f8bb082aac8248496f81cade44",
+          "document_title": "Beachy, beautiful Phu Quoc",
+          "source_url": "https://vietnam.travel/things-to-do/beachy-beautiful-phu-quoc",
+          "language": "en",
+          "text_preview": "Five-star resorts If you’re the type that enjoys a touch of luxury on your vacations, Phu Quoc will give you ample opportunity to indulge. Award-winning resorts have claimed gorgeous corners of the island, and there’s a fabulous variety of options to choose from, from the university-themed JW Marriott Phu Quoc , to the nature-embracing bungalows at..."
         },
         {
           "rank": 3,
-          "score": 0.029828,
+          "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b_chunk_0000",
-          "document_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b",
-          "document_title": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch",
-          "source_url": "https://2025.vietnam.travel/kien-giang-phu-quoc-day-manh-kich-cau-mo-rong-nguon-khach-du-lich",
-          "language": "vi",
-          "text_preview": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch Các chương trình du lịch hè tại Phú Quốc (Kiên Giang) hứa hẹn mang đến cho du khách những gói sản phẩm trải nghiệm thú vị và khác biệt, không chỉ thu hút khách trong nước mà còn chào đón du khách quốc tế khám phá vẻ đẹp của đảo Ngọc. Theo Trung tâm Xúc tiến Đầu tư, Thương mại và Du..."
+          "chunk_id": "4f1d37cc909fc54dc78c44b0f87340575bf12ab67b422ed3c8f8e3a8a5ed993b_chunk_0000",
+          "document_id": "4f1d37cc909fc54dc78c44b0f87340575bf12ab67b422ed3c8f8e3a8a5ed993b",
+          "document_title": "Sunset in Phu Quoc",
+          "source_url": "https://vietnam.travel/things-to-do/sunset-in-phu-quoc",
+          "language": "en",
+          "text_preview": "Sunset in Phu Quoc Phu Quoc is a long, heart-shaped island with a 20-kilometer beach aptly named “Long Beach” trailing up its western coast. This particular geography has made Long Beach the most popular sunset destination on the island, and with good reason. The beach strip is backed by cool cafes and bars that often host DJs or live bands, and go..."
         },
         {
           "rank": 4,
-          "score": 0.028446,
+          "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b_chunk_0002",
-          "document_id": "1fabbec1bed0b9cf26f131f20c08e73eef1c183d70b62952c3fa9983b8bd831b",
-          "document_title": "Kiên Giang: Phú Quốc đẩy mạnh kích cầu, mở rộng nguồn khách du lịch",
-          "source_url": "https://2025.vietnam.travel/kien-giang-phu-quoc-day-manh-kich-cau-mo-rong-nguon-khach-du-lich",
-          "language": "vi",
-          "text_preview": "nước ngoài thích thú khi trải nghiệm tour đi bộ ngắm san hô tại Phú Quốc Ông Doãn Minh Tuấn – Giám đốc kinh doanh hệ thống Ngọc Hiền Phú Quốc cho rằng điều quan trọng là Phú Quốc phải gia tăng trải nghiệm và sản phẩm để giữ chân du khách lâu hơn: “Khách nước ngoài thường lưu trú dài ngày tại Phú Quốc, vậy nên cần thêm những điểm vui chơi, khám phá..."
+          "chunk_id": "f14b22c1f6b7db799098d8ba7223ca9444ba115f82b30a48a3ab32fe8c958bea_chunk_0001",
+          "document_id": "f14b22c1f6b7db799098d8ba7223ca9444ba115f82b30a48a3ab32fe8c958bea",
+          "document_title": "Phu Quoc Island: A Laid back, Leisure Getaway",
+          "source_url": "https://vietnam.travel/things-to-do/phu-quoc-island-laid-back-leisure-getaway",
+          "language": "en",
+          "text_preview": "ancient seafaring practices in action. From sea to air: Phu Quoc Island also offers the world’s longest aerial cable car. The ride takes fifteen minutes and overlooks the turquoise gulf, numerous islets and the lush green canopy of the island itself. Travelers are deposited on Hon Thom Island (Pineapple Island), where you’ll find a nature reserve,..."
         },
         {
           "rank": 5,
-          "score": 0.016393,
+          "score": 0.016129,
           "retriever": "hybrid_bm25_dense_rrf",
           "chunk_id": "4f1d37cc909fc54dc78c44b0f87340575bf12ab67b422ed3c8f8e3a8a5ed993b_chunk_0002",
           "document_id": "4f1d37cc909fc54dc78c44b0f87340575bf12ab67b422ed3c8f8e3a8a5ed993b",
@@ -1405,74 +1448,74 @@
     },
     {
       "query_id": "traveler_need_q_0018",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). | answer_error: Unauthorized",
+      "status": "success",
+      "error": null,
       "question_vi": "ẩm thực truyền thống có ý nghĩa văn hóa/lịch sử gì đáng chú ý? Mình quan tâm đến trải nghiệm đáng tiền.",
-      "query_en": "ẩm thực truyền thống có ý nghĩa văn hóa/lịch sử gì đáng chú ý? Mình quan tâm đến trải nghiệm đáng tiền.",
+      "query_en": "",
+      "retrieval_query": "significance of traditional cuisine in culture and history, valuable experiences",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "ẩm thực truyền thống có ý nghĩa văn hóa/lịch sử gì đáng chú ý? Mình quan tâm đến trải nghiệm đáng tiền.",
-        "detected_locations": [
-          "Đà Nẵng"
-        ],
-        "intent": "culture",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "english_query": "significance of traditional cuisine in culture and history, valuable experiences",
+        "detected_locations": [],
+        "intent": "culture|cuisine"
       },
-      "answer_vi": "",
+      "answer_vi": "Ẩm thực truyền thống của Việt Nam không chỉ đơn thuần là những món ăn ngon mà còn mang trong mình ý nghĩa văn hóa và lịch sử sâu sắc. Một số món ăn tiêu biểu như Bún chả, Mì Quảng, và Bún bò Huế không chỉ thể hiện sự phong phú của nguyên liệu mà còn phản ánh văn hóa ẩm thực của từng vùng miền.\n\n1. **Bún chả**: Món ăn này là biểu tượng của văn hóa ẩm thực đường phố Hà Nội, mang lại trải nghiệm ẩm thực cộng đồng. Bún chả thường được thưởng thức cùng với nem cua bể, tạo nên sự kết hợp hoàn hảo.\n\n2. **Mì Quảng**: Xuất phát từ miền Trung, mì Quảng không chỉ là một món ăn mà còn là một phần của di sản văn hóa ẩm thực Việt Nam. Món ăn này thường được chế biến với nhiều loại thịt và rau sống, thể hiện sự đa dạng và sáng tạo trong ẩm thực.\n\n3. **Bún bò Huế**: Là món ăn nổi tiếng của thành phố Huế, Bún bò Huế không chỉ mang hương vị đậm đà mà còn gắn liền với lịch sử của triều đại Nguyễn. Món ăn này thường được chế biến từ nước dùng xương bò và các loại gia vị đặc trưng, tạo nên hương vị phong phú và phức tạp.\n\nNgoài ra, ẩm thực Việt Nam còn có những món như xôi ngũ sắc, mang ý nghĩa biểu tượng cho sự hòa hợp và may mắn, thường được chuẩn bị trong các dịp lễ hội.\n\nNếu bạn muốn trải nghiệm ẩm thực truyền thống một cách sâu sắc, hãy thử tìm đến những quán ăn địa phương hoặc tham gia các tour ẩm thực để có cơ hội thưởng thức những món ăn đặc trưng và tìm hiểu thêm về văn hóa ẩm thực của từng vùng miền.\n\nNguồn tham khảo:\n- [Must-try noodles in Vietnam](https://vietnam.travel/things-to-do/must-try-noodles-vietnam)\n- [Five-colour sticky rice, the quintessence of Vietnamese cuisine](https://vietnam.travel/things-to-do/five-colour-sticky-rice-quintessence-vietnamese-cuisine)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.029828,
+          "score": 0.027425,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0000",
-          "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
-          "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
-          "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
-          "language": "vi",
-          "text_preview": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa Văn hóa bản địa là yếu tố quan trọng trong xây dựng sản phẩm du lịch đặc trưng của địa phương, tạo điểm nhấn thu hút du khách. Tại Cần Thơ, sản phẩm du lịch văn hóa đang được chú trọng đầu tư và xây dựng. Đền thờ Vua Hùng là điểm đến trong hành trình tour trải nghiệm du lịch văn hóa tại Cần Thơ. Ảnh: Kiề..."
+          "chunk_id": "1e53d2d5fc4c065024612262c703ab391e5cfccc30191a826eb7c34d3d039e99_chunk_0001",
+          "document_id": "1e53d2d5fc4c065024612262c703ab391e5cfccc30191a826eb7c34d3d039e99",
+          "document_title": "Must-try noodles in Vietnam",
+          "source_url": "https://vietnam.travel/things-to-do/must-try-noodles-vietnam",
+          "language": "en",
+          "text_preview": "for both locals and international visitors looking for an authentic Vietnamese dining experience. Bún chả holds cultural significance as a symbol of Ha Noi's vibrant street food culture and the spirit of communal dining in Vietnam. Visitors can enjoy Bún chả with Crab spring rolls (Nem cua bể) - a perfect accompaniment to bún chả, will be a great e..."
         },
         {
           "rank": 2,
-          "score": 0.029211,
+          "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8_chunk_0001",
-          "document_id": "57919d86eed6e85b19531efa4954be2826b4d468a04d938108d9fd8d07d167d8",
-          "document_title": "Huyện Vân Đồn (Quảng Ninh): Sôi động, đa sắc và giàu trải nghiệm",
-          "source_url": "https://2025.vietnam.travel/huyen-van-don-quang-ninh-soi-dong-da-sac-va-giau-trai-nghiem",
-          "language": "vi",
-          "text_preview": "– giải trí mùa hè hấp dẫn du khách mọi lứa tuổi. Năm 2025, du lịch Vân Đồn chứng kiến sự ra mắt của nhiều sản phẩm độc đáo, giàu trải nghiệm và đậm đà bản sắc văn hóa địa phương. Tiêu biểu là tour Trải nghiệm Làng văn hóa – du lịch dân tộc Sán Dìu tại xã Bình Dân. Du khách sẽ được hòa mình vào không gian văn hóa dân tộc Sán Dìu, thưởng thức ẩm thực..."
+          "chunk_id": "6ddbc5075c28714f846702607ca5974e83437cd348acae21fa0791a2ffd3acc7_chunk_0001",
+          "document_id": "6ddbc5075c28714f846702607ca5974e83437cd348acae21fa0791a2ffd3acc7",
+          "document_title": "Family Meal: A precious “pause” in the flow of contemporary cuisine",
+          "source_url": "https://vietnam.travel/things-to-do/family-meal-precious-“pause”-flow-contemporary-cuisine",
+          "language": "en",
+          "text_preview": "meals remains - what is uncertain is whether we still have the time and space to protect it. Vietnamese Family Meal on a Wooden Tray – where memories resurface in modern life In the dynamic coastal city of Đà Nẵng, where tourism and gastronomy are constantly evolving, Danaksara chooses a slower way of storytelling. Rather than following fleeting tr..."
         },
         {
           "rank": 3,
-          "score": 0.028531,
+          "score": 0.016393,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0003",
-          "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
-          "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
-          "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
-          "language": "vi",
-          "text_preview": "Giám đốc Trung tâm Phát triển Du lịch TP Cần Thơ, cho biết: “Trong những năm qua, Sở Văn hóa, Thể thao và Du lịch, Trung tâm Phát triển Du lịch TP Cần Thơ thường xuyên tổ chức các chuyến khảo sát để tư vấn, xây dựng sản phẩm, đồng thời tạo điều kiện kết nối để các đơn vị lữ hành, doanh nghiệp xây dựng tuyến điểm mới. Từng đợt khảo sát đều có chuyên..."
+          "chunk_id": "a85b787b9728485a3c40751c7fcdf3d4b1ba9a7c54592bc7a884d1f1f8813c96_chunk_0000",
+          "document_id": "a85b787b9728485a3c40751c7fcdf3d4b1ba9a7c54592bc7a884d1f1f8813c96",
+          "document_title": "Five-colour sticky rice, the quintessence of Vietnamese cuisine",
+          "source_url": "https://vietnam.travel/things-to-do/five-colour-sticky-rice-quintessence-vietnamese-cuisine",
+          "language": "en",
+          "text_preview": "Five-colour sticky rice, the quintessence of Vietnamese cuisine Xôi ngũ sắc is deeply rooted in the beliefs and customs of the ethnic groups in the northern mountainous regions. The term \"ngũ sắc\" refers to the five colours of the sticky rice, which symbolize the five elements: metal, wood, water, fire, and earth, reflecting the harmony of the univ..."
         },
         {
           "rank": 4,
-          "score": 0.027402,
+          "score": 0.016129,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "c3cf2016d93e7d45d104442bf81b3c6daf39c58ba38a906cbc84a80bd92e23e3_chunk_0005",
-          "document_id": "c3cf2016d93e7d45d104442bf81b3c6daf39c58ba38a906cbc84a80bd92e23e3",
-          "document_title": "Bắc Ninh - điểm đến du lịch hội tụ tinh hoa văn hoá",
-          "source_url": "https://2025.vietnam.travel/bac-ninh-diem-den-du-lich-hoi-tu-tinh-hoa-van-hoa",
-          "language": "vi",
-          "text_preview": "thành một điểm du lịch; Sản phẩm du lịch phát huy, khai thác từ giá trị các loại hình nghệ thuật dân gian truyền thống như: Múa Rối nước, hát Trống Quân, nghệ thuật Chèo, Tuồng...Xây dựng các chương trình biểu diễn định kỳ, có lịch biểu diễn, thời gian biểu diễn và giá bán cụ thể. Trên cơ sở đó liên kết với các công ty lữ hành để xây dựng tour du l..."
+          "chunk_id": "6ddbc5075c28714f846702607ca5974e83437cd348acae21fa0791a2ffd3acc7_chunk_0002",
+          "document_id": "6ddbc5075c28714f846702607ca5974e83437cd348acae21fa0791a2ffd3acc7",
+          "document_title": "Family Meal: A precious “pause” in the flow of contemporary cuisine",
+          "source_url": "https://vietnam.travel/things-to-do/family-meal-precious-“pause”-flow-contemporary-cuisine",
+          "language": "en",
+          "text_preview": "for the modern generation Vietnamese Family Meal on a Wooden Tray is not merely a dining option - it is a gentle reminder of the value of togetherness. For visitors, it offers a chance to touch a quiet yet meaningful slice of Vietnamese culture. For locals in Đà Nẵng, it feels familiar - like returning home after a long day. Amid the race of contem..."
         },
         {
           "rank": 5,
-          "score": 0.027072,
+          "score": 0.016129,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692_chunk_0002",
-          "document_id": "fdba903965114db9643ef96639d43fc896b01495405f7b8c563473a7fda31692",
-          "document_title": "Cần Thơ: Phát triển sản phẩm du lịch văn hóa",
-          "source_url": "https://2025.vietnam.travel/can-tho-phat-trien-san-pham-du-lich-van-hoa",
-          "language": "vi",
-          "text_preview": "lẩu cù lao, thịt kho hột vịt, cà ri, bì cuốn, khổ qua dồn thịt... Du khách và bà con ở cồn Sơn cùng bắt tay làm, mỗi người một việc chuẩn bị cho đám giỗ thật tươm tất. Kết thúc chương trình, gia chủ còn có phần đáp lễ là bánh trái để khách mang về như tấm lòng mến khách, đượm nghĩa tình của người miền Tây”. Có thể nói, tour Đám giỗ bên cồn là sản p..."
+          "chunk_id": "795f23835754d6fd1ea79f38b5f109cd421302da78afc56f1625073982ad5042_chunk_0001",
+          "document_id": "795f23835754d6fd1ea79f38b5f109cd421302da78afc56f1625073982ad5042",
+          "document_title": "Into the charming misty town of Pleiku",
+          "source_url": "https://vietnam.travel/things-to-do/charming-misty-town-pleiku",
+          "language": "en",
+          "text_preview": "these landmarks carries deep historical and cultural significance, reflecting the development of Pleiku in particular, and the Central Highlands as a whole. Pleiku is also a “culinary paradise,” home to a variety of renowned dishes. From the sun-scorched plains of Krong Pa, a distant district of Gia Lai comes the famous “one-sun” dried beef, a sign..."
         }
       ],
       "input_metadata": {
@@ -1487,74 +1530,76 @@
     },
     {
       "query_id": "traveler_need_q_0019",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). | answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Có thời điểm nào nên tránh khi du lịch Đà Lạt không? Nếu có lưu ý cần tránh thì nói rõ giúp mình.",
-      "query_en": "Có thời điểm nào nên tránh khi du lịch Đà Lạt không? Nếu có lưu ý cần tránh thì nói rõ giúp mình.",
+      "query_en": "",
+      "retrieval_query": "Best times to avoid traveling to Da Lat, tips to consider",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Có thời điểm nào nên tránh khi du lịch Đà Lạt không? Nếu có lưu ý cần tránh thì nói rõ giúp mình.",
+        "english_query": "Best times to avoid traveling to Da Lat, tips to consider",
         "detected_locations": [
-          "Đà Lạt"
+          "Da Lat"
         ],
-        "intent": "weather",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "practical_tip"
       },
-      "answer_vi": "",
+      "answer_vi": "Hiện tại, thông tin trong CONTEXT không đề cập cụ thể đến thời điểm nào nên tránh khi du lịch Đà Lạt. Tuy nhiên, có một số lưu ý liên quan đến thời tiết mà bạn có thể tham khảo:\n\n- Đà Lạt có khí hậu ôn hòa, nhưng từ tháng 11 đến tháng 1, thời tiết có thể lạnh, vì vậy bạn nên mang theo áo ấm nếu đi vào thời gian này.\n- Từ tháng 4 đến tháng 11, có thể có mưa, nên bạn cũng nên chuẩn bị ô hoặc áo mưa.\n\nNếu bạn cần thông tin chi tiết hơn về thời điểm cụ thể nên tránh, dữ liệu hiện tại chưa đủ để cung cấp.\n\nNguồn tham khảo:\n- [Da Lat](https://vietnam.travel/places-to-go/central-vietnam/dalat)\n- [8 ways to appreciate Da Lat](https://vietnam.travel/things-to-do/8-things-to-do-in-dalat)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.032522,
+          "score": 0.030798,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "2692203d4c9ced6f5fc266237381e4d74f6d8914c75d522797abaf928b9b2238_chunk_0002",
-          "document_id": "2692203d4c9ced6f5fc266237381e4d74f6d8914c75d522797abaf928b9b2238",
-          "document_title": "Thái Nguyên: City tour - sản phẩm du lịch mới nơi 'đất thép - xứ trà'",
-          "source_url": "https://2025.vietnam.travel/thai-nguyen-city-tour-san-pham-du-lich-moi-noi-dat-thep-xu-tra",
-          "language": "vi",
-          "text_preview": "Tour – một hành trình ngắn nhưng mang lại cho tôi và các thành viên trong đoàn đầy ắp cảm xúc. Nếu có dịp trở lại Thái Nguyên, chúng tôi sẽ đặt City tour để trải nghiệm, khám phá. Có thể là hành trình 1⁄2 ngày hoặc 1 ngày trọn vẹn. Tùy thuộc vào thời gian lưu trú và nhu cầu trải nghiệm của các thành viên đoàn. Du khách tham quan Khu di tích lịch sử..."
+          "chunk_id": "4c1696ee927d80ce4a480af88cbe54c5a4479d384ed1e5cd21837ab94f8102fe_chunk_0000",
+          "document_id": "4c1696ee927d80ce4a480af88cbe54c5a4479d384ed1e5cd21837ab94f8102fe",
+          "document_title": "Da Lat",
+          "source_url": "https://vietnam.travel/places-to-go/central-vietnam/dalat",
+          "language": "en",
+          "text_preview": "Da Lat Hidden away in the Central Highlands, Da Lat plays the cooler cousin to Vietnam's seaside destinations. Famous for its countryside charm, Da Lat draws couples, wellness seekers and outdoor enthusiasts. This mountain resort town was once a summer getaway for the French, who left their mark in the European-inspired architecture and countless l..."
         },
         {
           "rank": 2,
-          "score": 0.016393,
+          "score": 0.030303,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "421fbad19e09542b55fe55d2db1c7d0772600cf0f940f33fa2fdfce12c94c633_chunk_0004",
-          "document_id": "421fbad19e09542b55fe55d2db1c7d0772600cf0f940f33fa2fdfce12c94c633",
-          "document_title": "Lạng Sơn: Kích cầu du lịch dịp nghỉ lễ",
-          "source_url": "https://2025.vietnam.travel/lang-son-kich-cau-du-lich-dip-nghi-le",
-          "language": "vi",
-          "text_preview": "đối với khách hàng nghỉ lại từ 1 đến 3 đêm sẽ được chiết khấu từ 15 đến 20% từ đêm thứ 2 trở đi. Đối với khối ẩm thực, hiện tại chúng tôi đang có chương trình ưu đãi tất cả các ngày trong tuần với những ưu đãi, khuyến mại dành cho các đối tượng khách hàng địa phương. Qua khảo sát chúng tôi được biết, trong dịp lễ 30/4 – 01/5 lượng khách đặt phòng đ..."
+          "chunk_id": "b64b6b23567d21ec0cff86b211c9e6fbaa3a7b09f1c98ba17dd675852c021ad8_chunk_0000",
+          "document_id": "b64b6b23567d21ec0cff86b211c9e6fbaa3a7b09f1c98ba17dd675852c021ad8",
+          "document_title": "8 ways to appreciate Da Lat",
+          "source_url": "https://vietnam.travel/things-to-do/8-things-to-do-in-dalat",
+          "language": "en",
+          "text_preview": "8 ways to appreciate Da Lat All photos by Christian Berg Da Lat. The name conjures visions of luxuriant forests, mirror-like lakes, and cottony clouds. A century after French colonialists founded this resort centre in the Lam Dong highlands, Da Lat ’s natural beauty and temperate weather remain as soothing as ever. Wondering what’s the best way to..."
         },
         {
           "rank": 3,
-          "score": 0.016129,
+          "score": 0.029214,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "5db96ee974e57871d1794d4ceb050275d976dd837610fb65353024135eeffc32_chunk_0002",
-          "document_id": "5db96ee974e57871d1794d4ceb050275d976dd837610fb65353024135eeffc32",
-          "document_title": "Ninh Thuận sẵn sàng đón khách dịp lễ 30/4 và 01/5",
-          "source_url": "https://2025.vietnam.travel/ninh-thuan-san-sang-don-khach-dip-le-30-4-va-01-5",
-          "language": "vi",
-          "text_preview": "phẩm quà tặng du lịch OCOP chất lượng, đặc thù của vùng đất đầy nắng và gió. Hiện, các đơn vị thi công đang tích cực triển khai lắp đặt gian hàng ẩm thực và sẽ bàn giao gian hàng cho các đơn vị, doanh nghiệp vào ngày 27/4/2025. Dự báo lượng khách tăng mạnh Toàn tỉnh hiện có gần 220 cơ sở lưu trú với hơn 4.700 phòng, trong đó 50% tổng số phòng đạt t..."
+          "chunk_id": "4c1696ee927d80ce4a480af88cbe54c5a4479d384ed1e5cd21837ab94f8102fe_chunk_0001",
+          "document_id": "4c1696ee927d80ce4a480af88cbe54c5a4479d384ed1e5cd21837ab94f8102fe",
+          "document_title": "Da Lat",
+          "source_url": "https://vietnam.travel/places-to-go/central-vietnam/dalat",
+          "language": "en",
+          "text_preview": "city of eternal spring, Da Lat’s temperate climate is a highlight of every visit. Be sure to bring a jumper if you visit between November and January, and an umbrella for the rainfall from April to November. If you prefer a warmer stay, May offers the perfect window. Da Lat’s airport is located just 30km south of town, and connects to major hubs fr..."
         },
         {
           "rank": 4,
-          "score": 0.015873,
+          "score": 0.028718,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "4a4c843b64bb9c774ab2c24cf8c867eddd4ad7de74bb1494b530af1d581d122b_chunk_0001",
-          "document_id": "4a4c843b64bb9c774ab2c24cf8c867eddd4ad7de74bb1494b530af1d581d122b",
-          "document_title": "Du lịch Quảng Ngãi sẵn sàng đón khách dịp lễ 30/4 - 01/5",
-          "source_url": "https://2025.vietnam.travel/du-lich-quang-ngai-san-sang-don-khach-dip-le-30-4-01-5",
-          "language": "vi",
-          "text_preview": "và xem công tác đảm bảo an toàn, an ninh cho du khách là yếu tố hàng đầu. “Khách sạn thường xuyên phối hợp tích cực với các cơ quan chức năng tập huấn kỹ năng sử dụng phương tiện PCCC tại chỗ cho cán bộ, nhân viên. Xây dựng kế hoạch, phương án PCCC, trang bị phương tiện chữa cháy, thực hiện tốt phương châm “4 tại chỗ””, chị Hải thông tin. Trung tá..."
+          "chunk_id": "b64b6b23567d21ec0cff86b211c9e6fbaa3a7b09f1c98ba17dd675852c021ad8_chunk_0001",
+          "document_id": "b64b6b23567d21ec0cff86b211c9e6fbaa3a7b09f1c98ba17dd675852c021ad8",
+          "document_title": "8 ways to appreciate Da Lat",
+          "source_url": "https://vietnam.travel/things-to-do/8-things-to-do-in-dalat",
+          "language": "en",
+          "text_preview": "take a free tour of the roasting labs. For coffee drinkers who prefer to keep it old school, or just want to encounter the Da Lat of the past, the fading decor and retro atmosphere at Cafe Tung will take you back at least a few decades. READ MORE: In Da Lat, a tour for coffee lovers Explore peaceful pagodas Even if you’re not normally a temple goer..."
         },
         {
           "rank": 5,
-          "score": 0.015873,
+          "score": 0.028382,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "2692203d4c9ced6f5fc266237381e4d74f6d8914c75d522797abaf928b9b2238_chunk_0001",
-          "document_id": "2692203d4c9ced6f5fc266237381e4d74f6d8914c75d522797abaf928b9b2238",
-          "document_title": "Thái Nguyên: City tour - sản phẩm du lịch mới nơi 'đất thép - xứ trà'",
-          "source_url": "https://2025.vietnam.travel/thai-nguyen-city-tour-san-pham-du-lich-moi-noi-dat-thep-xu-tra",
-          "language": "vi",
-          "text_preview": "năm 2025, Làng được UBND tỉnh trao quyết định công nhận điểm du lịch cấp tỉnh. Trở lại với sản phẩm du lịch mới của Làng Háo Hức, đó là những “hành trình” ý nghĩa đến các địa chỉ đỏ giáo dục truyền thống cách mạng; là các điểm bảo tồn, lưu giữ nét đẹp văn hóa của các dân tộc Việt Nam và trải nghiệm cuộc sống với nông dân vùng chè. City tour còn là..."
+          "chunk_id": "8c659616c59620d1767ad6bd2ce550dbfc1e3ec7d08ccd2e24e31a10b28567da_chunk_0001",
+          "document_id": "8c659616c59620d1767ad6bd2ce550dbfc1e3ec7d08ccd2e24e31a10b28567da",
+          "document_title": "My Da Lat: Phu Nguyen",
+          "source_url": "https://vietnam.travel/things-to-do/my-dalat-phu-nguyen",
+          "language": "en",
+          "text_preview": "what to see in Da Lat, I say just get out of town and you can see the pine trees, mountains, and valleys everywhere. So you don’t have to go to one exact location. Da Lat has so many hidden nature spots, like Tuyen Lam Lake . It’s a very large lake and everywhere around the lake is just like heaven. Canyoning is also something special where you can..."
         }
       ],
       "input_metadata": {
@@ -1569,74 +1614,77 @@
     },
     {
       "query_id": "traveler_need_q_0020",
-      "status": "partial",
-      "error": "translation_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). | answer_error: Too many requests. For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).",
+      "status": "success",
+      "error": null,
       "question_vi": "Phong Nha phù hợp hơn cho đi nhóm bạn hay Hội An?",
-      "query_en": "Phong Nha phù hợp hơn cho đi nhóm bạn hay Hội An?",
+      "query_en": "",
+      "retrieval_query": "Phong Nha or Hoi An better for group travel?",
+      "retrieval_query_language": "mixed_by_query",
+      "translation_status": "success",
       "translation_metadata": {
-        "english_query": "Phong Nha phù hợp hơn cho đi nhóm bạn hay Hội An?",
+        "english_query": "Phong Nha or Hoi An better for group travel?",
         "detected_locations": [
-          "Phong Nha"
+          "Phong Nha",
+          "Hoi An"
         ],
-        "intent": "comparison",
-        "fallback_reason": "Không dịch được query bằng LLM, dùng query gốc để retrieval."
+        "intent": "comparison"
       },
-      "answer_vi": "",
+      "answer_vi": "Dựa trên thông tin hiện có, Phong Nha là một điểm đến tuyệt vời cho những ai yêu thích khám phá thiên nhiên và các hoạt động mạo hiểm. Nơi đây nổi tiếng với những hang động lớn, cảnh quan thiên nhiên hùng vĩ và các hoạt động như caving, hiking, kayaking. Nếu nhóm bạn của bạn thích những trải nghiệm phiêu lưu và muốn khám phá vẻ đẹp hoang sơ của thiên nhiên, Phong Nha sẽ là lựa chọn phù hợp.\n\nTrong khi đó, Hội An lại nổi bật với kiến trúc cổ kính, văn hóa phong phú và ẩm thực đa dạng. Nếu nhóm bạn của bạn muốn thư giãn, thưởng thức ẩm thực và khám phá các di sản văn hóa, Hội An sẽ là điểm đến lý tưởng hơn.\n\nTóm lại, nếu nhóm bạn thích mạo hiểm và khám phá thiên nhiên, hãy chọn Phong Nha. Nếu muốn trải nghiệm văn hóa và thư giãn, Hội An sẽ là lựa chọn tốt hơn.\n\nNguồn tham khảo: [Phong Nha Guide](https://vietnam.travel/things-to-do/complete-guide-phong-nha)",
       "sources": [
         {
           "rank": 1,
-          "score": 0.016393,
+          "score": 0.032258,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "f4b16d5585ce8907bf645494b7f183465c0d4896dc3bd22410e79c5ae45b0223_chunk_0001",
-          "document_id": "f4b16d5585ce8907bf645494b7f183465c0d4896dc3bd22410e79c5ae45b0223",
-          "document_title": "My Sapa: Ly Thy Ker",
-          "source_url": "https://vietnam.travel/things-to-do/my-sapa-ly-thy-ker",
+          "chunk_id": "e1c26ca0c636204d73bdb3caa1aa592f484017d9d26f7cd84903a98348e9bb61_chunk_0003",
+          "document_id": "e1c26ca0c636204d73bdb3caa1aa592f484017d9d26f7cd84903a98348e9bb61",
+          "document_title": "A complete guide to Phong Nha",
+          "source_url": "https://vietnam.travel/things-to-do/complete-guide-phong-nha",
           "language": "en",
-          "text_preview": "sick. Now people believe in a range of religions and in Western medicine but shamanism is still a big part of our culture. A lot of people in the village are also very good with herbal medicine. They learn it from their parents or village elders. My father is a shaman and my mother is a herbal woman. They can both help a lot of people and I feel ve..."
+          "text_preview": "guides who can show you unmapped paths and introduce you to farmers and villagers. Feeling leisurely? A motorbike tour will let you take in the scenery without breaking a sweat. TIP: Phong Nha Adventure Cycling is geared up for quality bicycle tours with good mountain bikes and expert guides. Hai’s Eco Tour also offers motorbike trips with licensed..."
         },
         {
           "rank": 2,
-          "score": 0.016393,
+          "score": 0.030282,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "393fc11ca90e112c26745135352abc9f4c4de8b6b7a060a0e53f45406bdffd05_chunk_0001",
-          "document_id": "393fc11ca90e112c26745135352abc9f4c4de8b6b7a060a0e53f45406bdffd05",
-          "document_title": "Du lịch Sơn La “Đến để yêu”",
-          "source_url": "https://2025.vietnam.travel/du-lich-son-la-den-de-yeu",
-          "language": "vi",
-          "text_preview": "lịch. Đồng thời, xây dựng các sản phẩm truyền thông sinh động, hấp dẫn, lan tỏa trên nền tảng số, mạng xã hội, website của Cục Du lịch Quốc gia Việt Nam, kênh truyền hình quốc gia. Du khách tham quan cầu kính Bạch Long – Khu du lịch Mộc Châu Island Đầu tháng 5 vừa qua, thị xã Mộc Châu đã tổ chức Cuộc thi tìm kiếm gương mặt KOL (người nổi tiếng, có..."
+          "chunk_id": "e1c26ca0c636204d73bdb3caa1aa592f484017d9d26f7cd84903a98348e9bb61_chunk_0002",
+          "document_id": "e1c26ca0c636204d73bdb3caa1aa592f484017d9d26f7cd84903a98348e9bb61",
+          "document_title": "A complete guide to Phong Nha",
+          "source_url": "https://vietnam.travel/things-to-do/complete-guide-phong-nha",
+          "language": "en",
+          "text_preview": "of wooden walkways lets you explore safely. If you’re travelling with kids, both of these caves will allow them to join the fun. My Phong Nha from Vietnam Tourism Board on Vimeo . Kayaking For an alternative way to see Phong Nha Cave, try a kayaking tour away from the crowds. Hang Toi, just a few kilometres away, also presents a fun selection of ac..."
         },
         {
           "rank": 3,
-          "score": 0.016129,
+          "score": 0.030282,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "68b4769197488290a8dc9c4f569d8d9602153e4cd78d1c18538794b1d9bb2ba3_chunk_0002",
-          "document_id": "68b4769197488290a8dc9c4f569d8d9602153e4cd78d1c18538794b1d9bb2ba3",
-          "document_title": "Experience the feeling of living at a heritage site",
-          "source_url": "https://vietnam.travel/things-to-do/experience-the-feeling-of-living-at-a-heritage-site",
+          "chunk_id": "e1c26ca0c636204d73bdb3caa1aa592f484017d9d26f7cd84903a98348e9bb61_chunk_0004",
+          "document_id": "e1c26ca0c636204d73bdb3caa1aa592f484017d9d26f7cd84903a98348e9bb61",
+          "document_title": "A complete guide to Phong Nha",
+          "source_url": "https://vietnam.travel/things-to-do/complete-guide-phong-nha",
           "language": "en",
-          "text_preview": "beautiful place to enjoy the sunrise. What better way to do so than by doing some yoga? Many boats offer classes led by trainers. But you could also practice on your own on deck. You’ll be calmed by the sea, energized by the fresh air, grounded by the imposing rock formations, and uplifted by the sounds of birds overhead. After such a start, a grea..."
+          "text_preview": "schedule on the Vietnam Railway website or book your train tickets online in advance. Overnight sleeper buses (VND 300,000) leave from Hanoi to Phong Nha daily. Travel time is about 9 hours one way. There are also several open buses to Phong Nha each day from nearby cities such as Hue (VND 150,000) and Danang (VND 200,000). You can usually buy bus..."
         },
         {
           "rank": 4,
-          "score": 0.016129,
+          "score": 0.028439,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "5db96ee974e57871d1794d4ceb050275d976dd837610fb65353024135eeffc32_chunk_0002",
-          "document_id": "5db96ee974e57871d1794d4ceb050275d976dd837610fb65353024135eeffc32",
-          "document_title": "Ninh Thuận sẵn sàng đón khách dịp lễ 30/4 và 01/5",
-          "source_url": "https://2025.vietnam.travel/ninh-thuan-san-sang-don-khach-dip-le-30-4-va-01-5",
-          "language": "vi",
-          "text_preview": "phẩm quà tặng du lịch OCOP chất lượng, đặc thù của vùng đất đầy nắng và gió. Hiện, các đơn vị thi công đang tích cực triển khai lắp đặt gian hàng ẩm thực và sẽ bàn giao gian hàng cho các đơn vị, doanh nghiệp vào ngày 27/4/2025. Dự báo lượng khách tăng mạnh Toàn tỉnh hiện có gần 220 cơ sở lưu trú với hơn 4.700 phòng, trong đó 50% tổng số phòng đạt t..."
+          "chunk_id": "e1c26ca0c636204d73bdb3caa1aa592f484017d9d26f7cd84903a98348e9bb61_chunk_0000",
+          "document_id": "e1c26ca0c636204d73bdb3caa1aa592f484017d9d26f7cd84903a98348e9bb61",
+          "document_title": "A complete guide to Phong Nha",
+          "source_url": "https://vietnam.travel/things-to-do/complete-guide-phong-nha",
+          "language": "en",
+          "text_preview": "A complete guide to Phong Nha Boats cruise along the river next to Phong Nha town. Photo by Christian Berg Phong Nha is an adventurer’s paradise. Millions of years of flooding have chiseled out the world’s largest caves, meandering rivers entwine ancient karsts, and jungle-clad mountains lend an otherworldly atmosphere. Colossal caves may be the ma..."
         },
         {
           "rank": 5,
-          "score": 0.015873,
+          "score": 0.025833,
           "retriever": "hybrid_bm25_dense_rrf",
-          "chunk_id": "6e81c5f4f5b144295577a69fe18dc079246ec2c227d7b4d910070514726647d4_chunk_0001",
-          "document_id": "6e81c5f4f5b144295577a69fe18dc079246ec2c227d7b4d910070514726647d4",
-          "document_title": "Thái Nguyên: Sẵn sàng đón khách dịp nghỉ lễ",
-          "source_url": "https://2025.vietnam.travel/thai-nguyen-san-sang-don-khach-dip-nghi-le",
-          "language": "vi",
-          "text_preview": "trình Tuần Văn hóa đến hàng trăm đại biểu của Hiệp hội Du lịch, Trung tâm Thông tin và xúc tiến du lịch, doanh nghiệp làm du lịch và cơ quan thông tấn báo chí tại Hà Nội. Tiếp đến, Sở tổ chức thành công Giải Vô địch Câu lạc bộ Yoga Quốc gia năm 2025; Giải Vô địch các Câu lạc bộ võ cổ truyền Quốc gia năm 2025 và Giao lưu võ thuật Việt Nam – Triều Ti..."
+          "chunk_id": "e1c26ca0c636204d73bdb3caa1aa592f484017d9d26f7cd84903a98348e9bb61_chunk_0001",
+          "document_id": "e1c26ca0c636204d73bdb3caa1aa592f484017d9d26f7cd84903a98348e9bb61",
+          "document_title": "A complete guide to Phong Nha",
+          "source_url": "https://vietnam.travel/things-to-do/complete-guide-phong-nha",
+          "language": "en",
+          "text_preview": "the cave system for you. Tours of Tu Lan range from one-day moderate trips to full-on, four-day expeditions. TIP: Parts of the 2017 blockbuster Kong: Skull Island were filmed in and around the Tu Lan cave system. Watch the movie for a taste of the scenery that awaits. Hang Va and Nuoc Nut Famous for their striking stalagmites and picturesque rock p..."
         }
       ],
       "input_metadata": {

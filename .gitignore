@@ -8,3 +8,6 @@ plan/
 # Ignore report markdown files
 report/*.md
 reports/*.md
+
+colab_vi_to_en_retrieval_qwen8b_pipeline.ipynb
+colab_vi_to_en_retrieval_gpt4o_mini_pipeline.ipynb
