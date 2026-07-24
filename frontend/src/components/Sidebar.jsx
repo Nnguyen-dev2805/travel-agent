@@ -8,51 +8,51 @@ export default function Sidebar({ onNewChat, isOpen, onToggle }) {
       }`}
     >
       <div className="flex flex-col h-full">
-        {/* Header / New Chat Button */}
+        {/* New Chat Button */}
         <div className="mb-4">
           <button
             onClick={onNewChat}
-            className="w-full flex items-center justify-between p-3 rounded-lg bg-[#212121] hover:bg-[#2f2f2f] transition-colors text-white mb-2 group border border-[#333333]"
+            className="w-full flex items-center justify-between p-3 rounded-xl bg-[#212121] hover:bg-[#2f2f2f] transition-all duration-200 text-white mb-2 group border border-[#383838] hover:border-[#10a37f]"
           >
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-white">add</span>
-              <span className="font-medium text-sm">New Chat</span>
+            <div className="flex items-center gap-2.5">
+              <span className="material-symbols-outlined text-[#10a37f]">add</span>
+              <span className="font-semibold text-sm">Cuộc trò chuyện mới</span>
             </div>
-            <span className="material-symbols-outlined text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="material-symbols-outlined text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity text-sm">
               edit_square
             </span>
           </button>
         </div>
 
         {/* History Sections */}
-        <nav className="flex-1 overflow-y-auto space-y-6 pr-1">
+        <nav className="flex-1 overflow-y-auto space-y-6 pr-1 custom-scrollbar">
           <div>
             <h3 className="text-xs font-semibold text-gray-400 px-3 mb-2 uppercase tracking-wider">
-              Today
+              Hôm nay
             </h3>
             <div className="space-y-1">
               <div
                 onClick={onNewChat}
-                className="bg-[#2f2f2f] text-white rounded-lg p-3 flex items-center gap-3 cursor-pointer hover:bg-[#383838] transition-colors"
+                className="bg-[#2f2f2f] border border-[#424242] text-white rounded-xl p-3 flex items-center gap-3 cursor-pointer hover:bg-[#383838] transition-colors"
               >
-                <span className="material-symbols-outlined text-[18px]">chat_bubble</span>
-                <span className="text-sm truncate">Current Session</span>
+                <span className="material-symbols-outlined text-base text-[#10a37f]">chat_bubble</span>
+                <span className="text-sm font-medium truncate">Phiên hỏi đáp hiện tại</span>
               </div>
             </div>
           </div>
 
           <div>
             <h3 className="text-xs font-semibold text-gray-400 px-3 mb-2 uppercase tracking-wider">
-              Previous 7 Days
+              Lịch sử tìm kiếm
             </h3>
             <div className="space-y-1">
-              <div className="text-gray-300 hover:bg-[#2f2f2f] rounded-lg p-3 flex items-center gap-3 cursor-pointer transition-colors">
-                <span className="material-symbols-outlined text-[18px]">map</span>
-                <span className="text-sm truncate">Vietnam Travel Demo</span>
+              <div className="text-gray-300 hover:bg-[#2f2f2f] rounded-xl p-2.5 flex items-center gap-3 cursor-pointer transition-colors">
+                <span className="material-symbols-outlined text-base text-gray-400">explore</span>
+                <span className="text-sm truncate">Cẩm nang Rooftop Bars</span>
               </div>
-              <div className="text-gray-300 hover:bg-[#2f2f2f] rounded-lg p-3 flex items-center gap-3 cursor-pointer transition-colors">
-                <span className="material-symbols-outlined text-[18px]">code</span>
-                <span className="text-sm truncate">FastAPI Architecture</span>
+              <div className="text-gray-300 hover:bg-[#2f2f2f] rounded-xl p-2.5 flex items-center gap-3 cursor-pointer transition-colors">
+                <span className="material-symbols-outlined text-base text-gray-400">map</span>
+                <span className="text-sm truncate">Lịch trình Hội An 3N2Đ</span>
               </div>
             </div>
           </div>
@@ -60,13 +60,13 @@ export default function Sidebar({ onNewChat, isOpen, onToggle }) {
 
         {/* User Profile Footer */}
         <div className="pt-4 border-t border-[#2f2f2f] mt-4 space-y-1">
-          <div className="flex items-center gap-3 p-2 text-gray-200 hover:bg-[#2f2f2f] rounded-lg transition-colors cursor-pointer">
-            <div className="w-8 h-8 rounded-full bg-[#10a37f] flex items-center justify-center text-xs font-bold text-white">
-              TA
+          <div className="flex items-center gap-3 p-2.5 text-gray-200 hover:bg-[#2f2f2f] rounded-xl transition-colors cursor-pointer">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#10a37f] to-[#1a7f64] flex items-center justify-center text-xs font-bold text-white shadow-md shadow-[#10a37f]/20">
+              VN
             </div>
             <div className="flex flex-col">
-              <span className="text-sm font-medium leading-none text-white">Traveler Admin</span>
-              <span className="text-xs text-gray-400 mt-1">Pro Plan</span>
+              <span className="text-sm font-semibold leading-none text-white">Traveler User</span>
+              <span className="text-[11px] text-[#10a37f] mt-1 font-medium">Vietnam RAG Mode</span>
             </div>
           </div>
         </div>
