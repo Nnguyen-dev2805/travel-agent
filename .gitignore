@@ -1,0 +1,17 @@
+.venv/
+venv/
+env/
+
+.env
+.env.local
+
+data/chromadb/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.DS_Store
+.ipynb_checkpoints/
+.vscode/
+.idea/
