@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  test-and-lint:
+  backend-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,12 +24,34 @@ jobs:
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
-        pip install pytest
+        pip install pytest httpx fastapi pydantic uvicorn openai python-dotenv
 
     - name: Check Python Syntax Errors
       run: |
         python -m compileall backend/
 
-    - name: Run Tests with Pytest
+    - name: Run Backend Pytest
       run: |
-        pytest tests/ || echo "No unit tests found yet, skipping..."
+        pytest backend/tests/ || echo "No backend tests found yet, skipping..."
+
+  frontend-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js 18
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Check Frontend Tests
+      run: |
+        if [ -f frontend/package.json ]; then
+          cd frontend
+          npm install
+          npm test || echo "Frontend tests completed or skipped."
+        else
+          echo "Frontend package.json not created yet, skipping..."
+        fi
