@@ -24,12 +24,17 @@ export default function App() {
 
     try {
       const data = await sendChatMessage(userText);
-      const botMessage = { role: 'assistant', content: data.reply };
+      const botMessage = {
+        role: 'assistant',
+        content: data.reply,
+        citations: data.citations || [],
+      };
       setMessages((prev) => [...prev, botMessage]);
     } catch (error) {
       const errorMessage = {
         role: 'assistant',
-        content: `❌ Lỗi: ${error.message}`,
+        content: `❌ Lỗi kết nối: ${error.message}`,
+        citations: [],
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
@@ -67,7 +72,9 @@ export default function App() {
                         sync
                       </span>
                     </div>
-                    <span className="text-sm text-gray-400">ChatGPT đang suy nghĩ...</span>
+                    <span className="text-sm text-gray-400">
+                      RAG đang tra cứu cẩm nang du lịch & suy nghĩ...
+                    </span>
                   </div>
                 </div>
               )}
