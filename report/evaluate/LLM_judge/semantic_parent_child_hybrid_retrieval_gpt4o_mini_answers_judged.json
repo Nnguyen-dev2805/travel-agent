@@ -1,0 +1,2533 @@
+{
+  "evaluations": [
+    {
+      "query_id": "traveler_need_q_0001",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0002",
+      "scores": {
+        "correctness": 2,
+        "faithfulness": 2,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Có chi tiết có dấu hiệu bịa đặt hoặc không phù hợp thực tế."
+      ],
+      "error_types": [
+        "unsupported_claim",
+        "hallucination",
+        "factual_error"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0003",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0004",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0005",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 3,
+        "practical_usefulness": 3,
+        "clarity": 4
+      },
+      "overall_score": 3.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0006",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0007",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 3,
+        "relevance": 4,
+        "completeness": 3,
+        "practical_usefulness": 3,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi."
+      ],
+      "error_types": [
+        "unsupported_claim",
+        "missing_information"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0008",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 3,
+        "practical_usefulness": 4,
+        "clarity": 3
+      },
+      "overall_score": 3.67,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi.",
+        "Câu trả lời hơi dài so với lượng thông tin được hỗ trợ."
+      ],
+      "error_types": [
+        "missing_information",
+        "overly_verbose"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0009",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 3,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 3
+      },
+      "overall_score": 3.83,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Câu trả lời hơi dài so với lượng thông tin được hỗ trợ.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "overly_verbose",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0010",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 3,
+        "practical_usefulness": 3,
+        "clarity": 4
+      },
+      "overall_score": 2.83,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0011",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 3
+      },
+      "overall_score": 3.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Câu trả lời hơi dài so với lượng thông tin được hỗ trợ."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "overly_verbose",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0012",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 2,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.67,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0013",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0014",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0015",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 2,
+        "completeness": 1,
+        "practical_usefulness": 1,
+        "clarity": 4
+      },
+      "overall_score": 2.17,
+      "strengths": [
+        "Câu trả lời có mức độ liên quan cơ bản với câu hỏi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Câu trả lời từ chối thay vì cung cấp phương án hữu ích.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời yếu do truy xuất không phù hợp, thiếu nội dung hoặc chứa chi tiết không đáng tin cậy."
+    },
+    {
+      "query_id": "traveler_need_q_0016",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 3,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0017",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 3,
+        "practical_usefulness": 3,
+        "clarity": 4
+      },
+      "overall_score": 3.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0018",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 2,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.67,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0019",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0020",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 3,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.83,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi."
+      ],
+      "error_types": [
+        "missing_information"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0021",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0022",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0023",
+      "scores": {
+        "correctness": 2,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 3
+      },
+      "overall_score": 3.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Có chi tiết có dấu hiệu bịa đặt hoặc không phù hợp thực tế."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "hallucination",
+        "factual_error",
+        "overly_verbose",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0024",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0025",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0026",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0027",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 3
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Câu trả lời hơi dài so với lượng thông tin được hỗ trợ.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "overly_verbose",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0028",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0029",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0030",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0031",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0032",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0033",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 4.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Không có lỗi nghiêm trọng; vẫn có thể tăng độ cụ thể và kiểm chứng nguồn."
+      ],
+      "error_types": [
+        "none"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0034",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0035",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 4.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Không có lỗi nghiêm trọng; vẫn có thể tăng độ cụ thể và kiểm chứng nguồn."
+      ],
+      "error_types": [
+        "none"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0036",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 3
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Câu trả lời hơi dài so với lượng thông tin được hỗ trợ.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "overly_verbose",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0037",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0038",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0039",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0040",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 3,
+        "practical_usefulness": 3,
+        "clarity": 4
+      },
+      "overall_score": 2.83,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0041",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 3
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Câu trả lời hơi dài so với lượng thông tin được hỗ trợ.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "overly_verbose",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0042",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0043",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 4.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Không có lỗi nghiêm trọng; vẫn có thể tăng độ cụ thể và kiểm chứng nguồn."
+      ],
+      "error_types": [
+        "none"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0044",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0045",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0046",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0047",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 3,
+        "practical_usefulness": 3,
+        "clarity": 4
+      },
+      "overall_score": 3.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0048",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0049",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0050",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0051",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0052",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0053",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 4.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Không có lỗi nghiêm trọng; vẫn có thể tăng độ cụ thể và kiểm chứng nguồn."
+      ],
+      "error_types": [
+        "none"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0054",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0055",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0056",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0057",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0058",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0059",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 3
+      },
+      "overall_score": 4.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Câu trả lời hơi dài so với lượng thông tin được hỗ trợ."
+      ],
+      "error_types": [
+        "overly_verbose"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0060",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0061",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 4.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Không có lỗi nghiêm trọng; vẫn có thể tăng độ cụ thể và kiểm chứng nguồn."
+      ],
+      "error_types": [
+        "none"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0062",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0063",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0064",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 3
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Câu trả lời hơi dài so với lượng thông tin được hỗ trợ.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "overly_verbose",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0065",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0066",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 3,
+        "practical_usefulness": 3,
+        "clarity": 4
+      },
+      "overall_score": 3.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0067",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 4.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Không có lỗi nghiêm trọng; vẫn có thể tăng độ cụ thể và kiểm chứng nguồn."
+      ],
+      "error_types": [
+        "none"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0068",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 3
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Câu trả lời hơi dài so với lượng thông tin được hỗ trợ.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "overly_verbose",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0069",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0070",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 3,
+        "practical_usefulness": 3,
+        "clarity": 4
+      },
+      "overall_score": 3.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0071",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 3,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 4.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0072",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 2,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.67,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0073",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0074",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0075",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 4.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Không có lỗi nghiêm trọng; vẫn có thể tăng độ cụ thể và kiểm chứng nguồn."
+      ],
+      "error_types": [
+        "none"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0076",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 4.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Không có lỗi nghiêm trọng; vẫn có thể tăng độ cụ thể và kiểm chứng nguồn."
+      ],
+      "error_types": [
+        "none"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0077",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0078",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0079",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0080",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0081",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 3,
+        "practical_usefulness": 3,
+        "clarity": 4
+      },
+      "overall_score": 3.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0082",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0083",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 3
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Câu trả lời hơi dài so với lượng thông tin được hỗ trợ.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "overly_verbose",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0084",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0085",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0086",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 2,
+        "completeness": 1,
+        "practical_usefulness": 2,
+        "clarity": 4
+      },
+      "overall_score": 2.33,
+      "strengths": [
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Câu trả lời từ chối thay vì cung cấp phương án hữu ích.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời yếu do truy xuất không phù hợp, thiếu nội dung hoặc chứa chi tiết không đáng tin cậy."
+    },
+    {
+      "query_id": "traveler_need_q_0087",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0088",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 3,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "missing_information",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0089",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 3
+      },
+      "overall_score": 4.0,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Câu trả lời hơi dài so với lượng thông tin được hỗ trợ."
+      ],
+      "error_types": [
+        "overly_verbose"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0090",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0091",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0092",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0093",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 4.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Không có lỗi nghiêm trọng; vẫn có thể tăng độ cụ thể và kiểm chứng nguồn."
+      ],
+      "error_types": [
+        "none"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0094",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0095",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0096",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0097",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 4,
+        "relevance": 4,
+        "completeness": 3,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.83,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Chưa bao phủ đầy đủ một số yêu cầu quan trọng của câu hỏi."
+      ],
+      "error_types": [
+        "missing_information"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0098",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.33,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    },
+    {
+      "query_id": "traveler_need_q_0099",
+      "scores": {
+        "correctness": 4,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 5,
+        "clarity": 4
+      },
+      "overall_score": 3.5,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi.",
+        "Có gợi ý hành động và lưu ý thực tế cho khách du lịch."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời nhìn chung tốt nhưng còn thiếu một số chi tiết hoặc có vài khẳng định chưa được nguồn hỗ trợ rõ."
+    },
+    {
+      "query_id": "traveler_need_q_0100",
+      "scores": {
+        "correctness": 3,
+        "faithfulness": 1,
+        "relevance": 3,
+        "completeness": 4,
+        "practical_usefulness": 4,
+        "clarity": 4
+      },
+      "overall_score": 3.17,
+      "strengths": [
+        "Câu trả lời nhìn chung bám đúng chủ đề và có cấu trúc dễ theo dõi."
+      ],
+      "weaknesses": [
+        "Phần lớn nguồn truy xuất không khớp rõ với địa điểm được hỏi.",
+        "Có nhiều chi tiết cụ thể nhưng không được thể hiện rõ trong ngữ cảnh truy xuất.",
+        "Nguồn được dùng có nhiều mục không liên quan trực tiếp đến địa điểm/câu hỏi."
+      ],
+      "error_types": [
+        "retrieval_failure",
+        "unsupported_claim",
+        "context_misinterpretation"
+      ],
+      "judge_comment": "Câu trả lời ở mức chấp nhận được nhưng còn thiếu thông tin quan trọng và độ bám nguồn chưa ổn định."
+    }
+  ],
+  "summary": {
+    "total_samples": 100,
+    "average_scores": {
+      "correctness": 3.8,
+      "faithfulness": 1.52,
+      "relevance": 3.19,
+      "completeness": 3.8,
+      "practical_usefulness": 4.45,
+      "clarity": 3.88
+    },
+    "overall_average": 3.44,
+    "distribution": {
+      "excellent": 0,
+      "good": 51,
+      "acceptable": 47,
+      "poor": 2
+    },
+    "most_common_errors": {
+      "context_misinterpretation": 84,
+      "retrieval_failure": 79,
+      "unsupported_claim": 18,
+      "missing_information": 16,
+      "overly_verbose": 12,
+      "hallucination": 2,
+      "factual_error": 2
+    },
+    "overall_observation": "Bộ câu trả lời có độ rõ ràng và mức độ liên quan tương đối tốt, nhưng chất lượng không đồng đều. Các vấn đề chính là nguồn truy xuất đôi khi lệch địa điểm, một số chi tiết cụ thể không được ngữ cảnh hỗ trợ, và nhiều câu chưa bao phủ đầy đủ yêu cầu thực tế của người dùng."
+  }
+}
