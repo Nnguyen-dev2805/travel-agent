@@ -132,7 +132,7 @@ def encode_with_sentence_transformers(
 
     model_name = str(model_config["model_name"])
     LOGGER.info("Đang tải embedding model: %s", model_name)
-    model = SentenceTransformer(model_name, device=device)
+    model = SentenceTransformer(model_name, device=device) # lấy model embedding
     LOGGER.info("Đang embedding %s chunks với batch_size=%s", len(texts), batch_size)
     embeddings = model.encode(
         texts,
