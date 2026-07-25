@@ -12,24 +12,43 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("travel_agent_indexing")
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-DATASET_PATH = ROOT_DIR / "data" / "vietnam-travel.jsonl"
+
+# Standardized Dataset Paths
+RAW_DATASET_PATH = ROOT_DIR / "data" / "processed" / "vietnam_travel_raw.jsonl"
+CLEANED_DATASET_PATH = ROOT_DIR / "data" / "processed" / "vietnam_travel_cleaned.json"
+
+# Legacy Fallback Paths
+LEGACY_BASELINE_PATH = ROOT_DIR / "data" / "vietnam-travel.jsonl"
+LEGACY_CLEANED_PATH = ROOT_DIR / "data" / "document_clean.json"
+
+
+def get_input_file_paths() -> tuple[Path, Path]:
+    """Resolve active raw and clean dataset file paths with legacy fallback."""
+    raw_path = RAW_DATASET_PATH if RAW_DATASET_PATH.exists() else LEGACY_BASELINE_PATH
+    clean_path = (
+        CLEANED_DATASET_PATH
+        if CLEANED_DATASET_PATH.exists()
+        else (LEGACY_CLEANED_PATH if LEGACY_CLEANED_PATH.exists() else raw_path)
+    )
+    return raw_path, clean_path
 
 
 def run_indexing_pipeline():
     """Execute full offline indexing pipeline for both Baseline and Parent-Child collections."""
     logger.info("=== STARTING RAG VECTOR INDEXING PIPELINE ===")
 
-    # 1. Load raw dataset
-    logger.info(f"Step 1: Loading raw articles from {DATASET_PATH}...")
-    documents = load_jsonl_dataset(DATASET_PATH)
-    logger.info(f"Loaded {len(documents)} raw travel documents.")
+    raw_path, clean_path = get_input_file_paths()
 
     embedder = VectorEmbedder(model_name="BAAI/bge-m3")
 
-    # 2. Index Baseline Fixed-Size Collection
+    # 1. Index Baseline Fixed-Size Collection
+    logger.info(f"Step 1: Loading baseline articles from {raw_path}...")
+    baseline_docs = load_jsonl_dataset(raw_path)
+    logger.info(f"Loaded {len(baseline_docs)} baseline travel documents.")
+
     logger.info("Step 2A: Indexing Baseline Fixed-Size Collection ('vietnam_travel_knowledge')...")
     baseline_chunker = DocumentChunker(chunk_size=1000, chunk_overlap=150)
-    baseline_chunks = baseline_chunker.chunk_documents(documents)
+    baseline_chunks = baseline_chunker.chunk_documents(baseline_docs)
     logger.info(f"Generated {len(baseline_chunks)} baseline text chunks.")
     
     baseline_texts = [chunk.text for chunk in baseline_chunks]
@@ -38,12 +57,15 @@ def run_indexing_pipeline():
     baseline_store = ChromaVectorStore(collection_name="vietnam_travel_knowledge")
     baseline_added = baseline_store.add_chunks(baseline_chunks, baseline_embeddings)
 
-    # 3. Index Parent-Child Semantic Collection
-    logger.info("Step 2B: Indexing Parent-Child Collection ('vietnam_travel_parent_child')...")
+    # 2. Index Parent-Child Collection from Cleaned Dataset
+    logger.info(f"Step 2B: Loading structured articles for Parent-Child from {clean_path}...")
+    pc_docs = load_jsonl_dataset(clean_path)
+    logger.info(f"Loaded {len(pc_docs)} structured documents for Parent-Child chunking.")
+
     pc_chunker = ParentChildChunker()
     all_child_chunks = []
     
-    for doc in documents:
+    for doc in pc_docs:
         _, child_chunks = pc_chunker.chunk_document(doc)
         all_child_chunks.extend(child_chunks)
         
