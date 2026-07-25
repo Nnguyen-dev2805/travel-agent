@@ -3,8 +3,8 @@ import pytest
 from pathlib import Path
 from backend.rag.chunking import load_jsonl_dataset, DocumentChunker, TextChunk
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-DATASET_PATH = ROOT_DIR / "data" / "vietnam-travel.jsonl"
+ROOT_DIR = Path(__file__).resolve().parents[3]
+DATASET_PATH = ROOT_DIR / "data" / "processed" / "vietnam_travel_raw.jsonl"
 
 
 def test_loader_real_dataset():

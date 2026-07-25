@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+# pyrefly: ignore [missing-import]
 import chromadb
+# pyrefly: ignore [missing-import]
 from chromadb.config import Settings
 from backend.rag.chunking.chunker import TextChunk
 from backend.rag.chunking.parent_child_chunker import ChildChunk
