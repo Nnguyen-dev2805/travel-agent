@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# pyrefly: ignore [missing-import]
 import pytest
 from backend.rag.evaluation.evaluator import RAGEvaluator
 
