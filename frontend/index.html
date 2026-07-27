@@ -6,9 +6,57 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ChatGPT - Modern AI Workspace</title>
     <!-- Tailwind CDN & Fonts -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <style>
+      /* High-contrast Modern Dark Mode Markdown Table Styles */
+      .prose table {
+        width: 100% !important;
+        border-collapse: separate !important;
+        border-spacing: 0 !important;
+        margin: 1.5rem 0 !important;
+        border-radius: 12px !important;
+        overflow: hidden !important;
+        border: 2px solid #4f4f4f !important;
+        background-color: #1a1a1a !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+      }
+      .prose th {
+        background-color: #262626 !important;
+        color: #10a37f !important;
+        font-weight: 700 !important;
+        padding: 14px 18px !important;
+        border-bottom: 2px solid #4f4f4f !important;
+        border-right: 1px solid #3d3d3d !important;
+        text-transform: uppercase !important;
+        font-size: 0.85rem !important;
+        letter-spacing: 0.05em !important;
+      }
+      .prose th:last-child {
+        border-right: none !important;
+      }
+      .prose td {
+        padding: 12px 18px !important;
+        border-bottom: 1px solid #3d3d3d !important;
+        border-right: 1px solid #3d3d3d !important;
+        color: #e2e8f0 !important;
+        font-size: 0.95rem !important;
+        line-height: 1.6 !important;
+      }
+      .prose td:last-child {
+        border-right: none !important;
+      }
+      .prose tr:last-child td {
+        border-bottom: none !important;
+      }
+      .prose tr:nth-child(even) {
+        background-color: #222222 !important;
+      }
+      .prose tr:hover {
+        background-color: #2e2e2e !important;
+      }
+    </style>
   </head>
   <body class="bg-[#212121] text-white">
     <div id="root"></div>

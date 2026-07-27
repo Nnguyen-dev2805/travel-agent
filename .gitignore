@@ -31,6 +31,7 @@ yarn-error.log*
 
 # Vector DB & Generated Data Indexes
 data/chromadb/
+data/test_chromadb/
 data/indexes/
 data/embeddings/
 data/chunks/

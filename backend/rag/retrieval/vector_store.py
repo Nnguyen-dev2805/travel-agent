@@ -1,11 +1,16 @@
-"""ChromaDB Vector Store management module."""
+"""ChromaDB Vector Store management module supporting Dual Collections and Parent-Child Chunks."""
+
+from __future__ import annotations
 
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+# pyrefly: ignore [missing-import]
 import chromadb
+# pyrefly: ignore [missing-import]
 from chromadb.config import Settings
 from backend.rag.chunking.chunker import TextChunk
+from backend.rag.chunking.parent_child_chunker import ChildChunk
 
 logger = logging.getLogger("travel_agent_vector_store")
 
@@ -44,15 +49,7 @@ class ChromaVectorStore:
     def add_chunks(
         self, chunks: List[TextChunk], embeddings: List[List[float]]
     ) -> int:
-        """Store TextChunks and their vectors in ChromaDB.
-
-        Args:
-            chunks: List of TextChunk dataclass instances.
-            embeddings: List of matching float vectors (1024-dim).
-
-        Returns:
-            Number of chunks successfully added/upserted.
-        """
+        """Store Baseline TextChunks and their vectors in ChromaDB."""
         if not chunks or not embeddings:
             return 0
 
@@ -63,7 +60,6 @@ class ChromaVectorStore:
         documents = [chunk.text for chunk in chunks]
         metadatas = [chunk.metadata for chunk in chunks]
 
-        # Batch upsert into ChromaDB
         batch_size = 200
         total_added = 0
 
@@ -81,7 +77,55 @@ class ChromaVectorStore:
             )
             total_added += len(batch_ids)
 
-        logger.info(f"Upserted {total_added} chunks into ChromaDB collection '{self.collection_name}'.")
+        logger.info(f"Upserted {total_added} baseline chunks into collection '{self.collection_name}'.")
+        return total_added
+
+    def add_parent_child_chunks(
+        self, child_chunks: List[ChildChunk], embeddings: List[List[float]]
+    ) -> int:
+        """Store ChildChunks (using retrieval_text for embedding, source_text in metadata) in ChromaDB."""
+        if not child_chunks or not embeddings:
+            return 0
+
+        if len(child_chunks) != len(embeddings):
+            raise ValueError("Length of child_chunks and embeddings must match exactly.")
+
+        ids = [chunk.child_id for chunk in child_chunks]
+        documents = [chunk.retrieval_text for chunk in child_chunks]
+        metadatas = [
+            {
+                "child_id": chunk.child_id,
+                "parent_id": chunk.parent_id,
+                "document_id": chunk.document_id,
+                "heading": chunk.heading,
+                "heading_path": " > ".join(chunk.heading_path),
+                "source_text": chunk.source_text,
+                "word_count": chunk.word_count,
+                "url": str(chunk.metadata.get("url") or ""),
+                "title": str(chunk.metadata.get("title") or ""),
+                "language": str(chunk.metadata.get("language") or "en"),
+            }
+            for chunk in child_chunks
+        ]
+
+        batch_size = 200
+        total_added = 0
+
+        for i in range(0, len(ids), batch_size):
+            batch_ids = ids[i : i + batch_size]
+            batch_docs = documents[i : i + batch_size]
+            batch_metas = metadatas[i : i + batch_size]
+            batch_embeds = embeddings[i : i + batch_size]
+
+            self.collection.upsert(
+                ids=batch_ids,
+                documents=batch_docs,
+                metadatas=batch_metas,
+                embeddings=batch_embeds,
+            )
+            total_added += len(batch_ids)
+
+        logger.info(f"Upserted {total_added} parent-child chunks into collection '{self.collection_name}'.")
         return total_added
 
     def search_similar(
@@ -89,12 +133,8 @@ class ChromaVectorStore:
     ) -> List[Dict[str, Any]]:
         """Search top-k most similar text chunks for a query embedding.
 
-        Args:
-            query_embedding: Search query float vector (1024-dim).
-            top_k: Number of top documents to retrieve.
-
         Returns:
-            List of dictionary items containing chunk_id, text, metadata, and score.
+            List of dictionary items containing chunk_id, text (source_text if present), metadata, and score.
         """
         if not query_embedding:
             return []
@@ -114,12 +154,13 @@ class ChromaVectorStore:
             distances = results["distances"][0]
 
             for chunk_id, text, meta, dist in zip(ids, docs, metas, distances):
-                # Convert L2 distance to similarity score
                 similarity_score = round(1.0 / (1.0 + float(dist)), 4)
+                # Prefer clean source_text from metadata if available
+                display_text = meta.get("source_text") if meta and meta.get("source_text") else text
                 formatted_results.append(
                     {
                         "chunk_id": chunk_id,
-                        "text": text,
+                        "text": display_text,
                         "metadata": meta,
                         "score": similarity_score,
                     }

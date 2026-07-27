@@ -5,7 +5,7 @@ from backend.rag.chunking import TextChunk
 from backend.rag.embedding import VectorEmbedder
 from backend.rag.retrieval import ChromaVectorStore
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+ROOT_DIR = Path(__file__).resolve().parents[3]
 TEST_CHROMADB_DIR = ROOT_DIR / "data" / "test_chromadb"
 
 
