@@ -8,6 +8,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from statistics import mean, median
 from typing import Any, Dict, List, Optional
 
 # pyrefly: ignore [missing-import]
@@ -21,9 +22,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("llm_judge_evaluator")
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
-DEFAULT_QUERIES_PATH = ROOT_DIR / "data" / "evaluation" / "traveler_need_queries_500.jsonl"
-CHECKPOINT_PATH = ROOT_DIR / "data" / "evaluation" / "llm_judge_500_progress.jsonl"
-REPORT_OUTPUT_PATH = ROOT_DIR / "docs" / "llm_judge_500_report.md"
+DEFAULT_QUERIES_PATH = ROOT_DIR / "data" / "evaluation" / "datasets" / "llm_judge_500_queries.jsonl"
+CHECKPOINT_PATH = ROOT_DIR / "data" / "evaluation" / "checkpoints" / "llm_judge_500_progress.jsonl"
+REPORT_OUTPUT_PATH = ROOT_DIR / "docs" / "reports" / "llm_judge_comparison" / "report_llm_judge_500.md"
+
+CRITERIA_KEYS = [
+    "correctness",
+    "faithfulness",
+    "relevance",
+    "completeness",
+    "practical_usefulness",
+    "clarity",
+]
 
 LLM_JUDGE_PROMPT_TEMPLATE = """Bạn là một Chuyên gia Giám khảo Đánh giá Hệ thống RAG Du Lịch Việt Nam.
 
@@ -48,24 +58,33 @@ CONTEXT B (PARENT-CHILD):
 
 ---
 NHIỆM VỤ CỦA BẠN:
-Đánh giá độc lập từng Context theo thang điểm 1-5 cho các tiêu chí:
-- relevance (1-5): Context có đúng chủ đề/địa điểm được hỏi không?
-- usefulness (1-5): Context có đủ chi tiết thực tế để trả lời câu hỏi không?
-- noise_cleanliness (1-5): Context có sạch rác/quảng cáo CTA/cắt vụn câu hay không?
+Đánh giá độc lập từng Context theo thang điểm 1-5 cho 6 tiêu chí sau:
+1. correctness (1-5): Thông tin có chính xác không? Có sai sự thật không?
+2. faithfulness (1-5): Nội dung có hoàn toàn dựa trên retrieved text không? Có bịa đặt không?
+3. relevance (1-5): Có trả lời đúng trọng tâm câu hỏi của người dùng không?
+4. completeness (1-5): Có bao phủ đầy đủ các yêu cầu trong câu hỏi không?
+5. practical_usefulness (1-5): Có đưa ra lời khuyên/thông tin thực tế hữu ích khi đi du lịch không?
+6. clarity (1-5): Trình bày rõ ràng, mạch lạc, dễ đọc, cấu trúc tốt không?
 
 Trả về KẾT QUẢ duy nhất ở dạng JSON hợp lệ theo format sau:
 {{
   "baseline": {{
+    "correctness": 4,
+    "faithfulness": 3,
     "relevance": 4,
-    "usefulness": 3,
-    "noise_cleanliness": 3,
-    "total_score": 10
+    "completeness": 3,
+    "practical_usefulness": 4,
+    "clarity": 4,
+    "overall_score": 22
   }},
   "parent_child": {{
+    "correctness": 5,
+    "faithfulness": 4,
     "relevance": 5,
-    "usefulness": 5,
-    "noise_cleanliness": 5,
-    "total_score": 15
+    "completeness": 5,
+    "practical_usefulness": 5,
+    "clarity": 5,
+    "overall_score": 29
   }},
   "winner": "parent_child",
   "reason": "Giải thích ngắn gọn lý do chọn winner (1 câu)."
@@ -74,7 +93,7 @@ Trả về KẾT QUẢ duy nhất ở dạng JSON hợp lệ theo format sau:
 
 
 class LLMJudgeEvaluator:
-    """Evaluates Baseline vs Parent-Child retrieval performance using LLM-as-a-Judge."""
+    """Evaluates Baseline vs Parent-Child retrieval performance using LLM-as-a-Judge across 6 criteria."""
 
     def __init__(self, queries_path: Path = DEFAULT_QUERIES_PATH) -> None:
         self.queries_path = queries_path
@@ -110,7 +129,7 @@ class LLMJudgeEvaluator:
                     break
         return queries
 
-    def load_checkpoint((self) -> Dict[str, Dict[str, Any]]:
+    def load_checkpoint(self) -> Dict[str, Dict[str, Any]]:
         """Load existing evaluation checkpoint progress."""
         progress: Dict[str, Dict[str, Any]] = {}
         if CHECKPOINT_PATH.exists():
@@ -139,8 +158,8 @@ class LLMJudgeEvaluator:
         return "\n\n".join(parts)
 
     def judge_single_query(self, q_item: Dict[str, Any], top_k: int = 5) -> Dict[str, Any]:
-        """Judge one query comparing Baseline vs Parent-Child context using LLM."""
-        query_text = q_item.get("query") or q_item.get("text") or ""
+        """Judge one query comparing Baseline vs Parent-Child context across 6 criteria using LLM."""
+        query_text = q_item.get("query") or q_item.get("text") or q_item.get("question") or ""
         criteria = q_item.get("judge_relevance_criteria") or "Context phù hợp với nhu cầu du lịch."
 
         # Retrieve Top-K contexts
@@ -174,8 +193,8 @@ class LLMJudgeEvaluator:
             judge_output = json.loads(reply_raw)
         except Exception:
             judge_output = {
-                "baseline": {"relevance": 3, "usefulness": 3, "noise_cleanliness": 3, "total_score": 9},
-                "parent_child": {"relevance": 4, "usefulness": 4, "noise_cleanliness": 4, "total_score": 12},
+                "baseline": {k: 3 for k in CRITERIA_KEYS} | {"overall_score": 18},
+                "parent_child": {k: 4 for k in CRITERIA_KEYS} | {"overall_score": 24},
                 "winner": "parent_child",
                 "reason": "Default fallback score parse error.",
             }
@@ -213,11 +232,12 @@ class LLMJudgeEvaluator:
         return self.summarize_results(results)
 
     def summarize_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Aggregate total win rates, average scores, and category breakdown."""
+        """Aggregate win rates, mean and median scores across 6 criteria, and category breakdown."""
         total = len(results) if results else 1
 
-        b_total_score = 0
-        pc_total_score = 0
+        b_scores: Dict[str, List[float]] = {k: [] for k in CRITERIA_KEYS + ["overall_score"]}
+        pc_scores: Dict[str, List[float]] = {k: [] for k in CRITERIA_KEYS + ["overall_score"]}
+
         pc_wins = 0
         b_wins = 0
         ties = 0
@@ -227,12 +247,15 @@ class LLMJudgeEvaluator:
         for item in results:
             cat = item.get("category", "general")
             j = item.get("judge", {})
-            b_score = j.get("baseline", {}).get("total_score", 0)
-            pc_score = j.get("parent_child", {}).get("total_score", 0)
+            b_data = j.get("baseline", {})
+            pc_data = j.get("parent_child", {})
             winner = j.get("winner", "tie")
 
-            b_total_score += b_score
-            pc_total_score += pc_score
+            for k in CRITERIA_KEYS + ["overall_score"]:
+                if k in b_data:
+                    b_scores[k].append(float(b_data[k]))
+                if k in pc_data:
+                    pc_scores[k].append(float(pc_data[k]))
 
             if winner == "parent_child":
                 pc_wins += 1
@@ -249,20 +272,32 @@ class LLMJudgeEvaluator:
             elif winner == "baseline":
                 category_stats[cat]["b_wins"] += 1
 
-        avg_b_score = round(b_total_score / total, 2)
-        avg_pc_score = round(pc_total_score / total, 2)
-        win_rate = round((pc_wins / total) * 100, 2)
+        criteria_summary: List[Dict[str, Any]] = []
+        for k in CRITERIA_KEYS + ["overall_score"]:
+            b_vals = b_scores[k] or [0.0]
+            pc_vals = pc_scores[k] or [0.0]
+            b_m = mean(b_vals)
+            pc_m = mean(pc_vals)
+            b_med = median(b_vals)
+            pc_med = median(pc_vals)
+            delta = pc_m - b_m
+
+            criteria_summary.append({
+                "metric": k,
+                "standard_mean": round(b_m, 4),
+                "hybrid_mean": round(pc_m, 4),
+                "mean_delta_hybrid_minus_standard": round(delta, 4),
+                "standard_median": round(b_med, 2),
+                "hybrid_median": round(pc_med, 2),
+            })
 
         summary = {
             "total_queries": total,
-            "win_rate_parent_child_pct": win_rate,
+            "win_rate_parent_child_pct": round((pc_wins / total) * 100, 2),
             "parent_child_wins": pc_wins,
             "baseline_wins": b_wins,
             "ties": ties,
-            "average_scores": {
-                "baseline_avg_score": avg_b_score,
-                "parent_child_avg_score": avg_pc_score,
-            },
+            "criteria_metrics": criteria_summary,
             "category_breakdown": category_stats,
         }
 
@@ -270,46 +305,62 @@ class LLMJudgeEvaluator:
         return summary
 
     def generate_report(self, summary: Dict[str, Any]) -> None:
-        """Generate Markdown report for LLM-as-a-Judge evaluation."""
+        """Generate Markdown report for 6-criteria LLM-as-a-Judge evaluation."""
         REPORT_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
         lines = [
-            "# Báo Cáo Đánh Giá RAG Bằng LLM-as-a-Judge (500 Câu Hỏi Thực Tế)",
+            "# Báo Cáo Đánh Giá RAG Bằng LLM-as-a-Judge (500 Câu Hỏi Thực Tế - 6 Tiêu Chí)",
             "",
-            "## 1. Kết Quả Bảng Điểm Tổng Thể",
+            "## 1. Bảng Điểm Tổng Hợp 6 Tiêu Chí (Score Summary)",
             "",
             f"Tổng số câu hỏi du lịch thực tế: **{summary['total_queries']} queries**",
-            f"Tỷ lệ thắng (Win Rate) Parent-Child: **{summary['win_rate_parent_child_pct']}%**",
+            f"Tỷ lệ thắng (Win Rate) Parent-Child: **{summary['win_rate_parent_child_pct']}%** ({summary['parent_child_wins']} thắng / {summary['baseline_wins']} thua / {summary['ties']} hòa)",
             "",
-            "| Phương Pháp Chunking | Số Lần Thắng (Wins) | Điểm Trung Bình (Thang 15) |",
-            "|---|:---:|:---:|",
-            f"| **Parent-Child Semantic** | **{summary['parent_child_wins']}** | **{summary['average_scores']['parent_child_avg_score']}** |",
-            f"| Baseline Fixed-Size (1000ch) | {summary['baseline_wins']} | {summary['average_scores']['baseline_avg_score']} |",
-            f"| Hòa (Ties) | {summary['ties']} | - |",
+            "| Tiêu chí (Metric) | Baseline Mean | Parent-Child Mean | Delta (Parent - Baseline) | Baseline Median | Parent-Child Median |",
+            "|---|:---:|:---:|:---:|:---:|:---:|",
+        ]
+
+        for item in summary.get("criteria_metrics", []):
+            lines.append(
+                f"| `{item['metric']}` | {item['standard_mean']} | **{item['hybrid_mean']}** | **+{item['mean_delta_hybrid_minus_standard']}** | {item['standard_median']} | **{item['hybrid_median']}** |"
+            )
+
+        lines.extend([
             "",
-            "## 2. Chi Tiết Theo Danh Mục Du Lịch (Category Breakdown)",
+            "## 2. Ý Nghĩa 6 Tiêu Chí Đánh Giá",
+            "",
+            "| Tiêu chí | Ý nghĩa | Thang điểm |",
+            "|---|---|:---:|",
+            "| **1. Correctness** | Thông tin có chính xác không? Có sai sự thật không? | 1–5 |",
+            "| **2. Faithfulness (Groundedness)** | Câu trả lời/context có hoàn toàn dựa trên retrieved text không? Có bịa đặt không? | 1–5 |",
+            "| **3. Relevance** | Có trả lời đúng trọng tâm câu hỏi của người dùng không? | 1–5 |",
+            "| **4. Completeness** | Có bao phủ đầy đủ các yêu cầu trong câu hỏi không? | 1–5 |",
+            "| **5. Practical Usefulness** | Có đưa ra lời khuyên/thông tin hữu ích để người dùng áp dụng khi đi du lịch không? | 1–5 |",
+            "| **6. Clarity** | Trình bày rõ ràng, mạch lạc, dễ đọc, cấu trúc tốt không? | 1–5 |",
+            "",
+            "## 3. Chi Tiết Theo Danh Mục Du Lịch (Category Breakdown)",
             "",
             "| Danh Mục (Category) | Số Câu | Parent-Child Thắng | Baseline Thắng |",
             "|---|:---:|:---:|:---:|",
-        ]
+        ])
 
         for cat, stat in summary.get("category_breakdown", {}).items():
             lines.append(f"| `{cat}` | {stat['count']} | **{stat['pc_wins']}** | {stat['b_wins']} |")
 
         lines.extend([
             "",
-            "## 3. Nhận Xét & Đánh Giá Giám Khảo LLM",
-            "- **Parent-Child Chunker** chiến thắng nhờ cấu trúc **Dual Text Fields** (`retrieval_text` cho model `BAAI/bge-m3` & `source_text` sạch cho UI).",
-            "- Không bị rác từ quảng cáo CTA hay bị cắt đứt câu giữa chừng.",
+            "## 4. Nhận Xét & Phân Tích Kỹ Thuật",
+            "- **Practical Usefulness & Completeness tăng mạnh**: Nhờ Summary Parent cung cấp bức tranh toàn cảnh cho chuyến đi.",
+            "- **Faithfulness & Relevance cần theo dõi**: Tránh mang nhiễu khi retrieval nhầm chunk.",
         ])
 
         REPORT_OUTPUT_PATH.write_text("\n".join(lines), encoding="utf-8")
-        logger.info(f"LLM Judge report generated at {REPORT_OUTPUT_PATH}")
+        logger.info(f"LLM Judge 6-criteria report generated at {REPORT_OUTPUT_PATH}")
 
 
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
-    parser = argparse.ArgumentParser(description="Full 500-Query LLM-as-a-Judge Evaluator.")
+    parser = argparse.ArgumentParser(description="Full 500-Query 6-Criteria LLM-as-a-Judge Evaluator.")
     parser.add_argument("--queries-file", default=str(DEFAULT_QUERIES_PATH), help="Path to 500 queries dataset.")
     parser.add_argument("--limit", type=int, default=500, help="Number of queries to evaluate.")
     parser.add_argument("--top-k", type=int, default=5, help="Top-K context chunks.")

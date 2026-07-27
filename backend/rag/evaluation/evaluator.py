@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
+import math
+from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from statistics import mean
+from typing import Any, Dict, List, Optional, Tuple, Set
 
 from backend.rag.embedding import VectorEmbedder
 from backend.rag.retrieval import ChromaVectorStore
@@ -15,9 +19,59 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("rag_evaluator")
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
-DEFAULT_JSON_TESTSET = ROOT_DIR / "data" / "evaluation" / "document_user_query_testset_en.json"
-DEFAULT_JSONL_TESTSET = ROOT_DIR / "data" / "evaluation" / "traveler_need_queries_500.jsonl"
-REPORT_OUTPUT_PATH = ROOT_DIR / "docs" / "benchmark_comparison_report.md"
+DEFAULT_JSON_TESTSET = ROOT_DIR / "data" / "evaluation" / "datasets" / "retrieval_benchmark_1405_testset.json"
+DEFAULT_JSONL_TESTSET = ROOT_DIR / "data" / "evaluation" / "datasets" / "llm_judge_500_queries.jsonl"
+REPORTS_DIR = ROOT_DIR / "docs" / "reports" / "retrieval_chunk_comparison"
+REPORT_MARKDOWN_PATH = REPORTS_DIR / "retrieval_chunk_comparison_metrics.md"
+K_VALUES = [1, 3, 5, 10, 20]
+
+
+def normalize_url(url: Any) -> str:
+    """Normalize URL string for exact comparison."""
+    if not url or not isinstance(url, str):
+        return ""
+    return url.strip().rstrip("/")
+
+
+def reciprocal_rank(relevant_ranks: List[int], k: int) -> float:
+    """Compute Reciprocal Rank for the first relevant result within top-k."""
+    for rank in relevant_ranks:
+        if rank <= k:
+            return 1.0 / rank
+    return 0.0
+
+
+def dcg_at_k(relevance: List[int], k: int) -> float:
+    """Compute binary DCG@k."""
+    total = 0.0
+    for index, rel in enumerate(relevance[:k], start=1):
+        if rel:
+            total += 1.0 / math.log2(index + 1)
+    return total
+
+
+def ndcg_at_k(relevance: List[int], k: int) -> float:
+    """Compute binary nDCG@k."""
+    relevant_total = sum(1 for val in relevance if val)
+    if relevant_total == 0:
+        return 0.0
+    ideal_relevant = [1] * min(relevant_total, k)
+    ideal_dcg = dcg_at_k(ideal_relevant, k)
+    if ideal_dcg == 0:
+        return 0.0
+    return dcg_at_k(relevance, k) / ideal_dcg
+
+
+def source_url_hit(results: List[Dict[str, Any]], expected_url: str, k: int) -> int:
+    """Return 1 when expected source URL appears in top-k."""
+    if not expected_url:
+        return 0
+    for item in results[:k]:
+        meta = item.get("metadata") or {}
+        item_url = item.get("source_url") or meta.get("source_url") or meta.get("url")
+        if normalize_url(item_url) == expected_url:
+            return 1
+    return 0
 
 
 class RAGEvaluator:
@@ -45,9 +99,14 @@ class RAGEvaluator:
                     if not q_text:
                         continue
                     queries.append({
-                        "query": q_text,
-                        "expected_document_id": raw.get("expected_document_id") or raw.get("document_id"),
-                        "expected_document_title": raw.get("expected_document_title") or raw.get("title"),
+                        "query_id": raw.get("query_id") or f"q_{len(queries)+1}",
+                        "question": q_text,
+                        "query_type": raw.get("query_type", "general"),
+                        "category": raw.get("category", "Uncategorized"),
+                        "url_group": raw.get("url_group", "unknown"),
+                        "expected_document_id": str(raw.get("expected_document_id") or raw.get("document_id") or ""),
+                        "expected_document_title": raw.get("expected_document_title") or raw.get("title") or "",
+                        "expected_source_url": raw.get("expected_source_url") or raw.get("source_url") or "",
                         "expected_keywords": raw.get("expected_keywords") or raw.get("locations") or [],
                     })
                     if limit is not None and len(queries) >= limit:
@@ -62,140 +121,261 @@ class RAGEvaluator:
                     if not q_text:
                         continue
                     queries.append({
-                        "query": q_text,
-                        "expected_document_id": raw.get("expected_document_id") or raw.get("document_id"),
-                        "expected_document_title": raw.get("expected_document_title") or raw.get("title"),
+                        "query_id": raw.get("query_id") or f"q_{len(queries)+1}",
+                        "question": q_text,
+                        "query_type": raw.get("query_type", "general"),
+                        "category": raw.get("category", "Uncategorized"),
+                        "url_group": raw.get("url_group", "unknown"),
+                        "expected_document_id": str(raw.get("expected_document_id") or raw.get("document_id") or ""),
+                        "expected_document_title": raw.get("expected_document_title") or raw.get("title") or "",
+                        "expected_source_url": raw.get("expected_source_url") or raw.get("source_url") or "",
                         "expected_keywords": raw.get("expected_keywords") or raw.get("locations") or [],
                     })
                     if limit is not None and len(queries) >= limit:
                         break
         return queries
 
-    def calculate_hit_rate_and_mrr(
-        self, query_item: Dict[str, Any], results: List[Dict[str, Any]], top_k: int = 5
-    ) -> Tuple[float, float]:
-        """Compute Hit@K and Reciprocal Rank for one query."""
-        expected_doc_id = query_item.get("expected_document_id")
-        expected_title = (query_item.get("expected_document_title") or "").lower()
-        keywords = [str(k).lower() for k in query_item.get("expected_keywords", []) if k]
-        query_text = (query_item.get("query") or "").lower()
+    def compute_query_metrics(
+        self,
+        query_item: Dict[str, Any],
+        results: List[Dict[str, Any]],
+        chunk_strategy: str,
+        k_values: List[int] = K_VALUES,
+    ) -> Dict[str, Any]:
+        """Compute all 7 evaluation metrics across k_values for one query."""
+        expected_doc_id = str(query_item.get("expected_document_id") or "")
+        expected_url = normalize_url(query_item.get("expected_source_url"))
 
-        hit = 0.0
-        rr = 0.0
+        relevance: List[int] = []
+        for item in results:
+            meta = item.get("metadata") or {}
+            doc_id = str(meta.get("document_id") or meta.get("doc_id") or meta.get("id") or "")
+            # Strict 1-Tier Match: Exact Document ID matching
+            if expected_doc_id and doc_id and doc_id == expected_doc_id:
+                relevance.append(1)
+            else:
+                relevance.append(0)
 
-        for rank, res in enumerate(results[:top_k], 1):
-            meta = res.get("metadata") or {}
-            doc_id = str(meta.get("document_id") or meta.get("id") or "")
-            title = str(meta.get("title") or "").lower()
-            chunk_text = (res.get("text") or "").lower()
-            heading = str(meta.get("heading") or "").lower()
-            full_context = f"{chunk_text} {title} {heading}"
+        relevant_ranks = [rank for rank, val in enumerate(relevance, start=1) if val]
+        first_rank = relevant_ranks[0] if relevant_ranks else None
 
-            # Check 1: Exact Document ID matching (Ground Truth)
-            is_exact_doc_id_match = (expected_doc_id and doc_id and str(doc_id) == str(expected_doc_id))
-
-            # Check 2: Exact Document Title matching
-            is_exact_title_match = (expected_title and title and expected_title in title)
-
-            # Check 3: Keyword / Text semantic matching fallback
-            is_keyword_match = any(kw in full_context for kw in keywords) if keywords else False
-            is_fallback_match = any(word in full_context for word in query_text.split() if len(word) > 3)
-
-            if is_exact_doc_id_match or is_exact_title_match or is_keyword_match or is_fallback_match:
-                hit = 1.0
-                if rr == 0.0:
-                    rr = 1.0 / rank
-
-        return hit, rr
-
-    def evaluate_benchmark(self, sample_limit: Optional[int] = None, top_k: int = 5) -> Dict[str, Any]:
-        """Run full evaluation comparison benchmark between Baseline and Parent-Child strategies."""
-        queries = self.load_eval_queries(limit=sample_limit)
-        logger.info(f"Loaded {len(queries)} test queries from {self.eval_path.name} for evaluation benchmark.")
-
-        b_hits, b_rrs = [], []
-        pc_hits, pc_rrs = [], []
-
-        for idx, q_item in enumerate(queries, 1):
-            query = q_item["query"]
-            if not query:
-                continue
-
-            q_embed = self.embedder.embed_query(query)
-
-            # 1. Baseline Search
-            b_res = self.baseline_store.search_similar(q_embed, top_k=top_k)
-            b_hit, b_rr = self.calculate_hit_rate_and_mrr(q_item, b_res, top_k=top_k)
-            b_hits.append(b_hit)
-            b_rrs.append(b_rr)
-
-            # 2. Parent-Child Search
-            pc_res = self.parent_child_store.search_similar(q_embed, top_k=top_k)
-            pc_hit, pc_rr = self.calculate_hit_rate_and_mrr(q_item, pc_res, top_k=top_k)
-            pc_hits.append(pc_hit)
-            pc_rrs.append(pc_rr)
-
-        total_q = len(b_hits) if b_hits else 1
-
-        b_hit_rate = (sum(b_hits) / total_q) * 100
-        b_mrr = sum(b_rrs) / total_q
-
-        pc_hit_rate = (sum(pc_hits) / total_q) * 100
-        pc_mrr = sum(pc_rrs) / total_q
-
-        summary = {
-            "queries_count": total_q,
-            "dataset_file": self.eval_path.name,
-            "baseline": {
-                "hit_rate_at_5": round(b_hit_rate, 2),
-                "mrr_at_5": round(b_mrr, 4),
-            },
-            "parent_child": {
-                "hit_rate_at_5": round(pc_hit_rate, 2),
-                "mrr_at_5": round(pc_mrr, 4),
-            },
-            "improvements": {
-                "hit_rate_gain_pct": round(pc_hit_rate - b_hit_rate, 2),
-                "mrr_gain": round(pc_mrr - b_mrr, 4),
-            },
+        metrics: Dict[str, Any] = {
+            "query_id": query_item.get("query_id"),
+            "question": query_item.get("question"),
+            "query_type": query_item.get("query_type"),
+            "category": query_item.get("category"),
+            "url_group": query_item.get("url_group"),
+            "expected_document_id": expected_doc_id,
+            "expected_document_title": query_item.get("expected_document_title"),
+            "chunk_strategy": chunk_strategy,
+            "first_relevant_rank": first_rank,
+            "retrieved_count": len(results),
         }
 
-        self.generate_report(summary)
-        return summary
+        for k in k_values:
+            top_k = results[:k]
+            relevant_count = sum(relevance[:k])
+            unique_docs: Set[str] = set()
+            for item in top_k:
+                meta = item.get("metadata") or {}
+                d_id = str(meta.get("document_id") or meta.get("id") or "")
+                if d_id:
+                    unique_docs.add(d_id)
 
-    def generate_report(self, summary: Dict[str, Any]) -> None:
-        """Generate Markdown benchmark comparison report."""
-        REPORT_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+            metrics[f"hit@{k}"] = 1 if relevant_count > 0 else 0
+            metrics[f"mrr@{k}"] = reciprocal_rank(relevant_ranks, k)
+            metrics[f"ndcg@{k}"] = ndcg_at_k(relevance, k)
+            metrics[f"precision@{k}"] = relevant_count / k if k > 0 else 0.0
+            metrics[f"relevant_chunks@{k}"] = relevant_count
+            metrics[f"unique_docs@{k}"] = len(unique_docs)
+            metrics[f"source_url_hit@{k}"] = source_url_hit(results, expected_url, k)
+
+        return metrics
+
+    def evaluate_benchmark(
+        self, sample_limit: Optional[int] = None, k_values: List[int] = K_VALUES
+    ) -> Dict[str, Any]:
+        """Run full evaluation benchmark measuring 7 metrics across k_values and export CSV reports."""
+        queries = self.load_eval_queries(limit=sample_limit)
+        max_k = max(k_values)
+        logger.info(f"Loaded {len(queries)} queries for benchmark evaluation (max_k={max_k}).")
+
+        all_query_metrics: List[Dict[str, Any]] = []
+
+        for idx, q_item in enumerate(queries, 1):
+            q_text = q_item["question"]
+            if not q_text:
+                continue
+
+            q_embed = self.embedder.embed_query(q_text)
+
+            # 1. Baseline Search
+            b_results = self.baseline_store.search_similar(q_embed, top_k=max_k)
+            b_metrics = self.compute_query_metrics(q_item, b_results, chunk_strategy="baseline_fixed_1000ch", k_values=k_values)
+            all_query_metrics.append(b_metrics)
+
+            # 2. Parent-Child Search
+            pc_results = self.parent_child_store.search_similar(q_embed, top_k=max_k)
+            pc_metrics = self.compute_query_metrics(q_item, pc_results, chunk_strategy="semantic_parent_child", k_values=k_values)
+            all_query_metrics.append(pc_metrics)
+
+        # Export CSVs and generate markdown report
+        summary_data = self.export_reports(all_query_metrics, k_values=k_values)
+        return summary_data
+
+    def export_reports(
+        self, all_query_metrics: List[Dict[str, Any]], k_values: List[int] = K_VALUES
+    ) -> Dict[str, Any]:
+        """Aggregate metrics and export CSV breakdown reports."""
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+        # 1. Summary By Run (Baseline vs Parent-Child)
+        summary_by_run: List[Dict[str, Any]] = []
+        for strategy in ["baseline_fixed_1000ch", "semantic_parent_child"]:
+            rows = [r for r in all_query_metrics if r["chunk_strategy"] == strategy]
+            q_count = len(rows) if rows else 1
+            record: Dict[str, Any] = {"chunk_strategy": strategy, "query_count": q_count}
+            for k in k_values:
+                for metric in ("hit", "mrr", "ndcg", "precision", "relevant_chunks", "unique_docs", "source_url_hit"):
+                    m_key = f"{metric}@{k}"
+                    vals = [r[m_key] for r in rows if m_key in r]
+                    record[m_key] = round(mean(vals), 4) if vals else 0.0
+            summary_by_run.append(record)
+
+        self._write_csv(REPORTS_DIR / "summary_by_run.csv", summary_by_run)
+
+        # 2. Summary By Category
+        summary_by_category = self._aggregate_by_group(all_query_metrics, "category", k_values)
+        self._write_csv(REPORTS_DIR / "summary_by_category.csv", summary_by_category)
+
+        # 3. Summary By URL Group
+        summary_by_url_group = self._aggregate_by_group(all_query_metrics, "url_group", k_values)
+        self._write_csv(REPORTS_DIR / "summary_by_url_group.csv", summary_by_url_group)
+
+        # 4. Top Failures at Top-20 (Hit@20 == 0)
+        top_failures = [r for r in all_query_metrics if r.get("hit@20") == 0]
+        self._write_csv(REPORTS_DIR / "top_failures_at_20.csv", top_failures[:200])
+
+        summary_dict = {
+            "queries_count": len(all_query_metrics) // 2,
+            "reports_directory": str(REPORTS_DIR),
+            "runs": summary_by_run,
+        }
+
+        self.generate_report(summary_by_run, len(all_query_metrics) // 2)
+        return summary_dict
+
+    def _aggregate_by_group(
+        self, rows: List[Dict[str, Any]], group_field: str, k_values: List[int]
+    ) -> List[Dict[str, Any]]:
+        """Aggregate query metrics by metadata group field."""
+        grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+        for r in rows:
+            key = (r["chunk_strategy"], str(r.get(group_field) or "unknown"))
+            grouped[key].append(r)
+
+        output: List[Dict[str, Any]] = []
+        for (strategy, g_val), group_rows in sorted(grouped.items()):
+            rec: Dict[str, Any] = {
+                "chunk_strategy": strategy,
+                group_field: g_val,
+                "query_count": len(group_rows),
+            }
+            for k in k_values:
+                for metric in ("hit", "mrr", "ndcg", "precision"):
+                    m_key = f"{metric}@{k}"
+                    vals = [r[m_key] for r in group_rows if m_key in r]
+                    rec[m_key] = round(mean(vals), 4) if vals else 0.0
+            output.append(rec)
+        return output
+
+    def _write_csv(self, path: Path, rows: List[Dict[str, Any]]) -> None:
+        """Write list of dicts to CSV with UTF-8 encoding."""
+        if not rows:
+            path.write_text("", encoding="utf-8")
+            return
+        fieldnames = list(rows[0].keys())
+        with path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+        logger.info(f"Exported CSV report to {path}")
+
+    def generate_report(self, summary_by_run: List[Dict[str, Any]], total_queries: int) -> None:
+        """Generate Markdown benchmark metrics report."""
+        REPORT_MARKDOWN_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        b_run = next((r for r in summary_by_run if r["chunk_strategy"] == "baseline_fixed_1000ch"), {})
+        pc_run = next((r for r in summary_by_run if r["chunk_strategy"] == "semantic_parent_child"), {})
 
         lines = [
-            "# Báo Cáo So Sánh Benchmark RAG: Baseline vs Parent-Child Strategy",
+            "# Báo Cáo Đánh Giá Chi Tiết Retrieval RAG: Baseline vs Parent-Child Strategy",
             "",
-            "## 1. Kết Quả Đo Đạc Định Lượng (Quantitative Metrics)",
+            "## 1. Kết Quả Đo Đạc Tổng Thể (7 Chỉ Số trên các Mức K)",
             "",
-            f"Tập dữ liệu kiểm thử: `{summary['dataset_file']}` ({summary['queries_count']} test queries)",
+            f"Tập dữ liệu kiểm thử: `{self.eval_path.name}` ({total_queries} test queries)",
             "",
-            "| Chỉ số Đánh Giá (Metric) | Baseline (Fixed-Size 1000ch) | Solution Mới (Parent-Child) | Mức Độ Cải Thiện |",
-            "|---|:---:|:---:|:---:|",
-            f"| **Hit Rate @ 5** | {summary['baseline']['hit_rate_at_5']}% | **{summary['parent_child']['hit_rate_at_5']}%** | **+{summary['improvements']['hit_rate_gain_pct']}%** |",
-            f"| **MRR @ 5 (Mean Reciprocal Rank)** | {summary['baseline']['mrr_at_5']} | **{summary['parent_child']['mrr_at_5']}** | **+{summary['improvements']['mrr_gain']}** |",
+            "### 📌 1.1. Bảng So Sánh Hit Rate & MRR",
             "",
-            "## 2. Giải Thích Khoa Học Tại Sao Solution Mới Tốt Hơn",
-            "",
-            "### 📌 2.1. Tại sao Hit Rate & MRR tăng vọt?",
-            "- **Nhờ trường `retrieval_text`**: Mỗi Child Chunk được tự động bổ sung tiêu đề và đường dẫn `Article > Section > Heading path`. Khi người dùng đặt câu hỏi, mô hình Dense Vector `BAAI/bge-m3` khớp đúng từ khóa cấp tiêu đề, nâng thứ hạng tài liệu chuẩn lên **Top #1**.",
-            "- **Khắc phục lỗi cắt cụt câu**: Baseline cắt cố định 1000 ký tự làm câu bị xé nhỏ mid-sentence, trong khi Parent-Child cắt theo ranh giới Section (40-360 từ) bảo toàn 100% ngữ nghĩa.",
-            "",
-            "### 📌 2.2. Tại sao Citation trên UI không bị nhiễu?",
-            "- **Nhờ trường `source_text`**: Dữ liệu hiển thị lên giao diện React UI chỉ dùng `source_text` sạch sẽ, giúp người dùng đọc trích dẫn đẹp mắt mà không thấy rác heading.",
+            "| Mức K | Hit Rate (Baseline) | Hit Rate (Parent-Child) | Hit Rate Gain | MRR (Baseline) | MRR (Parent-Child) | MRR Gain |",
+            "|---|:---:|:---:|:---:|:---:|:---:|:---:|",
         ]
 
-        REPORT_OUTPUT_PATH.write_text("\n".join(lines), encoding="utf-8")
-        logger.info(f"Benchmark report generated at {REPORT_OUTPUT_PATH}")
+        for k in K_VALUES:
+            b_hit = b_run.get(f"hit@{k}", 0.0) * 100
+            b_mrr = b_run.get(f"mrr@{k}", 0.0)
+
+            pc_hit = pc_run.get(f"hit@{k}", 0.0) * 100
+            pc_mrr = pc_run.get(f"mrr@{k}", 0.0)
+
+            delta_hit = round(pc_hit - b_hit, 2)
+            delta_mrr = round(pc_mrr - b_mrr, 4)
+
+            lines.append(
+                f"| **K={k}** | {b_hit:.2f}% | **{pc_hit:.2f}%** | **+{delta_hit}%** | {b_mrr:.4f} | **{pc_mrr:.4f}** | **+{delta_mrr:.4f}** |"
+            )
+
+        lines.extend([
+            "",
+            "### 📌 1.2. Bảng So Sánh NDCG & Precision",
+            "",
+            "| Mức K | NDCG (Baseline) | NDCG (Parent-Child) | NDCG Gain | Precision (Baseline) | Precision (Parent-Child) | Precision Gain |",
+            "|---|:---:|:---:|:---:|:---:|:---:|:---:|",
+        ])
+
+        for k in K_VALUES:
+            b_ndcg = b_run.get(f"ndcg@{k}", 0.0)
+            b_prec = b_run.get(f"precision@{k}", 0.0) * 100
+
+            pc_ndcg = pc_run.get(f"ndcg@{k}", 0.0)
+            pc_prec = pc_run.get(f"precision@{k}", 0.0) * 100
+
+            delta_ndcg = round(pc_ndcg - b_ndcg, 4)
+            delta_prec = round(pc_prec - b_prec, 2)
+
+            lines.append(
+                f"| **K={k}** | {b_ndcg:.4f} | **{pc_ndcg:.4f}** | **+{delta_ndcg:.4f}** | {b_prec:.2f}% | **{pc_prec:.2f}%** | **+{delta_prec}%** |"
+            )
+
+        lines.extend([
+            "",
+            "## 2. Báo Cáo Xuất CSV Chi Tiết",
+            "",
+            f"Tất cả các file báo cáo CSV chi tiết đã được tự động lưu vào thư mục: `{REPORTS_DIR}`",
+            "",
+            "1. **`summary_by_run.csv`**: Bảng tổng hợp đầy đủ 7 metric trên 5 mức K.",
+            "2. **`summary_by_category.csv`**: Phân tích hiệu năng theo từng danh mục bài viết (`Nightlife`, `Food`, `Beach`...).",
+            "3. **`summary_by_url_group.csv`**: Phân tích hiệu năng theo nhóm đường dẫn (`things-to-do`, `plan-your-trip`...).",
+            "4. **`top_failures_at_20.csv`**: Danh sách các câu hỏi bị thất bại (Hit@20 = 0) để phục vụ công tác audit dữ liệu.",
+        ])
+
+        REPORT_MARKDOWN_PATH.write_text("\n".join(lines), encoding="utf-8")
+        logger.info(f"Benchmark markdown report generated at {REPORT_MARKDOWN_PATH}")
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line options."""
-    parser = argparse.ArgumentParser(description="Automated RAG Evaluation Benchmark.")
+    parser = argparse.ArgumentParser(description="Automated RAG Evaluation Benchmark with Full Metrics & CSV Export.")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of queries to evaluate.")
     parser.add_argument("--dataset", type=str, default=None, help="Path to evaluation dataset.")
     return parser.parse_args()
