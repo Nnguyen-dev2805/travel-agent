@@ -94,16 +94,30 @@ class ChromaVectorStore:
         documents = [chunk.retrieval_text for chunk in child_chunks]
         metadatas = [
             {
+                "record_type": chunk.record_type,
                 "child_id": chunk.child_id,
                 "parent_id": chunk.parent_id,
                 "document_id": chunk.document_id,
                 "heading": chunk.heading,
+                "heading_level": chunk.heading_level,
                 "heading_path": " > ".join(chunk.heading_path),
                 "source_text": chunk.source_text,
-                "word_count": chunk.word_count,
                 "url": str(chunk.metadata.get("url") or ""),
                 "title": str(chunk.metadata.get("title") or ""),
                 "language": str(chunk.metadata.get("language") or "en"),
+                "source_domain": str(chunk.metadata.get("source_domain") or ""),
+                "primary_location": str(chunk.metadata.get("primary_location") or ""),
+                "locations": self._flatten_metadata_value(chunk.metadata.get("locations")),
+                "region": str(chunk.metadata.get("region") or ""),
+                "category": self._flatten_metadata_value(chunk.metadata.get("category")),
+                "topic": str(chunk.metadata.get("topic") or ""),
+                "entity_type": self._flatten_metadata_value(chunk.metadata.get("entity_type")),
+                "content_type": str(chunk.metadata.get("content_type") or ""),
+                "section_index": int(chunk.metadata.get("section_index") or 0),
+                "chunk_index": int(chunk.metadata.get("chunk_index") or 0),
+                "word_count": int(chunk.metadata.get("word_count") or 0),
+                "char_length": int(chunk.metadata.get("char_length") or 0),
+                "chunker_version": str(chunk.metadata.get("chunker_version") or ""),
             }
             for chunk in child_chunks
         ]
@@ -127,6 +141,15 @@ class ChromaVectorStore:
 
         logger.info(f"Upserted {total_added} parent-child chunks into collection '{self.collection_name}'.")
         return total_added
+
+    @staticmethod
+    def _flatten_metadata_value(value: Any) -> str:
+        """Flatten list-like metadata values for Chroma compatibility."""
+        if value is None:
+            return ""
+        if isinstance(value, (list, tuple, set)):
+            return ", ".join(str(item) for item in value if str(item).strip())
+        return str(value)
 
     def search_similar(
         self, query_embedding: List[float], top_k: int = 4

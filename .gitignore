@@ -45,3 +45,28 @@ Thumbs.db
 
 # General Logs
 *.log
+
+# Python virtual environments
+.venv/
+.venv312/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+hardware/
+
+
+notebooks/*

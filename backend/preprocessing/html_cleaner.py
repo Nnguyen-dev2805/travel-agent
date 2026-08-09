@@ -109,7 +109,7 @@ class InputDocument:
     raw_html_path: str
     source_domain: str | None = None
 
-
+# chuẩn hóa test
 def normalize_text(value: str | None) -> str:
     """Normalize Unicode, entities, mojibake, and whitespace."""
 

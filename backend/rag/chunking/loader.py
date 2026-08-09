@@ -38,7 +38,7 @@ def load_jsonl_dataset(file_path: Path) -> List[Dict[str, Any]]:
                     if not isinstance(doc, dict):
                         continue
 
-                    text = doc.get("text", "") or doc.get("clean_text", "")
+                    text = doc.get("text", "") or doc.get("clean_text", "") or doc.get("plain_text", "")
                     text = text.strip()
                     title = doc.get("title", "") or doc.get("clean_title", "")
                     title = title.strip()
@@ -51,7 +51,8 @@ def load_jsonl_dataset(file_path: Path) -> List[Dict[str, Any]]:
 
                     document_id = doc.get("document_id") or f"doc_{index}"
 
-                    validated_doc = {
+                    validated_doc = dict(doc)
+                    validated_doc.update({
                         "document_id": str(document_id),
                         "url": url,
                         "title": title or "Untitled Travel Guide",
@@ -61,7 +62,7 @@ def load_jsonl_dataset(file_path: Path) -> List[Dict[str, Any]]:
                         "language": doc.get("language", "en"),
                         "source": doc.get("source", "Vietnam Travel"),
                         "source_domain": doc.get("source_domain", "vietnam.travel"),
-                    }
+                    })
                     documents.append(validated_doc)
 
                 if documents:
@@ -93,7 +94,8 @@ def load_jsonl_dataset(file_path: Path) -> List[Dict[str, Any]]:
 
                 document_id = doc.get("document_id") or f"doc_{line_number}"
 
-                validated_doc = {
+                validated_doc = dict(doc)
+                validated_doc.update({
                     "document_id": str(document_id),
                     "url": url,
                     "title": title or "Untitled Travel Guide",
@@ -103,7 +105,7 @@ def load_jsonl_dataset(file_path: Path) -> List[Dict[str, Any]]:
                     "language": doc.get("language", "en"),
                     "source": doc.get("source", "Vietnam Travel"),
                     "source_domain": doc.get("source_domain", "vietnam.travel"),
-                }
+                })
                 documents.append(validated_doc)
 
             except json.JSONDecodeError:

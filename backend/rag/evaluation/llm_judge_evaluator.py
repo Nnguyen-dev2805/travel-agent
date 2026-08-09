@@ -97,7 +97,7 @@ class LLMJudgeEvaluator:
 
     def __init__(self, queries_path: Path = DEFAULT_QUERIES_PATH) -> None:
         self.queries_path = queries_path
-        self.embedder = VectorEmbedder(model_name="BAAI/bge-m3")
+        self.embedder = VectorEmbedder()
         self.baseline_store = ChromaVectorStore(collection_name="vietnam_travel_knowledge")
         self.parent_child_store = ChromaVectorStore(collection_name="vietnam_travel_parent_child")
         self._client: Optional[OpenAI] = None

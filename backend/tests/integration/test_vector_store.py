@@ -10,11 +10,11 @@ TEST_CHROMADB_DIR = ROOT_DIR / "data" / "test_chromadb"
 
 
 def test_embedder_generation():
-    """Test vector embedder returns 1024-dim float vectors."""
+    """Test vector embedder returns a configured float vector."""
     embedder = VectorEmbedder()
     vector = embedder.embed_query("Hà Nội có gì đẹp?")
     assert isinstance(vector, list)
-    assert len(vector) == 1024
+    assert len(vector) == embedder.embedding_dimensions
     assert isinstance(vector[0], float)
 
 

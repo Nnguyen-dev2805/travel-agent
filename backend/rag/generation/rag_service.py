@@ -16,7 +16,7 @@ class RAGService:
     """Orchestrates retrieval of relevant travel knowledge and LLM answer generation."""
 
     def __init__(self, collection_name: str = "vietnam_travel_parent_child") -> None:
-        self.embedder = VectorEmbedder(model_name="BAAI/bge-m3")
+        self.embedder = VectorEmbedder()
         self.vector_store = ChromaVectorStore(collection_name=collection_name)
 
     def _get_llm_client(self) -> OpenAI:

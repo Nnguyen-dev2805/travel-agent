@@ -39,7 +39,7 @@ def run_indexing_pipeline():
 
     raw_path, clean_path = get_input_file_paths()
 
-    embedder = VectorEmbedder(model_name="BAAI/bge-m3")
+    embedder = VectorEmbedder()
 
     # 1. Index Baseline Fixed-Size Collection
     logger.info(f"Step 1: Loading baseline articles from {raw_path}...")

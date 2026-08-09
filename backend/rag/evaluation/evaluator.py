@@ -79,7 +79,7 @@ class RAGEvaluator:
 
     def __init__(self, eval_path: Optional[Path] = None) -> None:
         self.eval_path = eval_path or (DEFAULT_JSON_TESTSET if DEFAULT_JSON_TESTSET.exists() else DEFAULT_JSONL_TESTSET)
-        self.embedder = VectorEmbedder(model_name="BAAI/bge-m3")
+        self.embedder = VectorEmbedder()
         self.baseline_store = ChromaVectorStore(collection_name="vietnam_travel_knowledge")
         self.parent_child_store = ChromaVectorStore(collection_name="vietnam_travel_parent_child")
 
