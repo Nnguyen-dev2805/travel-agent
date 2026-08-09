@@ -70,3 +70,8 @@ hardware/
 
 
 notebooks/*
+
+# Generated reports
+test/retrieval/reports/
+docs/reports/Pipeline_system/RAG_Code_Deployment_Report.md
+docs/reports/Pipeline_system/RAG_Code_Design_Clean_Code_Report.md

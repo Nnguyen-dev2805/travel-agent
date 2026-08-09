@@ -157,12 +157,25 @@ travel-agent/
    PYTHONPATH=. python backend/rag/indexing.py
    ```
 
-3. **Start FastAPI Backend**:
+3. **Run Elasticsearch BM25 Indexing for Hybrid Search**:
+   ```bash
+   docker compose up -d elasticsearch
+   PYTHONPATH=. python backend/rag/index_elasticsearch.py --recreate
+   ```
+
+   Hybrid retrieval is enabled with:
+   ```env
+   RETRIEVER_MODE=hybrid
+   ELASTICSEARCH_URL=http://localhost:9200
+   ELASTICSEARCH_INDEX=travel_child_chunks_v1
+   ```
+
+4. **Start FastAPI Backend**:
    ```bash
    uvicorn backend.app.main:app --reload --port 8000
    ```
 
-4. **Start Frontend Dev Server**:
+5. **Start Frontend Dev Server**:
    ```bash
    cd frontend
    npm install

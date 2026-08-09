@@ -7,7 +7,8 @@ from typing import Any, Dict, List
 from openai import OpenAI
 from backend.app.config import settings
 from backend.rag.embedding import VectorEmbedder
-from backend.rag.retrieval import ChromaVectorStore
+from backend.rag.reranking import TEICrossEncoderReranker
+from backend.rag.retrieval import ChromaVectorStore, ElasticsearchBM25Store, HybridRetriever
 
 logger = logging.getLogger("travel_agent_rag_service")
 
@@ -15,9 +16,45 @@ logger = logging.getLogger("travel_agent_rag_service")
 class RAGService:
     """Orchestrates retrieval of relevant travel knowledge and LLM answer generation."""
 
-    def __init__(self, collection_name: str = "vietnam_travel_parent_child") -> None:
+    def __init__(self, collection_name: str | None = None) -> None:
         self.embedder = VectorEmbedder()
-        self.vector_store = ChromaVectorStore(collection_name=collection_name)
+        self.collection_name = collection_name or settings.RAG_COLLECTION_NAME
+        self.retriever_mode = settings.RETRIEVER_MODE
+        self.vector_store = ChromaVectorStore(collection_name=self.collection_name)
+        self.hybrid_retriever = None
+        self.reranker = None
+
+        if self.retriever_mode == "hybrid":
+            bm25_store = ElasticsearchBM25Store(
+                url=settings.ELASTICSEARCH_URL,
+                index_name=settings.ELASTICSEARCH_INDEX,
+                username=settings.ELASTICSEARCH_USERNAME,
+                password=settings.ELASTICSEARCH_PASSWORD,
+                api_key=settings.ELASTICSEARCH_API_KEY,
+                verify_certs=settings.ELASTICSEARCH_VERIFY_CERTS,
+                request_timeout=settings.ELASTICSEARCH_REQUEST_TIMEOUT,
+            )
+            self.hybrid_retriever = HybridRetriever(
+                vector_store=self.vector_store,
+                bm25_store=bm25_store,
+                candidate_k=settings.HYBRID_CANDIDATE_K,
+                rrf_k=settings.HYBRID_RRF_K,
+                dense_weight=settings.HYBRID_DENSE_WEIGHT,
+                bm25_weight=settings.HYBRID_BM25_WEIGHT,
+            )
+        elif self.retriever_mode != "dense":
+            raise ValueError("RETRIEVER_MODE must be either 'dense' or 'hybrid'.")
+
+        if settings.RERANKER_ENABLED:
+            if settings.RERANKER_PROVIDER != "tei":
+                raise ValueError("RERANKER_PROVIDER must be 'tei'.")
+            self.reranker = TEICrossEncoderReranker(
+                rerank_url=settings.TEI_RERANK_URL,
+                timeout_seconds=settings.RERANKER_TIMEOUT_SECONDS,
+                max_text_chars=settings.RERANKER_MAX_TEXT_CHARS,
+                batch_size=settings.RERANKER_BATCH_SIZE,
+                raw_scores=settings.RERANKER_RAW_SCORES,
+            )
 
     def _get_llm_client(self) -> OpenAI:
         """Get OpenAI client configured for GitHub Models API."""
@@ -47,9 +84,16 @@ class RAGService:
         model_name = settings.LLM_MODEL
         logger.info(f"Processing RAG request for: '{user_text[:50]}...'")
 
-        # 1. Retrieve top-k similar chunks
+        # 1. Retrieve candidate chunks
         query_vector = self.embedder.embed_query(user_text)
-        retrieved_results = self.vector_store.search_similar(query_vector, top_k=top_k)
+        retrieval_k = max(top_k, settings.RERANKER_CANDIDATE_K) if self.reranker else top_k
+        if self.hybrid_retriever:
+            retrieved_results = self.hybrid_retriever.search(user_text, query_vector, top_k=retrieval_k)
+        else:
+            retrieved_results = self.vector_store.search_similar(query_vector, top_k=retrieval_k)
+
+        if self.reranker:
+            retrieved_results = self.reranker.rerank(user_text, retrieved_results, top_k=top_k)
 
         # 2. Build context string and extract citations
         context_parts = []
