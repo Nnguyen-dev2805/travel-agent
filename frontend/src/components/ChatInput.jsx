@@ -10,50 +10,42 @@ export default function ChatInput({ onSendMessage, isLoading }) {
     setInput('');
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
+
   return (
-    <div className="sticky bottom-0 w-full bg-gradient-to-t from-[#212121] via-[#212121]/95 to-transparent pt-4 pb-6 px-4">
-      <div className="max-w-3xl mx-auto">
-        <form
-          onSubmit={handleSubmit}
-          className="relative flex items-center bg-[#2f2f2f] border border-[#424242] focus-within:border-[#10a37f] focus-within:ring-1 focus-within:ring-[#10a37f]/50 rounded-2xl px-4 py-3 shadow-xl transition-all duration-200"
+    <div className="w-full max-w-[768px] mx-auto px-6 pb-8 pt-4 bg-gradient-to-t from-[#212121] via-[#212121] to-transparent sticky bottom-0 z-30">
+      <form onSubmit={handleSubmit} className="relative w-full">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={isLoading}
+          placeholder="Message VietraAI..."
+          className="w-full bg-[#2f2f2f] text-white text-base rounded-xl py-4 pl-5 pr-14 outline-none focus:ring-1 focus:ring-[#61dbb4]/50 border-none placeholder:text-[#b4b4b4] shadow-[0_4px_20px_rgba(0,0,0,0.2)]"
+        />
+        <button
+          type="submit"
+          disabled={!input.trim() || isLoading}
+          className={`absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+            input.trim() && !isLoading
+              ? 'bg-[#10a37f] text-white hover:bg-[#12a480] cursor-pointer'
+              : 'bg-[#3d3d3d] text-gray-400 cursor-not-allowed'
+          }`}
         >
-          {/* Plus icon */}
-          <button
-            type="button"
-            className="text-gray-400 hover:text-white p-1 mr-2 transition-colors"
-            title="Thêm đính kèm"
-          >
-            <span className="material-symbols-outlined text-xl">add</span>
-          </button>
-
-          {/* Text Input */}
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            disabled={isLoading}
-            placeholder="Hỏi bất kỳ điều gì về địa điểm, khách sạn, ẩm thực Việt Nam..."
-            className="flex-1 bg-transparent text-white text-sm md:text-base outline-none placeholder-gray-400 disabled:opacity-50"
-          />
-
-          {/* Send Button */}
-          <button
-            type="submit"
-            disabled={!input.trim() || isLoading}
-            className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${
-              input.trim() && !isLoading
-                ? 'bg-[#10a37f] text-white hover:bg-[#1a7f64] cursor-pointer shadow-md shadow-[#10a37f]/20 hover:scale-105'
-                : 'bg-[#383838] text-gray-500 cursor-not-allowed'
-            }`}
-          >
-            <span className="material-symbols-outlined text-base font-bold">arrow_upward</span>
-          </button>
-        </form>
-
-        <p className="text-[11px] text-center text-gray-500 mt-2">
-          Vietnam Travel Agent có thể mắc lỗi nhỏ. Hãy kiểm tra lại thông tin quan trọng.
-        </p>
-      </div>
+          <span className="material-symbols-outlined text-[18px]">
+            arrow_upward
+          </span>
+        </button>
+      </form>
+      <p className="text-center text-xs text-[#666666] mt-3">
+        VietraAI can make mistakes. Verify important travel information.
+      </p>
     </div>
   );
 }

@@ -18,67 +18,66 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
 
     try {
       if (mode === 'register') {
-        // Register user
         await registerUser(email, password, fullName);
-        // Automatically login after successful registration
         await loginUser(email, password);
       } else {
-        // Login user
         await loginUser(email, password);
       }
 
-      // Fetch profile and notify parent
       const profile = await getCurrentUser();
       onAuthSuccess(profile);
       onClose();
     } catch (err) {
-      setErrorMessage(err.message || 'Đã có lỗi xảy ra. Vui lòng thử lại!');
+      setErrorMessage(err.message || 'An error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-      <div className="relative w-full max-w-md bg-[#1e1e1e] border border-[#383838] rounded-2xl p-6 shadow-2xl text-white overflow-hidden">
-        {/* Close Button */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div className="bg-[#252b28] border border-[#3d3d3d] shadow-[0px_8px_24px_rgba(0,0,0,0.5)] rounded-xl w-full max-w-[440px] flex flex-col overflow-hidden relative text-white">
+        {/* Close Icon */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-[#2f2f2f] transition-colors"
+          className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 transition-colors rounded-lg hover:bg-white/10"
         >
           <span className="material-symbols-outlined text-xl">close</span>
         </button>
 
-        {/* Modal Header & Tabs */}
-        <div className="text-center mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#10a37f] to-[#1a7f64] mx-auto flex items-center justify-center shadow-lg shadow-[#10a37f]/20 mb-3">
-            <span className="material-symbols-outlined text-2xl text-white">
-              {mode === 'login' ? 'lock' : 'person_add'}
+        {/* Header Section */}
+        <div className="px-8 pt-10 pb-6 text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#353535] mb-6 border border-[#3d3d3d] shadow-sm">
+            <span
+              className="material-symbols-outlined text-[#61dbb4] text-3xl"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              flight_takeoff
             </span>
           </div>
-          <h2 className="text-xl font-bold tracking-tight text-white">
-            {mode === 'login' ? 'Đăng nhập vào Travel Agent' : 'Tạo tài khoản mới'}
+          <h2 className="text-3xl font-semibold text-white mb-2 tracking-tight">
+            VietraAI
           </h2>
-          <p className="text-xs text-gray-400 mt-1">
-            Kích hoạt Long-term Memory để AI ghi nhớ sở thích du lịch cá nhân của bạn.
+          <p className="text-sm text-[#bccac2] leading-relaxed">
+            Welcome to VietraAI - Sign in or create an account to start your travel journey
           </p>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex bg-[#141414] p-1 rounded-xl mb-5 border border-[#2a2a2a]">
+        {/* Tabs */}
+        <div className="px-8 flex border-b border-[#3d3d3d] mb-6">
           <button
             type="button"
             onClick={() => {
               setMode('login');
               setErrorMessage('');
             }}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+            className={`flex-1 pb-3 text-sm font-medium transition-colors text-center ${
               mode === 'login'
-                ? 'bg-[#2a2a2a] text-white shadow'
-                : 'text-gray-400 hover:text-white'
+                ? 'text-[#61dbb4] border-b-2 border-[#10a37f]'
+                : 'text-[#bccac2] hover:text-white'
             }`}
           >
-            Đăng nhập
+            Sign In
           </button>
           <button
             type="button"
@@ -86,80 +85,125 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
               setMode('register');
               setErrorMessage('');
             }}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+            className={`flex-1 pb-3 text-sm font-medium transition-colors text-center ${
               mode === 'register'
-                ? 'bg-[#2a2a2a] text-white shadow'
-                : 'text-gray-400 hover:text-white'
+                ? 'text-[#61dbb4] border-b-2 border-[#10a37f]'
+                : 'text-[#bccac2] hover:text-white'
             }`}
           >
-            Đăng ký
+            Sign Up
           </button>
         </div>
 
-        {/* Error Notification */}
-        {errorMessage && (
-          <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
-            <span className="material-symbols-outlined text-base shrink-0">error</span>
-            <span>{errorMessage}</span>
-          </div>
-        )}
-
-        {/* Form Inputs */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {mode === 'register' && (
-            <div>
-              <label className="block text-xs font-medium text-gray-300 mb-1.5">Họ và tên</label>
-              <input
-                type="text"
-                required
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Nguyễn Văn A"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#141414] border border-[#333333] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#10a37f] transition-all"
-              />
+        {/* Form Section */}
+        <div className="px-8 pb-8 flex flex-col gap-4">
+          {errorMessage && (
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+              <span className="material-symbols-outlined text-base">error</span>
+              <span>{errorMessage}</span>
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-medium text-gray-300 mb-1.5">Email</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="user@travel.vn"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-[#141414] border border-[#333333] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#10a37f] transition-all"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-300 mb-1.5">Mật khẩu</label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-[#141414] border border-[#333333] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#10a37f] transition-all"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full mt-2 py-3 rounded-xl bg-[#10a37f] hover:bg-[#1a7f64] text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-lg shadow-[#10a37f]/20 disabled:opacity-50"
-          >
-            {isLoading ? (
-              <>
-                <span className="material-symbols-outlined text-base animate-spin">sync</span>
-                <span>Đang xử lý...</span>
-              </>
-            ) : (
-              <span>{mode === 'login' ? 'Đăng nhập' : 'Tạo tài khoản'}</span>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {mode === 'register' && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium uppercase tracking-wider text-[#bccac2]">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Enter your full name"
+                  className="w-full bg-[#171717] border border-[#3d3d3d] rounded-lg px-4 py-3 text-sm text-white placeholder:text-[#86948d] focus:border-[#61dbb4] outline-none transition-colors"
+                />
+              </div>
             )}
-          </button>
-        </form>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium uppercase tracking-wider text-[#bccac2]">
+                Email address
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter your email"
+                className="w-full bg-[#171717] border border-[#3d3d3d] rounded-lg px-4 py-3 text-sm text-white placeholder:text-[#86948d] focus:border-[#61dbb4] outline-none transition-colors"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-medium uppercase tracking-wider text-[#bccac2]">
+                  Password
+                </label>
+                {mode === 'login' && (
+                  <a href="#" className="text-xs text-[#61dbb4] hover:underline">
+                    Forgot?
+                  </a>
+                )}
+              </div>
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                className="w-full bg-[#171717] border border-[#3d3d3d] rounded-lg px-4 py-3 text-sm text-white placeholder:text-[#86948d] focus:border-[#61dbb4] outline-none transition-colors"
+              />
+            </div>
+
+            <div className="mt-2 flex flex-col gap-3">
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full bg-[#10a37f] hover:bg-[#0e8f6e] text-white font-medium py-3 rounded-lg flex justify-center items-center gap-2 transition-colors text-sm shadow-md disabled:opacity-50 cursor-pointer"
+              >
+                {isLoading ? (
+                  <>
+                    <span className="material-symbols-outlined text-sm animate-spin">
+                      sync
+                    </span>
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Continue</span>
+                    <span className="material-symbols-outlined text-sm">
+                      arrow_forward
+                    </span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full bg-transparent border border-[#3d3d3d] hover:bg-white/5 text-white font-medium py-3 rounded-lg transition-colors text-sm cursor-pointer"
+              >
+                Continue as Guest
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-4 text-center">
+            <p className="text-xs text-[#bccac2] leading-relaxed">
+              By continuing, you agree to VietraAI <br />
+              <a href="#" className="text-white hover:text-[#61dbb4] underline transition-colors">
+                Terms of Service
+              </a>{' '}
+              &{' '}
+              <a href="#" className="text-white hover:text-[#61dbb4] underline transition-colors">
+                Privacy Policy
+              </a>
+              .
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

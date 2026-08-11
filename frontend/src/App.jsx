@@ -72,7 +72,7 @@ export default function App() {
     } catch (error) {
       const errorMessage = {
         role: 'assistant',
-        content: `❌ Lỗi kết nối: ${error.message}`,
+        content: `❌ Connection error: ${error.message}`,
         citations: [],
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -82,7 +82,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-full bg-[#212121] text-white overflow-hidden">
+    <div className="flex h-screen w-full bg-[#212121] text-[#dee4df] overflow-hidden antialiased font-['Inter',sans-serif]">
       {/* Sidebar */}
       <Sidebar
         isOpen={isSidebarOpen}
@@ -91,10 +91,12 @@ export default function App() {
         currentUser={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onOpenFactsModal={() => setIsFactsModalOpen(true)}
+        onLogout={handleLogout}
       />
 
-      {/* Main Content Area */}
-      <div className="flex-1 md:ml-[260px] flex flex-col h-full relative overflow-hidden">
+      {/* Main Canvas (Level 1) */}
+      <div className="flex-1 md:ml-[260px] flex flex-col relative h-full overflow-hidden">
+        {/* Mobile Header (Hidden on Desktop) */}
         <Header
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           currentUser={currentUser}
@@ -103,24 +105,24 @@ export default function App() {
         />
 
         {/* Messages or Welcome View */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col pt-4">
           {messages.length === 0 ? (
             <WelcomeView onSelectCard={handleSendMessage} />
           ) : (
-            <div className="pb-10">
+            <div className="pb-8 space-y-6">
               {messages.map((msg, idx) => (
                 <ChatMessage key={idx} message={msg} />
               ))}
               {isLoading && (
-                <div className="py-5 px-4 md:px-6 w-full bg-[#212121]">
-                  <div className="max-w-3xl mx-auto flex gap-4 items-center">
-                    <div className="w-8 h-8 rounded-full bg-[#10a37f] flex items-center justify-center text-xs text-white">
+                <div className="w-full max-w-[768px] mx-auto px-4 md:px-0 py-3">
+                  <div className="flex gap-4 items-center">
+                    <div className="w-8 h-8 rounded-full bg-[#10a37f] flex items-center justify-center text-white text-xs">
                       <span className="material-symbols-outlined text-sm animate-spin">
                         sync
                       </span>
                     </div>
-                    <span className="text-sm text-gray-400">
-                      RAG đang tra cứu cẩm nang du lịch & suy nghĩ...
+                    <span className="text-xs text-[#86948d]">
+                      VietraAI is thinking...
                     </span>
                   </div>
                 </div>
@@ -129,7 +131,7 @@ export default function App() {
           )}
         </div>
 
-        {/* Input */}
+        {/* Input Bar */}
         <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
       </div>
 
