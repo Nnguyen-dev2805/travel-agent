@@ -15,4 +15,5 @@ def test_chat_empty_message(api_client):
     """Test chat endpoint returns 400 when message is empty."""
     response = api_client.post("/api/v1/chat", json={"message": "   "})
     assert response.status_code == 400
-    assert "cannot be empty" in response.json()["detail"]
+    assert "không được để trống" in response.json()["detail"]
+

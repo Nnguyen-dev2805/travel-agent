@@ -1,18 +1,52 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import WelcomeView from './components/WelcomeView';
 import ChatMessage from './components/ChatMessage';
 import ChatInput from './components/ChatInput';
-import { sendChatMessage } from './services/api';
+import AuthModal from './components/AuthModal';
+import UserFactsModal from './components/UserFactsModal';
+import {
+  sendChatMessage,
+  getCurrentUser,
+  logoutUser,
+  getStoredSessionId,
+  createNewSessionId,
+} from './services/api';
 
 export default function App() {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  // User Auth & Modal States
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isFactsModalOpen, setIsFactsModalOpen] = useState(false);
+
+  // Active Chat Session ID
+  const [sessionId, setSessionId] = useState(getStoredSessionId());
+
+  // Check auth user status on app mount
+  useEffect(() => {
+    async function checkAuth() {
+      const user = await getCurrentUser();
+      if (user) {
+        setCurrentUser(user);
+      }
+    }
+    checkAuth();
+  }, []);
+
   const handleNewChat = () => {
+    const newSid = createNewSessionId();
+    setSessionId(newSid);
     setMessages([]);
+  };
+
+  const handleLogout = () => {
+    logoutUser();
+    setCurrentUser(null);
   };
 
   const handleSendMessage = async (userText) => {
@@ -23,13 +57,18 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const data = await sendChatMessage(userText);
+      const data = await sendChatMessage(userText, sessionId);
       const botMessage = {
         role: 'assistant',
         content: data.reply,
         citations: data.citations || [],
       };
       setMessages((prev) => [...prev, botMessage]);
+
+      // If session_id returned from API, sync state
+      if (data.session_id && data.session_id !== sessionId) {
+        setSessionId(data.session_id);
+      }
     } catch (error) {
       const errorMessage = {
         role: 'assistant',
@@ -49,11 +88,19 @@ export default function App() {
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
         onNewChat={handleNewChat}
+        currentUser={currentUser}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onOpenFactsModal={() => setIsFactsModalOpen(true)}
       />
 
       {/* Main Content Area */}
       <div className="flex-1 md:ml-[260px] flex flex-col h-full relative overflow-hidden">
-        <Header onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
+        <Header
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          currentUser={currentUser}
+          onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          onLogout={handleLogout}
+        />
 
         {/* Messages or Welcome View */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -85,6 +132,18 @@ export default function App() {
         {/* Input */}
         <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
       </div>
+
+      {/* Modals */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={(user) => setCurrentUser(user)}
+      />
+
+      <UserFactsModal
+        isOpen={isFactsModalOpen}
+        onClose={() => setIsFactsModalOpen(false)}
+      />
     </div>
   );
 }
