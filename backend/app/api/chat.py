@@ -54,7 +54,9 @@ def chat_endpoint(
         rag_service = get_rag_service()
 
         # 1. Build memory context (Short-term history + Long-term facts if authenticated)
-        memory_context = memory_mgr.build_memory_context(db, session_id, user=current_user)
+        memory_context = memory_mgr.build_memory_context(
+            db=db, session_id=session_id, user=current_user, user_message=user_message
+        )
 
         # 2. Generate RAG Answer with injected memory context
         result = rag_service.generate_answer(
