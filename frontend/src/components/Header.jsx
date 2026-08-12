@@ -1,34 +1,34 @@
 import React from 'react';
+import { ChevronDown } from 'lucide-react';
 
-export default function Header({ onToggleSidebar, currentUser, onOpenAuthModal, onLogout }) {
+export default function Header({ isSidebarOpen, onToggleSidebar, currentUser, onOpenAuthModal, onLogout }) {
   return (
-    <header className="md:hidden w-full flex items-center justify-between p-4 bg-[#212121] sticky top-0 z-40 border-b border-[#3d3d3d]">
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onToggleSidebar}
-          className="p-1 text-gray-400 hover:text-white transition-colors"
-        >
-          <span className="material-symbols-outlined">menu</span>
+    <header className="w-full flex items-center justify-between px-4 md:px-6 py-3 bg-[#ffffff] sticky top-0 z-40">
+      {/* Left side: Brand/Model Selector Pill */}
+      <div className="flex items-center gap-2">
+        <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-[#0000000d] transition-colors cursor-pointer group">
+          <span className="text-base font-semibold text-[#0d0d0d] tracking-tight">VietraAI</span>
+          <ChevronDown className="w-4 h-4 text-[#8f8f8f] group-hover:text-[#0d0d0d] stroke-[1.75]" />
         </button>
-        <h1 className="text-base font-medium text-white">VietraAI</h1>
       </div>
 
-      <div className="flex items-center gap-3">
-        {currentUser ? (
-          <button
-            onClick={onLogout}
-            className="px-3 py-1 rounded-lg text-xs font-medium bg-[#2f2f2f] hover:bg-red-500/20 text-gray-300 hover:text-red-400 border border-[#3d3d3d] transition-all"
-          >
-            Sign out
-          </button>
-        ) : (
-          <button
-            onClick={onOpenAuthModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#10a37f] hover:bg-[#12a480] text-white transition-all shadow-sm"
-          >
-            <span className="material-symbols-outlined text-sm">login</span>
-            <span>Sign in</span>
-          </button>
+      {/* Right side: Auth Action Pills (Only when logged out) */}
+      <div className="flex items-center gap-2">
+        {!currentUser && (
+          <>
+            <button
+              onClick={onOpenAuthModal}
+              className="px-4 py-1.5 rounded-full text-sm font-medium bg-[#0d0d0d] text-white hover:bg-[#000000] transition-colors cursor-pointer"
+            >
+              Log in
+            </button>
+            <button
+              onClick={onOpenAuthModal}
+              className="hidden sm:inline-flex px-4 py-1.5 rounded-full text-sm font-medium bg-[#ffffff] text-[#0d0d0d] border border-[#0000001a] hover:bg-[#0000000d] transition-colors cursor-pointer"
+            >
+              Sign up for free
+            </button>
+          </>
         )}
       </div>
     </header>

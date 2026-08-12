@@ -72,7 +72,7 @@ export const getStoredGuestSessions = () => {
 export const saveGuestSession = (sessionId, titleText) => {
   try {
     const sessions = getStoredGuestSessions();
-    const cleanTitle = (titleText || 'Cuộc trò chuyện mới').slice(0, 45);
+    const cleanTitle = (titleText || 'New Chat').slice(0, 45);
     const existingIdx = sessions.findIndex((s) => s.id === sessionId);
     const updatedSession = {
       id: sessionId,
@@ -113,7 +113,7 @@ export const registerUser = async (email, password, fullName) => {
     return response.data;
   } catch (error) {
     console.error('Registration API Error:', error);
-    throw new Error(extractErrorMessage(error, 'Không thể đăng ký tài khoản. Vui lòng thử lại!'));
+    throw new Error(extractErrorMessage(error, 'Failed to register account. Please try again.'));
   }
 };
 
@@ -130,7 +130,7 @@ export const loginUser = async (email, password) => {
     return data;
   } catch (error) {
     console.error('Login API Error:', error);
-    throw new Error(extractErrorMessage(error, 'Email hoặc mật khẩu không chính xác!'));
+    throw new Error(extractErrorMessage(error, 'Incorrect email or password.'));
   }
 };
 
@@ -165,7 +165,7 @@ export const sendChatMessage = async (message, customSessionId = null) => {
     return response.data;
   } catch (error) {
     console.error('Chat API Error:', error);
-    throw new Error(extractErrorMessage(error, 'Không thể kết nối tới Backend FastAPI. Vui lòng kiểm tra server!'));
+    throw new Error(extractErrorMessage(error, 'Failed to connect to backend server. Please check FastAPI server.'));
   }
 };
 
