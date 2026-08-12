@@ -1,3 +1,0 @@
-chunk_strategy,url_group,query_count,hit@1,mrr@1,ndcg@1,precision@1,hit@3,mrr@3,ndcg@3,precision@3,hit@5,mrr@5,ndcg@5,precision@5,hit@10,mrr@10,ndcg@10,precision@10,hit@20,mrr@20,ndcg@20,precision@20
-baseline_fixed_1000ch,things-to-do,2,0.5,0.5,0.5,0.5,0.5,0.5,0.352,0.3333,1,0.6,0.373,0.3,1,0.6,0.5852,0.3,1,0.6,0.6251,0.175
-semantic_parent_child,things-to-do,2,0.5,0.5,0.5,0.5,1,0.6667,0.6173,0.6667,1,0.6667,0.5976,0.6,1,0.6667,0.6627,0.5,1,0.6667,0.7583,0.3

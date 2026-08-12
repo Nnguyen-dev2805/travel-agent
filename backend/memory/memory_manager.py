@@ -24,14 +24,14 @@ class MemoryManager:
         self.fact_service = fact_service or FactMemoryService()
 
     def build_memory_context(
-        self, db: Session, session_id: str, user: Optional[User] = None
+        self, db: Session, session_id: str, user: Optional[User] = None, user_message: str = ""
     ) -> Dict[str, Any]:
         """Build memory context formatted for RAG LLM prompt generation.
 
         Returns:
             Dict containing:
             - 'conversation_history': List[Dict[str, str]] for OpenAI messages stream.
-            - 'user_facts': Formatted string of long-term preferences (empty for Guests).
+            - 'user_facts': Formatted string of long-term preferences relevant to user_message.
         """
         user_id = user.id if user else None
 
@@ -41,10 +41,10 @@ class MemoryManager:
         # 1. Short-term Memory (Sliding Window history) - Available for ALL users
         history = self.conversation_service.format_messages_for_llm(db, session_id)
 
-        # 2. Long-term Memory (Extracted Facts) - Available ONLY for Authenticated Users
+        # 2. Long-term Memory (Vector Retrieved Facts) - Available ONLY for Authenticated Users
         user_facts = ""
-        if user:
-            user_facts = self.fact_service.format_facts_for_prompt(db, user.id)
+        if user and user_message:
+            user_facts = self.fact_service.retrieve_relevant_facts(user_id=user.id, query=user_message, top_k=5)
 
         logger.debug(
             f"Built memory context for Session='{session_id}', UserID={user_id}. "

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
@@ -18,46 +18,45 @@
         background: transparent;
       }
       .custom-scrollbar::-webkit-scrollbar-thumb {
-        background: #383838;
+        background: #d1d1d1;
         border-radius: 9999px;
       }
       .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-        background: #4f4f4f;
+        background: #a3a3a3;
       }
 
-      /* High-contrast Modern Dark Mode Markdown Table Styles */
+      /* Achromatic Light Mode Markdown Table Styles */
       .prose table {
         width: 100% !important;
         border-collapse: separate !important;
         border-spacing: 0 !important;
         margin: 1.5rem 0 !important;
-        border-radius: 12px !important;
+        border-radius: 10px !important;
         overflow: hidden !important;
-        border: 1px solid #383838 !important;
-        background-color: #171717 !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+        border: 1px solid rgba(0, 0, 0, 0.1) !important;
+        background-color: #ffffff !important;
       }
       .prose th {
-        background-color: #262626 !important;
-        color: #10a37f !important;
-        font-weight: 700 !important;
-        padding: 12px 16px !important;
-        border-bottom: 1px solid #383838 !important;
-        border-right: 1px solid #2f2f2f !important;
+        background-color: #f9f9f9 !important;
+        color: #0d0d0d !important;
+        font-weight: 600 !important;
+        padding: 10px 14px !important;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
+        border-right: 1px solid rgba(0, 0, 0, 0.05) !important;
         text-transform: uppercase !important;
-        font-size: 0.8rem !important;
+        font-size: 0.75rem !important;
         letter-spacing: 0.05em !important;
       }
       .prose th:last-child {
         border-right: none !important;
       }
       .prose td {
-        padding: 10px 16px !important;
-        border-bottom: 1px solid #2f2f2f !important;
-        border-right: 1px solid #2f2f2f !important;
-        color: #e2e8f0 !important;
+        padding: 10px 14px !important;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+        border-right: 1px solid rgba(0, 0, 0, 0.05) !important;
+        color: #0d0d0d !important;
         font-size: 0.9rem !important;
-        line-height: 1.6 !important;
+        line-height: 1.5 !important;
       }
       .prose td:last-child {
         border-right: none !important;
@@ -66,14 +65,14 @@
         border-bottom: none !important;
       }
       .prose tr:nth-child(even) {
-        background-color: #1f1f1f !important;
+        background-color: #f9f9f9 !important;
       }
       .prose tr:hover {
-        background-color: #2a2a2a !important;
+        background-color: rgba(0, 0, 0, 0.03) !important;
       }
     </style>
   </head>
-  <body class="bg-[#212121] text-white font-['Inter',sans-serif] antialiased">
+  <body class="bg-[#ffffff] text-[#0d0d0d] font-[-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

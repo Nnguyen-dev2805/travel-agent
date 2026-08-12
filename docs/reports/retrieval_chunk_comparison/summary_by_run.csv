@@ -1,3 +1,0 @@
-chunk_strategy,query_count,hit@1,mrr@1,ndcg@1,precision@1,relevant_chunks@1,unique_docs@1,source_url_hit@1,hit@3,mrr@3,ndcg@3,precision@3,relevant_chunks@3,unique_docs@3,source_url_hit@3,hit@5,mrr@5,ndcg@5,precision@5,relevant_chunks@5,unique_docs@5,source_url_hit@5,hit@10,mrr@10,ndcg@10,precision@10,relevant_chunks@10,unique_docs@10,source_url_hit@10,hit@20,mrr@20,ndcg@20,precision@20,relevant_chunks@20,unique_docs@20,source_url_hit@20
-baseline_fixed_1000ch,2,0.5,0.5,0.5,0.5,0.5,0,0.5,0.5,0.5,0.352,0.3333,1,0,0.5,1,0.6,0.373,0.3,1.5,0,1,1,0.6,0.5852,0.3,3,0,1,1,0.6,0.6251,0.175,3.5,0,1
-semantic_parent_child,2,0.5,0.5,0.5,0.5,0.5,1,0.5,1,0.6667,0.6173,0.6667,2,2,1,1,0.6667,0.5976,0.6,3,3,1,1,0.6667,0.6627,0.5,5,5,1,1,0.6667,0.7583,0.3,6,12.5,1

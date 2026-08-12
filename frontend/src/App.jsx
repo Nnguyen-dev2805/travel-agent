@@ -156,26 +156,49 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-full bg-[#212121] text-[#dee4df] overflow-hidden antialiased font-['Inter',sans-serif]">
-      {/* Sidebar */}
+    <div className="flex h-screen w-full bg-[#ffffff] text-[#0d0d0d] overflow-hidden antialiased font-[-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif] relative">
+      {/* Sidebar Overlay Backdrop (Chỉ hiển thị trên Mobile) */}
+      {isSidebarOpen && (
+        <div
+          onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-40 md:hidden animate-in fade-in duration-200"
+        />
+      )}
+
+      {/* Sidebar Drawer */}
       <Sidebar
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-        onNewChat={handleNewChat}
+        onNewChat={() => {
+          handleNewChat();
+          if (window.innerWidth < 768) setIsSidebarOpen(false);
+        }}
         currentUser={currentUser}
-        onOpenAuthModal={() => setIsAuthModalOpen(true)}
-        onOpenFactsModal={() => setIsFactsModalOpen(true)}
+        onOpenAuthModal={() => {
+          setIsAuthModalOpen(true);
+          if (window.innerWidth < 768) setIsSidebarOpen(false);
+        }}
+        onOpenFactsModal={() => {
+          setIsFactsModalOpen(true);
+          if (window.innerWidth < 768) setIsSidebarOpen(false);
+        }}
         onLogout={handleLogout}
         sessions={sessions}
         activeSessionId={sessionId}
-        onSelectSession={handleSelectSession}
+        onSelectSession={(sid) => {
+          handleSelectSession(sid);
+          if (window.innerWidth < 768) setIsSidebarOpen(false);
+        }}
         onDeleteSession={handleDeleteSession}
       />
 
       {/* Main Canvas (Level 1) */}
-      <div className="flex-1 md:ml-[260px] flex flex-col relative h-full overflow-hidden">
-        {/* Mobile Header (Hidden on Desktop) */}
+      <div className={`flex-1 flex flex-col relative h-full overflow-hidden bg-[#ffffff] transition-all duration-300 ${
+        isSidebarOpen ? 'md:ml-[260px]' : 'md:ml-[56px]'
+      }`}>
+        {/* Top Header */}
         <Header
+          isSidebarOpen={isSidebarOpen}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           currentUser={currentUser}
           onOpenAuthModal={() => setIsAuthModalOpen(true)}
@@ -183,23 +206,27 @@ export default function App() {
         />
 
         {/* Messages or Welcome View */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col pt-4">
+        <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col pt-0">
           {messages.length === 0 ? (
-            <WelcomeView onSelectCard={handleSendMessage} />
+            <WelcomeView
+              currentUser={currentUser}
+              onSelectCard={handleSendMessage}
+              onSendMessage={handleSendMessage}
+            />
           ) : (
-            <div className="pb-8 space-y-6">
+            <div className="pb-8 space-y-6 pt-4">
               {messages.map((msg, idx) => (
                 <ChatMessage key={idx} message={msg} />
               ))}
               {isLoading && (
                 <div className="w-full max-w-[768px] mx-auto px-4 md:px-0 py-3">
-                  <div className="flex gap-4 items-center">
-                    <div className="w-8 h-8 rounded-full bg-[#10a37f] flex items-center justify-center text-white text-xs">
+                  <div className="flex gap-3 items-center">
+                    <div className="w-8 h-8 rounded-full bg-[#0d0d0d] flex items-center justify-center text-white text-xs">
                       <span className="material-symbols-outlined text-sm animate-spin">
                         sync
                       </span>
                     </div>
-                    <span className="text-xs text-[#86948d]">
+                    <span className="text-xs text-[#5d5d5d]">
                       VietraAI is thinking...
                     </span>
                   </div>
@@ -209,8 +236,10 @@ export default function App() {
           )}
         </div>
 
-        {/* Input Bar */}
-        <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
+        {/* Bottom Input Bar (Only displayed during active chat thread) */}
+        {messages.length > 0 && (
+          <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
+        )}
       </div>
 
       {/* Modals */}

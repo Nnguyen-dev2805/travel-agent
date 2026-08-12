@@ -128,8 +128,26 @@ class ChromaVectorStore:
         logger.info(f"Upserted {total_added} parent-child chunks into collection '{self.collection_name}'.")
         return total_added
 
+    def upsert_user_memory(self, memory_id: str, content: str, metadata: Dict[str, Any], embedding: List[float]) -> None:
+        """Upsert a single user memory vector into ChromaDB (Phase 3 Outbox)."""
+        self.collection.upsert(
+            ids=[memory_id],
+            documents=[content],
+            metadatas=[metadata],
+            embeddings=[embedding]
+        )
+        logger.info(f"Upserted UserMemory {memory_id} into ChromaDB.")
+
+    def delete_user_memory(self, memory_id: str) -> None:
+        """Delete a user memory vector from ChromaDB (Phase 3 Outbox)."""
+        try:
+            self.collection.delete(ids=[memory_id])
+            logger.info(f"Deleted UserMemory {memory_id} from ChromaDB.")
+        except ValueError:
+            logger.warning(f"Failed to delete UserMemory {memory_id} from ChromaDB - Not found.")
+
     def search_similar(
-        self, query_embedding: List[float], top_k: int = 4
+        self, query_embedding: List[float], top_k: int = 4, where: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """Search top-k most similar text chunks for a query embedding.
 
@@ -139,11 +157,15 @@ class ChromaVectorStore:
         if not query_embedding:
             return []
 
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"],
-        )
+        query_kwargs = {
+            "query_embeddings": [query_embedding],
+            "n_results": top_k,
+            "include": ["documents", "metadatas", "distances"]
+        }
+        if where:
+            query_kwargs["where"] = where
+
+        results = self.collection.query(**query_kwargs)
 
         formatted_results: List[Dict[str, Any]] = []
 

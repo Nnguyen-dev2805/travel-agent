@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Sparkles, ExternalLink } from 'lucide-react';
 
 export default function ChatMessage({ message }) {
   const isUser = message.role === 'user';
@@ -11,39 +12,34 @@ export default function ChatMessage({ message }) {
       <div className="flex gap-4 w-full items-start">
         {/* Avatar */}
         <div
-          className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${
+          className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${
             isUser
-              ? 'bg-[#383838] text-white border border-[#424242]'
-              : 'bg-[#10a37f] text-white shadow-sm'
+              ? 'bg-[#0d0d0d] text-white'
+              : 'bg-[#f9f9f9] text-[#0d0d0d] border border-[#0000001a]'
           }`}
         >
           {isUser ? (
-            'US'
+            'U'
           ) : (
-            <span
-              className="material-symbols-outlined text-[18px]"
-              style={{ fontVariationSettings: "'FILL' 1" }}
-            >
-              travel_explore
-            </span>
+            <Sparkles className="w-3.5 h-3.5 text-[#0d0d0d] stroke-[1.75]" />
           )}
         </div>
 
         {/* Message Content */}
-        <div className="pt-1 flex-1 min-w-0 flex flex-col gap-3">
+        <div className="pt-0.5 flex-1 min-w-0 flex flex-col gap-3">
           {isUser ? (
-            <div className="text-base text-white font-normal leading-relaxed">
+            <div className="text-[16px] leading-[1.5] text-[#0d0d0d] font-normal">
               {message.content}
             </div>
           ) : (
-            <div className="prose prose-invert max-w-none text-gray-200 leading-relaxed prose-p:leading-relaxed prose-pre:bg-[#171717] prose-pre:border prose-pre:border-[#383838] prose-a:text-[#10a37f]">
+            <div className="prose max-w-none text-[#0d0d0d] text-[16px] leading-[1.5] prose-p:leading-[1.5] prose-p:my-2 prose-headings:text-[#0d0d0d] prose-strong:text-[#0d0d0d] prose-pre:bg-[#f9f9f9] prose-pre:border prose-pre:border-[#0000001a] prose-pre:text-[#0d0d0d] prose-a:text-[#0d0d0d] prose-a:underline">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {message.content}
               </ReactMarkdown>
             </div>
           )}
 
-          {/* Citations List */}
+          {/* Citations List (Chip Badge design) */}
           {!isUser && citations.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-2">
               {citations.map((cite, idx) => (
@@ -52,11 +48,9 @@ export default function ChatMessage({ message }) {
                   href={cite.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#2b2b2b] hover:bg-[#383838] border border-[#383838] text-gray-300 hover:text-white text-xs transition-colors truncate max-w-full"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[#f9f9f9] hover:bg-[#0000000d] border border-[#0000001a] text-[#5d5d5d] hover:text-[#0d0d0d] text-xs transition-colors truncate max-w-full rounded-none"
                 >
-                  <span className="material-symbols-outlined text-[12px] text-[#10a37f]">
-                    link
-                  </span>
+                  <ExternalLink className="w-3 h-3 text-[#5d5d5d] stroke-[1.75]" />
                   <span>
                     [{idx + 1}] {cite.title || cite.url}
                   </span>
