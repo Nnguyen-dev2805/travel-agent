@@ -2,32 +2,35 @@
 .venv/
 venv/
 env/
+ENV/
 
 # Environment Variables & Secrets
 .env
 .env.local
 .env.*.local
+.env.production
+.env.staging
 
 # Python Cache & Testing
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
 .pytest_cache/
 .coverage
 coverage/
 htmlcov/
 .ipynb_checkpoints/
+*.egg-info/
+dist/
+build/
 
-# Node.js & Frontend Artifacts
-node_modules/
-frontend/node_modules/
-frontend/dist/
-frontend/build/
-.npm/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Database Files (Local SQLite & test DBs)
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+data/*.sqlite
+data/*.sqlite3
 
 # Vector DB & Generated Data Indexes
 data/chromadb/
@@ -37,11 +40,31 @@ data/embeddings/
 data/chunks/
 data/processed/
 
+# Node.js & Frontend Artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+.npm/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
 # OS & Editor Files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# General Logs
-*.log
+# Agent & IDE Temporary Files
+.gemini/
+.antigravity/

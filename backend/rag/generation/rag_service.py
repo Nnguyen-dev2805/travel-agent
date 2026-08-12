@@ -1,8 +1,8 @@
-"""RAG Generation Service connecting Vector Retrieval to LLM Response Generation."""
+"""RAG Generation Service connecting Vector Retrieval to LLM Response Generation with Memory integration."""
 
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 # pyrefly: ignore [missing-import]
 from openai import OpenAI
 from backend.app.config import settings
@@ -20,22 +20,32 @@ class RAGService:
         self.vector_store = ChromaVectorStore(collection_name=collection_name)
 
     def _get_llm_client(self) -> OpenAI:
-        """Get OpenAI client configured for GitHub Models API."""
-        if not settings.GITHUB_TOKEN:
-            logger.warning("GITHUB_TOKEN missing in environment settings.")
-            raise ValueError("GITHUB_TOKEN is missing in server environment.")
+        """Get OpenAI-compatible client configured for Google Gemini API."""
+        api_key = settings.GOOGLE_API_KEY
+        if not api_key:
+            logger.warning("API key missing in environment settings.")
+            raise ValueError("API Key (GOOGLE_API_KEY) is missing in .env file.")
 
         return OpenAI(
-            base_url=settings.GITHUB_MODELS_URL,
-            api_key=settings.GITHUB_TOKEN,
+            base_url=settings.LLM_BASE_URL,
+            api_key=api_key,
         )
 
-    def generate_answer(self, user_message: str, top_k: int = 4) -> Dict[str, Any]:
-        """Retrieve relevant context and generate source-cited response.
+
+    def generate_answer(
+        self,
+        user_message: str,
+        top_k: int = 4,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        user_facts: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Retrieve relevant context and generate source-cited response with memory context.
 
         Args:
             user_message: User query string.
             top_k: Number of relevant chunks to retrieve.
+            conversation_history: Sliding window short-term message history.
+            user_facts: Formatted long-term user preferences and facts.
 
         Returns:
             Dictionary containing 'reply', 'model', and 'citations'.
@@ -68,28 +78,38 @@ class RAGService:
 
         context_str = "\n\n---\n\n".join(context_parts) if context_parts else "Không tìm thấy tài liệu liên quan."
 
-        # 3. Construct System Prompt
+        # 3. Construct System Prompt (Injecting Long-term User Facts if available)
+        facts_section = f"\n\n=== THÔNG TIN CÁ NHÂN ĐÃ BIẾT VỀ NGUỜI DÙNG ===\n{user_facts}" if user_facts else ""
         system_prompt = (
             "Bạn là Trợ lý AI Du lịch Việt Nam thông minh, thân thiện và am hiểu địa phương. "
-            "Hãy sử dụng thông tin Cẩm nang Du lịch được cung cấp bên dưới để trả lời câu hỏi của người dùng bằng Tiếng Việt. "
+            "Hãy sử dụng thông tin Cẩm nang Du lịch và thông tin cá nhân người dùng bên dưới để trả lời câu hỏi bằng Tiếng Việt. "
             "Nếu thông tin được cung cấp có chứa câu trả lời, hãy trả lời chính xác, hữu ích và tự nhiên. "
             "Không tự bịa đặt thông tin không có trong cẩm nang.\n\n"
             f"=== CẨM NANG DU LỊCH THAM KHẢO ===\n{context_str}"
+            f"{facts_section}"
         )
 
-        # 4. Call LLM API
+        # 4. Construct Full Messages Stream (Injecting Short-term Conversation History)
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        if conversation_history:
+            messages.extend(conversation_history)
+        messages.append({"role": "user", "content": user_text})
+
+        # 5. Call LLM API
         client = self._get_llm_client()
         completion = client.chat.completions.create(
             model=model_name,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_text},
-            ],
+            messages=messages,
             temperature=0.7,
             max_tokens=800,
         )
 
         reply_content = completion.choices[0].message.content
+        
+        if not reply_content or not reply_content.strip():
+            logger.warning(f"LLM returned empty content. Raw response: {completion.model_dump()}")
+            reply_content = "Xin lỗi, hệ thống AI (Google Gemini) không trả về kết quả (phản hồi trống). Vui lòng kiểm tra lại API Key, Tên Model hoặc thử lại sau!"
+
 
         # Format citations list
         citations_list = [
