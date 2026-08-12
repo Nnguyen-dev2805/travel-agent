@@ -60,6 +60,46 @@ export const createNewSessionId = () => {
   return newSessionId;
 };
 
+export const getStoredGuestSessions = () => {
+  try {
+    const raw = localStorage.getItem('travel_guest_sessions');
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const saveGuestSession = (sessionId, titleText) => {
+  try {
+    const sessions = getStoredGuestSessions();
+    const cleanTitle = (titleText || 'Cuộc trò chuyện mới').slice(0, 45);
+    const existingIdx = sessions.findIndex((s) => s.id === sessionId);
+    const updatedSession = {
+      id: sessionId,
+      title: cleanTitle,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (existingIdx >= 0) {
+      sessions[existingIdx] = updatedSession;
+    } else {
+      sessions.unshift(updatedSession);
+    }
+    localStorage.setItem('travel_guest_sessions', JSON.stringify(sessions));
+  } catch (e) {
+    console.error('Error saving guest session:', e);
+  }
+};
+
+export const deleteGuestSession = (sessionId) => {
+  try {
+    const sessions = getStoredGuestSessions().filter((s) => s.id !== sessionId);
+    localStorage.setItem('travel_guest_sessions', JSON.stringify(sessions));
+  } catch (e) {
+    console.error('Error deleting guest session:', e);
+  }
+};
+
 // ----------------------------------------------------
 // 2. Authentication APIs
 // ----------------------------------------------------
@@ -130,8 +170,40 @@ export const sendChatMessage = async (message, customSessionId = null) => {
 };
 
 // ----------------------------------------------------
-// 4. Long-term Memory APIs
+// 4. Memory & Session Management APIs
 // ----------------------------------------------------
+export const getUserSessions = async () => {
+  try {
+    const response = await apiClient.get('/api/v1/memory/sessions');
+    return response.data;
+  } catch (error) {
+    console.error('Fetch User Sessions Error:', error);
+    return [];
+  }
+};
+
+export const getSessionHistory = async (sessionId) => {
+  if (!sessionId) return [];
+  try {
+    const response = await apiClient.get(`/api/v1/memory/history/${sessionId}`);
+    return response.data;
+  } catch (error) {
+    console.error('Fetch Session History Error:', error);
+    return [];
+  }
+};
+
+export const deleteSessionHistory = async (sessionId) => {
+  if (!sessionId) return false;
+  try {
+    await apiClient.delete(`/api/v1/memory/history/${sessionId}`);
+    return true;
+  } catch (error) {
+    console.error('Delete Session Error:', error);
+    return false;
+  }
+};
+
 export const getUserFacts = async () => {
   try {
     const response = await apiClient.get('/api/v1/memory/facts');

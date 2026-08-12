@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import WelcomeView from './components/WelcomeView';
@@ -12,6 +12,12 @@ import {
   logoutUser,
   getStoredSessionId,
   createNewSessionId,
+  getUserSessions,
+  getSessionHistory,
+  deleteSessionHistory,
+  getStoredGuestSessions,
+  saveGuestSession,
+  deleteGuestSession,
 } from './services/api';
 
 export default function App() {
@@ -24,8 +30,20 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isFactsModalOpen, setIsFactsModalOpen] = useState(false);
 
-  // Active Chat Session ID
+  // Active Chat Session ID & User Sessions List
   const [sessionId, setSessionId] = useState(getStoredSessionId());
+  const [sessions, setSessions] = useState([]);
+
+  // Fetch list of user/guest sessions
+  const refreshSessions = useCallback(async () => {
+    if (currentUser) {
+      const userSessions = await getUserSessions();
+      setSessions(userSessions || []);
+    } else {
+      const guestSessions = getStoredGuestSessions();
+      setSessions(guestSessions || []);
+    }
+  }, [currentUser]);
 
   // Check auth user status on app mount
   useEffect(() => {
@@ -38,15 +56,62 @@ export default function App() {
     checkAuth();
   }, []);
 
+  // Refresh session list when currentUser changes or mounts
+  useEffect(() => {
+    refreshSessions();
+  }, [currentUser, refreshSessions]);
+
+  // Load chat history whenever active sessionId changes
+  useEffect(() => {
+    async function loadHistory() {
+      if (sessionId) {
+        const history = await getSessionHistory(sessionId);
+        if (Array.isArray(history) && history.length > 0) {
+          setMessages(
+            history.map((msg) => ({
+              role: msg.role,
+              content: msg.content,
+              citations: [],
+            }))
+          );
+        } else {
+          setMessages([]);
+        }
+      }
+    }
+    loadHistory();
+  }, [sessionId]);
+
   const handleNewChat = () => {
     const newSid = createNewSessionId();
     setSessionId(newSid);
     setMessages([]);
   };
 
+  const handleSelectSession = (selectedSid) => {
+    if (selectedSid !== sessionId) {
+      localStorage.setItem('travel_chat_session_id', selectedSid);
+      setSessionId(selectedSid);
+    }
+  };
+
+  const handleDeleteSession = async (targetSid) => {
+    if (currentUser) {
+      await deleteSessionHistory(targetSid);
+    } else {
+      deleteGuestSession(targetSid);
+    }
+
+    if (targetSid === sessionId) {
+      handleNewChat();
+    }
+    refreshSessions();
+  };
+
   const handleLogout = () => {
     logoutUser();
     setCurrentUser(null);
+    setSessions([]);
   };
 
   const handleSendMessage = async (userText) => {
@@ -67,8 +132,17 @@ export default function App() {
 
       // If session_id returned from API, sync state
       if (data.session_id && data.session_id !== sessionId) {
+        localStorage.setItem('travel_chat_session_id', data.session_id);
         setSessionId(data.session_id);
       }
+
+      // Save guest session locally if not logged in
+      if (!currentUser) {
+        saveGuestSession(sessionId, userText);
+      }
+
+      // Refresh recent sessions list after message sent
+      refreshSessions();
     } catch (error) {
       const errorMessage = {
         role: 'assistant',
@@ -92,6 +166,10 @@ export default function App() {
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onOpenFactsModal={() => setIsFactsModalOpen(true)}
         onLogout={handleLogout}
+        sessions={sessions}
+        activeSessionId={sessionId}
+        onSelectSession={handleSelectSession}
+        onDeleteSession={handleDeleteSession}
       />
 
       {/* Main Canvas (Level 1) */}

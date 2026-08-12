@@ -54,8 +54,21 @@ class ConversationMemoryService:
             raise ValueError(f"Invalid message role '{role}'. Must be 'user' or 'assistant'.")
 
         self.ensure_session_exists(db, session_id, user_id=user_id)
+        clean_sid = session_id.strip()
+        session = db.get(ChatSession, clean_sid)
 
-        msg = ChatMessage(session_id=session_id.strip(), role=role, content=text_clean)
+        # Auto-set session title from first user message if missing
+        if session and role == "user" and not session.title:
+            title = text_clean[:45] + ("..." if len(text_clean) > 45 else "")
+            session.title = title
+
+        # Ensure session updated_at is refreshed on new message
+        if session:
+            from datetime import datetime, timezone
+            session.updated_at = datetime.now(timezone.utc)
+            db.commit()
+
+        msg = ChatMessage(session_id=clean_sid, role=role, content=text_clean)
         db.add(msg)
         db.commit()
         db.refresh(msg)
@@ -94,6 +107,15 @@ class ConversationMemoryService:
         messages = self.get_recent_messages(db, session_id, limit=limit)
         return [{"role": msg.role, "content": msg.content} for msg in messages]
 
+    def get_user_sessions(self, db: Session, user_id: int) -> List[ChatSession]:
+        """Fetch all chat sessions belonging to a specific User ID ordered by update time descending."""
+        stmt = (
+            select(ChatSession)
+            .where(ChatSession.user_id == user_id)
+            .order_by(ChatSession.updated_at.desc())
+        )
+        return list(db.scalars(stmt).all())
+
     def clear_session(self, db: Session, session_id: str) -> None:
         """Clear all messages in a chat session."""
         clean_sid = session_id.strip()
@@ -102,3 +124,22 @@ class ConversationMemoryService:
             db.delete(session)
             db.commit()
             logger.info(f"Cleared ChatSession ID='{clean_sid}'")
+
+    def delete_session(
+        self, db: Session, session_id: str, user_id: Optional[int] = None
+    ) -> bool:
+        """Delete a ChatSession ensuring optional user ownership validation."""
+        clean_sid = session_id.strip()
+        session = db.get(ChatSession, clean_sid)
+        if not session:
+            return False
+
+        if user_id is not None and session.user_id != user_id:
+            logger.warning(f"User ID {user_id} unauthorized to delete session {clean_sid}")
+            return False
+
+        db.delete(session)
+        db.commit()
+        logger.info(f"Deleted ChatSession ID='{clean_sid}' for User ID={user_id}")
+        return True
+

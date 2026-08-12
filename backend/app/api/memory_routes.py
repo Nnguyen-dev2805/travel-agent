@@ -1,7 +1,8 @@
 """API endpoints for managing Chat History and User Long-term Memory Facts."""
 
 import logging
-from typing import Any, Dict, List
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,6 +32,25 @@ class UserMemoryResponse(BaseModel):
     confidence: float = Field(1.0, json_schema_extra={"example": 1.0})
 
 
+class ChatSessionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = Field(..., json_schema_extra={"example": "550e8400-e29b-41d4-a716-446655440000"})
+    user_id: Optional[int] = Field(None, json_schema_extra={"example": 1})
+    title: Optional[str] = Field(None, json_schema_extra={"example": "Lịch trình đi Đà Lạt 3 ngày"})
+    created_at: datetime
+    updated_at: datetime
+
+
+@router.get("/sessions", response_model=List[ChatSessionResponse])
+def get_user_sessions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get all chat sessions belonging to the authenticated user."""
+    return _conv_service.get_user_sessions(db, current_user.id)
+
+
 @router.get("/history/{session_id}")
 def get_session_history(
     session_id: str,
@@ -45,8 +65,8 @@ def delete_session_history(
     session_id: str,
     db: Session = Depends(get_db),
 ):
-    """Clear all chat messages in a session."""
-    _conv_service.clear_session(db, session_id.strip())
+    """Clear all chat messages and delete a session."""
+    _conv_service.delete_session(db, session_id.strip())
 
 
 @router.get("/facts", response_model=List[UserMemoryResponse])

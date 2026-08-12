@@ -132,10 +132,17 @@ def test_authenticated_user_chat_flow_and_fact_management(mock_get_rag, client_a
     assert len(facts_list) == 1
     assert facts_list[0]["fact_value"] == "Dị ứng hải sản"
 
-    # 5. Delete fact via DELETE /api/v1/memory/facts/{fact_id}
+    # 5. Fetch user sessions via GET /api/v1/memory/sessions
+    sessions_resp = client.get("/api/v1/memory/sessions", headers=auth_headers)
+    assert sessions_resp.status_code == 200
+    sessions_list = sessions_resp.json()
+    assert len(sessions_list) == 1
+    assert sessions_list[0]["id"] == session_id
+    assert sessions_list[0]["title"] is not None
+
+    # 6. Delete fact via DELETE /api/v1/memory/facts/{fact_id}
     del_resp = client.delete(f"/api/v1/memory/facts/{mem.id}", headers=auth_headers)
     assert del_resp.status_code == 204  # 204 No Content
-
 
     # Verify fact deleted
     facts_after = client.get("/api/v1/memory/facts", headers=auth_headers).json()

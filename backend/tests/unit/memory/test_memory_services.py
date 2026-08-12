@@ -157,3 +157,44 @@ def test_memory_manager_guest_vs_user_context(db_session):
     user_context = manager.build_memory_context(db_session, session_id, user=user)
     assert len(user_context["conversation_history"]) == 2
     assert "Thích du lịch sinh thái" in user_context["user_facts"]
+
+
+def test_session_auto_title_creation(db_session):
+    """Test first user message automatically sets the title for ChatSession."""
+    service = ConversationMemoryService()
+    session_id = str(uuid.uuid4())
+
+    # Add first user message
+    service.add_message(db_session, session_id, "user", "Tư vấn cho tôi lịch trình đi Phú Quốc 4 ngày 3 đêm")
+
+    from backend.app.models import ChatSession
+    session = db_session.get(ChatSession, session_id)
+    assert session is not None
+    assert session.title is not None
+    assert "Tư vấn cho tôi lịch trình đi Phú Quốc" in session.title
+
+
+def test_get_and_delete_user_sessions(db_session):
+    """Test fetching user session list and deleting sessions cleanly."""
+    service = ConversationMemoryService()
+    user = User(email="sessionowner@travel.vn", hashed_password="hash")
+    db_session.add(user)
+    db_session.commit()
+
+    sid1 = str(uuid.uuid4())
+    sid2 = str(uuid.uuid4())
+
+    service.add_message(db_session, sid1, "user", "Chuyến đi 1", user_id=user.id)
+    service.add_message(db_session, sid2, "user", "Chuyến đi 2", user_id=user.id)
+
+    sessions = service.get_user_sessions(db_session, user.id)
+    assert len(sessions) == 2
+
+    # Delete sid1
+    deleted = service.delete_session(db_session, sid1, user_id=user.id)
+    assert deleted is True
+
+    sessions_after = service.get_user_sessions(db_session, user.id)
+    assert len(sessions_after) == 1
+    assert sessions_after[0].id == sid2
+
