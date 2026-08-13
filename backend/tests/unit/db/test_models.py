@@ -99,15 +99,15 @@ def test_user_memory_fact_binding(db_session):
     memory1 = UserMemory(
         user_id=user.id,
         fact_type="preference",
-        fact_key="cuisine_preference",
-        fact_value="Thích ẩm thực đường phố và các món cuốn",
+        fact_key="food_style",
+        content="Thích ẩm thực đường phố và các món cuốn",
         confidence=0.95,
     )
     memory2 = UserMemory(
         user_id=user.id,
         fact_type="visited_place",
         fact_key="visited_cities",
-        fact_value="Hà Nội, Đà Nẵng, Phú Quốc",
+        content="Hà Nội, Đà Nẵng, Phú Quốc",
         confidence=1.0,
     )
 

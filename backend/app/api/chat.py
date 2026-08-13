@@ -1,8 +1,11 @@
 import logging
 import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi.concurrency import run_in_threadpool
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
+from backend.app.config import settings
 
 from backend.app.database import get_db
 from backend.app.schemas.chat import ChatRequest, ChatResponse
@@ -10,6 +13,7 @@ from backend.app.models.user import User
 from backend.app.api.deps import get_optional_user
 from backend.memory.memory_manager import MemoryManager
 from backend.rag.generation import RAGService
+from backend.rag.routing.router import ContextRouter, RouteType, RouteDecision
 
 logger = logging.getLogger("travel_agent_backend")
 router = APIRouter()
@@ -17,6 +21,7 @@ router = APIRouter()
 # Global instances
 _rag_service = None
 _memory_manager = None
+_router = None
 
 
 def get_rag_service() -> RAGService:
@@ -32,10 +37,17 @@ def get_memory_manager() -> MemoryManager:
         _memory_manager = MemoryManager()
     return _memory_manager
 
+def get_router() -> ContextRouter:
+    global _router
+    if _router is None:
+        _router = ContextRouter()
+    return _router
+
 
 @router.post("/chat", response_model=ChatResponse)
-def chat_endpoint(
+async def chat_endpoint(
     request: ChatRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user),
 ):
@@ -52,28 +64,80 @@ def chat_endpoint(
     try:
         memory_mgr = get_memory_manager()
         rag_service = get_rag_service()
+        router = get_router()
 
-        # 1. Build memory context (Short-term history + Long-term facts if authenticated)
-        memory_context = memory_mgr.build_memory_context(
-            db=db, session_id=session_id, user=current_user, user_message=user_message
-        )
+        # 1. Fetch History for routing
+        user_id = current_user.id if current_user else None
+        await run_in_threadpool(memory_mgr.conversation_service.ensure_session_exists, db, session_id, user_id=user_id)
+        history = await run_in_threadpool(memory_mgr.conversation_service.format_messages_for_llm, db, session_id)
 
-        # 2. Generate RAG Answer with injected memory context
-        result = rag_service.generate_answer(
-            user_message=user_message,
-            top_k=4,
-            conversation_history=memory_context["conversation_history"],
-            user_facts=memory_context["user_facts"],
-        )
+        # 2. Determine Route
+        if settings.ENABLE_CONTEXT_ROUTER:
+            decision = await run_in_threadpool(router.determine_route, user_query=user_message, history=history)
+        else:
+            decision = RouteDecision(
+                route=RouteType.RAG_AND_MEMORY,
+                needs_rag=True,
+                needs_memory_read=True,
+                should_write_memory=True,
+                confidence=1.0,
+                rewritten_query=user_message,
+                reason="Router disabled, defaulting to full RAG."
+            )
 
-        # 3. Process turn: Save message history & extract facts if authenticated
-        memory_mgr.process_turn(
+        # 3. Read Memory if needed
+        user_facts = ""
+        if decision.needs_memory_read and current_user:
+            user_facts = await run_in_threadpool(
+                memory_mgr.fact_service.retrieve_relevant_facts, 
+                user_id=current_user.id, 
+                query=user_message, 
+                top_k=5
+            )
+
+        # 4. Generate Answer based on Route
+        if decision.route == RouteType.MEMORY_WRITE and decision.confidence >= 0.8:
+            result = {
+                "reply": "Vâng, tôi đã ghi nhận thông tin này của bạn.",
+                "model": "rule-based",
+                "citations": []
+            }
+        elif decision.route == RouteType.CLARIFY:
+            result = {
+                "reply": "Bạn có thể nói rõ hơn ý của mình hoặc cung cấp thêm thông tin về địa điểm/sở thích bạn đang tìm kiếm không?",
+                "model": "rule-based",
+                "citations": []
+            }
+        else:
+            # RAG, DIRECT_ANSWER, MEMORY_READ, RAG_AND_MEMORY
+            result = await run_in_threadpool(
+                rag_service.generate_answer,
+                user_message=decision.rewritten_query if decision.needs_rag else user_message,
+                top_k=4,
+                conversation_history=history,
+                user_facts=user_facts if decision.needs_memory_read else None,
+                skip_rag_search=not decision.needs_rag
+            )
+
+        # 5. Process turn: Save message history
+        await run_in_threadpool(
+            memory_mgr.process_turn,
             db=db,
             session_id=session_id,
             user_message=user_message,
             assistant_reply=result["reply"],
             user=current_user,
         )
+
+        # 6. Schedule Fact Extraction in Background Task
+        if current_user and settings.MEMORY_EXTRACTION_ENABLED and decision.should_write_memory:
+            background_tasks.add_task(
+                memory_mgr.run_fact_extraction_task,
+                user_id=current_user.id,
+                user_message=user_message,
+                assistant_reply=result["reply"],
+                session_id=session_id
+            )
 
         return ChatResponse(
             reply=result["reply"],

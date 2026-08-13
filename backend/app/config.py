@@ -19,6 +19,13 @@ class Settings(BaseModel):
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-2.5-flash")
     LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
 
+    # Multi-model Configuration (fallback to LLM_MODEL if not explicitly set)
+    MAIN_LLM_MODEL: str = os.getenv("MAIN_LLM_MODEL", LLM_MODEL)
+    ROUTER_MODEL: str = os.getenv("ROUTER_MODEL", LLM_MODEL)
+    MEMORY_EXTRACTION_MODEL: str = os.getenv("MEMORY_EXTRACTION_MODEL", LLM_MODEL)
+    CONFLICT_RESOLUTION_MODEL: str = os.getenv("CONFLICT_RESOLUTION_MODEL", LLM_MODEL)
+    EVALUATION_MODEL: str = os.getenv("EVALUATION_MODEL", LLM_MODEL)
+
     # Security & Auth
     SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production-12345")
     ALGORITHM: str = "HS256"
@@ -32,6 +39,7 @@ class Settings(BaseModel):
     # Memory Engine
     MEMORY_WINDOW_SIZE: int = int(os.getenv("MEMORY_WINDOW_SIZE", "10"))
     MEMORY_EXTRACTION_ENABLED: bool = os.getenv("MEMORY_EXTRACTION_ENABLED", "true").lower() == "true"
+    ENABLE_CONTEXT_ROUTER: bool = os.getenv("ENABLE_CONTEXT_ROUTER", "true").lower() == "true"
 
 
 settings = Settings()

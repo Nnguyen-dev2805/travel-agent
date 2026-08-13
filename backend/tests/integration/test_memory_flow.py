@@ -3,8 +3,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
+# pyrefly: ignore [missing-import]
 from sqlalchemy import create_engine
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import sessionmaker
+# pyrefly: ignore [missing-import]
 from sqlalchemy.pool import StaticPool
 
 from backend.app.main import app
@@ -40,7 +43,8 @@ def client_and_db():
 
 
 @patch("backend.app.api.chat.get_rag_service")
-def test_guest_chat_flow_and_history(mock_get_rag, client_and_db):
+@patch("backend.memory.fact_memory.FactMemoryService.extract_facts")
+def test_guest_chat_flow_and_history(mock_extract_facts, mock_get_rag, client_and_db):
     """Test End-to-End Chat flow for Guest User (No Auth Token)."""
     client, db = client_and_db
 
@@ -79,7 +83,9 @@ def test_guest_chat_flow_and_history(mock_get_rag, client_and_db):
 
 
 @patch("backend.app.api.chat.get_rag_service")
-def test_authenticated_user_chat_flow_and_fact_management(mock_get_rag, client_and_db):
+@patch("backend.memory.fact_memory.FactMemoryService.extract_facts")
+@patch("backend.memory.fact_memory.FactMemoryService.retrieve_relevant_facts")
+def test_authenticated_user_chat_flow_and_fact_management(mock_retrieve, mock_extract_facts, mock_get_rag, client_and_db):
     """Test End-to-End Chat flow for Authenticated User and Memory Fact endpoints."""
     client, db = client_and_db
 
@@ -110,7 +116,8 @@ def test_authenticated_user_chat_flow_and_fact_management(mock_get_rag, client_a
         user_id=user_in_db.id,
         fact_type="dietary",
         fact_key="allergy",
-        fact_value="Dị ứng hải sản",
+        content="Dị ứng hải sản",
+        status="active"
     )
     db.add(mem)
     db.commit()
@@ -130,7 +137,7 @@ def test_authenticated_user_chat_flow_and_fact_management(mock_get_rag, client_a
     assert facts_resp.status_code == 200
     facts_list = facts_resp.json()
     assert len(facts_list) == 1
-    assert facts_list[0]["fact_value"] == "Dị ứng hải sản"
+    assert facts_list[0]["content"] == "Dị ứng hải sản"
 
     # 5. Fetch user sessions via GET /api/v1/memory/sessions
     sessions_resp = client.get("/api/v1/memory/sessions", headers=auth_headers)
