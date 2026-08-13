@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,7 +29,7 @@ class UserMemoryResponse(BaseModel):
     user_id: int = Field(..., json_schema_extra={"example": 42})
     fact_type: str = Field(..., json_schema_extra={"example": "dietary"})
     fact_key: str = Field(..., json_schema_extra={"example": "food_allergy"})
-    fact_value: str = Field(..., json_schema_extra={"example": "Dị ứng hải sản"})
+    content: str = Field(..., json_schema_extra={"example": "Dị ứng hải sản"})
     confidence: float = Field(1.0, json_schema_extra={"example": 1.0})
 
 

@@ -3,6 +3,7 @@
 import json
 import logging
 from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field, ValidationError
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 # pyrefly: ignore [missing-import]
@@ -18,6 +19,12 @@ from backend.rag.retrieval.vector_store import ChromaVectorStore
 
 logger = logging.getLogger("travel_agent_fact_memory")
 
+
+class FactItemModel(BaseModel):
+    fact_type: str = Field(...)
+    fact_key: str = Field(...)
+    content: str = Field(...)
+    confidence: float = Field(...)
 
 class FactMemoryService:
     """Manages long-term user facts and preference extraction."""
@@ -52,38 +59,48 @@ class FactMemoryService:
             f"User: {user_message}\n"
             f"Assistant: {assistant_reply}\n\n"
             "=== YÊU CẦU ĐẦU RA ===\n"
-            "Trả về DUY NHẤT một JSON array chứa danh sách các fact được tìm thấy.\n"
-            "Mỗi item trong array có dạng đúng JSON schema sau:\n"
-            "[\n"
-            "  {\n"
-            '    "fact_type": "preference | identity | visited_place | budget | travel_style | dietary | behavior",\n'
-            '    "fact_key": "Mã định danh tiếng Anh viết thường (VD: food_allergy, transport_mode)",\n'
-            '    "content": "Mô tả chi tiết bằng Tiếng Việt (VD: Dị ứng nặng với hải sản)",\n'
-            '    "confidence": 0.9\n'
-            "  }\n"
-            "]\n"
-            "Nếu không có thông tin cá nhân mới nào được đề cập, trả về [] (JSON array rỗng). "
-            "Chỉ trả về JSON hợp lệ, không kèm bất kỳ câu dẫn hay markdown fence nào khác."
+            "Trả về kết quả dưới dạng JSON object, bắt buộc phải có key 'facts' chứa danh sách các fact tìm thấy.\n"
+            "Mỗi item trong mảng 'facts' có dạng đúng JSON schema sau:\n"
+            "{\n"
+            '  "fact_type": "preference | identity | visited_place | budget | travel_style | dietary | behavior",\n'
+            '  "fact_key": "Mã định danh tiếng Anh viết thường (VD: food_allergy, transport_mode)",\n'
+            '  "content": "Mô tả chi tiết bằng Tiếng Việt (VD: Dị ứng nặng với hải sản)",\n'
+            '  "confidence": 0.9\n'
+            "}\n"
+            "Nếu không có thông tin cá nhân mới nào, trả về JSON rỗng: {\"facts\": []}. "
+            "Chỉ trả về JSON hợp lệ, không kèm câu dẫn nào khác."
         )
 
         try:
             completion = client.chat.completions.create(
-                model=settings.LLM_MODEL,
+                model=settings.MEMORY_EXTRACTION_MODEL,
                 messages=[{"role": "user", "content": extraction_prompt}],
                 temperature=0.1,
                 max_tokens=500,
+                response_format={"type": "json_object"}
             )
             raw_text = completion.choices[0].message.content.strip()
 
             if raw_text.startswith("```"):
                 raw_text = raw_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
-            extracted_items = json.loads(raw_text)
+            parsed_json = json.loads(raw_text)
+            extracted_items = parsed_json.get("facts", [])
+            
+            validated_items = []
             if isinstance(extracted_items, list):
-                return extracted_items
+                for item in extracted_items:
+                    try:
+                        validated_item = FactItemModel.model_validate(item)
+                        validated_items.append(validated_item.model_dump())
+                    except ValidationError as ve:
+                        logger.warning(f"FactItem validation error: {ve}")
+                return validated_items
 
+        except json.JSONDecodeError as jde:
+            logger.warning(f"JSON decode error in fact extraction: {str(jde)}")
         except Exception as e:
-            logger.warning(f"Fact extraction parsing notice: {str(e)}")
+            logger.warning(f"Fact extraction failed: {str(e)}")
 
         return []
 
@@ -107,7 +124,7 @@ class FactMemoryService:
         )
         try:
             completion = client.chat.completions.create(
-                model=settings.LLM_MODEL,
+                model=settings.CONFLICT_RESOLUTION_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=20,

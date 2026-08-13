@@ -2,10 +2,12 @@
 
 import logging
 from typing import Any, Dict, Optional
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
 from backend.app.models.user import User
+from backend.app.database import SessionLocal
 from backend.memory.conversation_memory import ConversationMemoryService
 from backend.memory.fact_memory import FactMemoryService
 
@@ -64,7 +66,7 @@ class MemoryManager:
         assistant_reply: str,
         user: Optional[User] = None,
     ) -> None:
-        """Process a completed conversation turn: save messages & extract long-term facts."""
+        """Process a completed conversation turn: save messages (Short-term memory)."""
         user_id = user.id if user else None
 
         # 1. Save turn to Short-term Conversation Memory
@@ -75,14 +77,23 @@ class MemoryManager:
             db, session_id, role="assistant", content=assistant_reply, user_id=user_id
         )
 
-        # 2. Extract Long-term Facts ONLY if User is logged in and Extraction is enabled
-        if user and settings.MEMORY_EXTRACTION_ENABLED:
+    def run_fact_extraction_task(
+        self,
+        user_id: int,
+        user_message: str,
+        assistant_reply: str,
+        session_id: str
+    ) -> None:
+        """Run fact extraction in a background task with a dedicated database session."""
+        with SessionLocal() as db_session:
             try:
                 self.fact_service.extract_facts(
-                    db=db,
-                    user_id=user.id,
+                    db=db_session,
+                    user_id=user_id,
                     user_message=user_message,
                     assistant_reply=assistant_reply,
+                    session_id=session_id
                 )
             except Exception as e:
-                logger.error(f"Error extracting long-term facts for UserID={user.id}: {str(e)}")
+                db_session.rollback()
+                logger.error(f"Error extracting long-term facts for UserID={user_id}: {str(e)}")

@@ -7,6 +7,8 @@ from pathlib import Path
 from backend.rag.chunking import load_jsonl_dataset, DocumentChunker, ParentChildChunker
 from backend.rag.embedding import VectorEmbedder
 from backend.rag.retrieval import ChromaVectorStore
+from backend.app.database import SessionLocal
+from backend.app.models.document import TravelDocument
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("travel_agent_indexing")
@@ -65,9 +67,30 @@ def run_indexing_pipeline():
     pc_chunker = ParentChildChunker()
     all_child_chunks = []
     
-    for doc in pc_docs:
-        _, child_chunks = pc_chunker.chunk_document(doc)
-        all_child_chunks.extend(child_chunks)
+    db = SessionLocal()
+    try:
+        # Clear existing parent chunks in DB
+        db.query(TravelDocument).delete()
+
+        for doc in pc_docs:
+            parent, child_chunks = pc_chunker.chunk_document(doc)
+            all_child_chunks.extend(child_chunks)
+            
+            db_doc = TravelDocument(
+                id=parent.parent_id,
+                document_id=parent.document_id,
+                title=parent.title,
+                content=parent.content,
+                metadata_json=parent.metadata
+            )
+            db.add(db_doc)
+            
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        db.close()
         
     logger.info(f"Generated {len(all_child_chunks)} Parent-Child child chunks.")
     

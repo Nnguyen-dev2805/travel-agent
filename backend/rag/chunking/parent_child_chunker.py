@@ -46,6 +46,7 @@ class ParentChunk:
     title: str
     clean_title: str
     context_summary: str
+    content: str
     child_ids: List[str]
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -256,6 +257,7 @@ class ParentChildChunker:
                 first_text = txt
                 break
         context_summary = self.truncate_words(first_text, self.summary_max_words)
+        full_content = "\n\n".join([sec.get("text", "").strip() for sec in sections if sec.get("text", "").strip()])
 
         children: List[ChildChunk] = []
         child_ids: List[str] = []
@@ -306,6 +308,7 @@ class ParentChildChunker:
             title=raw_title,
             clean_title=clean_title,
             context_summary=context_summary,
+            content=full_content,
             child_ids=child_ids,
             metadata={
                 "url": url,

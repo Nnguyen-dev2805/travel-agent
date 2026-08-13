@@ -179,7 +179,7 @@ class LLMJudgeEvaluator:
 
         client = self._get_client()
         response = client.chat.completions.create(
-            model=settings.LLM_MODEL,
+            model=settings.EVALUATION_MODEL,
             messages=[
                 {"role": "system", "content": "You are a professional RAG evaluation judge. Respond strictly in valid JSON format."},
                 {"role": "user", "content": prompt},

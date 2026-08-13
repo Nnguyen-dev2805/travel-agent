@@ -1,8 +1,11 @@
 """Unit tests for ConversationMemoryService, FactMemoryService, and MemoryManager."""
 
 import uuid
+# pyrefly: ignore [missing-import]
 import pytest
+# pyrefly: ignore [missing-import]
 from sqlalchemy import create_engine
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.models import Base, User, UserMemory
@@ -73,8 +76,8 @@ def test_fact_memory_upsert_and_isolation(db_session):
     mem_a1 = UserMemory(
         user_id=user_a.id,
         fact_type="dietary",
-        fact_key="food_allergy",
-        fact_value="Dị ứng hải sản",
+        fact_key="allergy",
+        content="Dị ứng hải sản",
     )
     db_session.add(mem_a1)
     db_session.commit()
@@ -84,17 +87,17 @@ def test_fact_memory_upsert_and_isolation(db_session):
     facts_b = fact_service.get_user_facts(db_session, user_b.id)
     assert len(facts_a) == 1
     assert len(facts_b) == 0
-    assert facts_a[0].fact_value == "Dị ứng hải sản"
+    assert facts_a[0].content == "Dị ứng hải sản"
 
     # Upsert fact for User A (Updating same key 'food_allergy')
     existing_mem = db_session.query(UserMemory).filter_by(user_id=user_a.id, fact_key="food_allergy").first()
-    existing_mem.fact_value = "Dị ứng hải sản và đậu nành"
+    existing_mem.content = "Dị ứng hải sản và đậu nành"
     db_session.commit()
 
     # Verify fact updated without creating duplicate row
     facts_a_updated = fact_service.get_user_facts(db_session, user_a.id)
     assert len(facts_a_updated) == 1
-    assert facts_a_updated[0].fact_value == "Dị ứng hải sản và đậu nành"
+    assert facts_a_updated[0].content == "Dị ứng hải sản và đậu nành"
 
 
 def test_delete_fact_isolation(db_session):
@@ -110,7 +113,7 @@ def test_delete_fact_isolation(db_session):
         user_id=user_a.id,
         fact_type="preference",
         fact_key="fav_city",
-        fact_value="Đà Nẵng",
+        content="Đà Nẵng",
     )
     db_session.add(fact_a)
     db_session.commit()
@@ -140,7 +143,7 @@ def test_memory_manager_guest_vs_user_context(db_session):
         user_id=user.id,
         fact_type="preference",
         fact_key="style",
-        fact_value="Thích du lịch sinh thái",
+        content="Thích du lịch sinh thái",
     )
     db_session.add(fact)
     db_session.commit()
