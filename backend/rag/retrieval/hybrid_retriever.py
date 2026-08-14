@@ -38,11 +38,13 @@ class HybridRetriever:
         query_embedding: List[float],
         top_k: int = 4,
         candidate_k: Optional[int] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        chroma_where: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Return fused dense and BM25 search results."""
         limit = max(candidate_k or self.candidate_k, top_k)
-        dense_results = self.vector_store.search_similar(query_embedding, top_k=limit)
-        bm25_results = self.bm25_store.search(query_text, top_k=limit)
+        dense_results = self.vector_store.search_similar(query_embedding, top_k=limit, where=chroma_where)
+        bm25_results = self.bm25_store.search(query_text, top_k=limit, filters=filters)
 
         fused: Dict[str, Dict[str, Any]] = {}
 

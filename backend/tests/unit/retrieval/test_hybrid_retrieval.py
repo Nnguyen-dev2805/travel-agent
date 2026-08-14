@@ -45,7 +45,7 @@ class FakeElasticsearchClient:
 
 
 class FakeVectorStore:
-    def search_similar(self, query_embedding, top_k=4):
+    def search_similar(self, query_embedding, top_k=4, where=None):
         return [
             {
                 "chunk_id": "dense_only",

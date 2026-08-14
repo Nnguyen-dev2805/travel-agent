@@ -7,6 +7,13 @@ from typing import Any, Dict, List
 from openai import OpenAI
 from backend.app.config import settings
 from backend.rag.embedding import VectorEmbedder
+from backend.rag.query_understanding import (
+    ParsedQuery,
+    QueryFilters,
+    QwenQueryParser,
+    apply_metadata_bonus,
+    build_query_filters,
+)
 from backend.rag.reranking import TEICrossEncoderReranker
 from backend.rag.retrieval import ChromaVectorStore, ElasticsearchBM25Store, HybridRetriever
 
@@ -23,6 +30,7 @@ class RAGService:
         self.vector_store = ChromaVectorStore(collection_name=self.collection_name)
         self.hybrid_retriever = None
         self.reranker = None
+        self.query_parser = None
 
         if self.retriever_mode == "hybrid":
             bm25_store = ElasticsearchBM25Store(
@@ -56,6 +64,48 @@ class RAGService:
                 raw_scores=settings.RERANKER_RAW_SCORES,
             )
 
+        if settings.QUERY_PARSER_ENABLED:
+            self.query_parser = QwenQueryParser(
+                base_url=settings.QUERY_PARSER_BASE_URL,
+                api_key=settings.QUERY_PARSER_API_KEY,
+                model=settings.QUERY_PARSER_MODEL,
+                timeout_seconds=settings.QUERY_PARSER_TIMEOUT_SECONDS,
+            )
+
+    def _count_chroma_candidates(self, query_filters: QueryFilters | None) -> int:
+        if query_filters is None:
+            return self.vector_store.count()
+        chroma_where = query_filters.chroma_where()
+        if not chroma_where:
+            return self.vector_store.count()
+        try:
+            matches = self.vector_store.collection.get(where=chroma_where, include=[])
+        except (TypeError, ValueError):
+            matches = self.vector_store.collection.get(where=chroma_where, include=["metadatas"])
+        return len(matches.get("ids") or [])
+
+    def _resolve_metadata_prefilter(
+        self,
+        query_filters: QueryFilters | None,
+        candidate_k: int,
+    ) -> tuple[QueryFilters | None, int, str]:
+        if query_filters is None:
+            return None, self.vector_store.count(), ""
+
+        chroma_where = query_filters.chroma_where()
+        elasticsearch_filters = query_filters.elasticsearch_filters()
+        candidate_count = self._count_chroma_candidates(query_filters)
+        if not chroma_where and not elasticsearch_filters:
+            return query_filters, candidate_count, ""
+
+        minimum_candidates = max(1, candidate_k)
+        if candidate_count < minimum_candidates:
+            reason = f"candidate_count {candidate_count} < k_candidate {minimum_candidates}"
+            logger.info("Metadata pre-filter fallback to full retrieval: %s", reason)
+            return QueryFilters(), candidate_count, reason
+
+        return query_filters, candidate_count, ""
+
     def _get_llm_client(self) -> OpenAI:
         """Get OpenAI client configured for GitHub Models API."""
         if not settings.GITHUB_TOKEN:
@@ -84,16 +134,71 @@ class RAGService:
         model_name = settings.LLM_MODEL
         logger.info(f"Processing RAG request for: '{user_text[:50]}...'")
 
+        parsed_query = ParsedQuery(raw_query=user_text, language=settings.QUERY_PARSER_DEFAULT_LANGUAGE)
+        query_filters = None
+        if settings.METADATA_FILTERING_ENABLED and self.query_parser:
+            try:
+                parsed_query = self.query_parser.parse(user_text)
+            except Exception as err:
+                logger.warning("Query parser failed; continuing without parsed metadata: %s", err)
+                parsed_query = ParsedQuery(raw_query=user_text, language=settings.QUERY_PARSER_DEFAULT_LANGUAGE)
+
+        if settings.METADATA_FILTERING_ENABLED:
+            query_filters = build_query_filters(
+                parsed_query,
+                default_language=settings.QUERY_PARSER_DEFAULT_LANGUAGE,
+            )
+
         # 1. Retrieve candidate chunks
         query_vector = self.embedder.embed_query(user_text)
         retrieval_k = max(top_k, settings.RERANKER_CANDIDATE_K) if self.reranker else top_k
+        if query_filters and query_filters.location_cities:
+            retrieval_k = max(
+                retrieval_k,
+                top_k * max(1, settings.METADATA_FILTER_CANDIDATE_MULTIPLIER),
+            )
+        candidate_k = max(
+            retrieval_k,
+            settings.HYBRID_CANDIDATE_K if self.hybrid_retriever else retrieval_k,
+        )
+        raw_metadata_candidate_count = None
+        metadata_fallback_reason = ""
+        raw_query_filters = query_filters
+        if settings.METADATA_FILTERING_ENABLED:
+            query_filters, raw_metadata_candidate_count, metadata_fallback_reason = self._resolve_metadata_prefilter(
+                query_filters,
+                candidate_k=candidate_k,
+            )
+
         if self.hybrid_retriever:
-            retrieved_results = self.hybrid_retriever.search(user_text, query_vector, top_k=retrieval_k)
+            retrieved_results = self.hybrid_retriever.search(
+                user_text,
+                query_vector,
+                top_k=retrieval_k,
+                filters=query_filters.elasticsearch_filters() if query_filters else None,
+                chroma_where=query_filters.chroma_where() if query_filters else None,
+            )
         else:
-            retrieved_results = self.vector_store.search_similar(query_vector, top_k=retrieval_k)
+            retrieved_results = self.vector_store.search_similar(
+                query_vector,
+                top_k=retrieval_k,
+                where=query_filters.chroma_where() if query_filters else None,
+            )
 
         if self.reranker:
-            retrieved_results = self.reranker.rerank(user_text, retrieved_results, top_k=top_k)
+            rerank_k = max(top_k, len(retrieved_results)) if settings.METADATA_BONUS_ENABLED else top_k
+            retrieved_results = self.reranker.rerank(user_text, retrieved_results, top_k=rerank_k)
+
+        if settings.METADATA_BONUS_ENABLED:
+            retrieved_results = apply_metadata_bonus(
+                retrieved_results,
+                parsed_query,
+                cross_encoder_weight=settings.METADATA_BONUS_CROSS_ENCODER_WEIGHT,
+                metadata_weight=settings.METADATA_BONUS_WEIGHT,
+                top_k=top_k,
+            )
+        else:
+            retrieved_results = retrieved_results[:top_k]
 
         # 2. Build context string and extract citations
         context_parts = []
@@ -147,4 +252,12 @@ class RAGService:
             "reply": reply_content,
             "model": model_name,
             "citations": citations_list,
+            "parsed_query": parsed_query.to_dict(),
+            "metadata_filter": {
+                "raw_candidate_count": raw_metadata_candidate_count,
+                "fallback_reason": metadata_fallback_reason,
+                "raw_expanded_locations": raw_query_filters.location_cities if raw_query_filters else [],
+                "expanded_locations": query_filters.location_cities if query_filters else [],
+                "chroma_where": query_filters.chroma_where() if query_filters else None,
+            },
         }

@@ -16,6 +16,7 @@ logger = logging.getLogger("travel_agent_vector_store")
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 DEFAULT_CHROMADB_DIR = ROOT_DIR / "data" / "chromadb"
+MAX_LOCATION_FILTER_FIELDS = 8
 
 
 class ChromaVectorStore:
@@ -92,8 +93,10 @@ class ChromaVectorStore:
 
         ids = [chunk.child_id for chunk in child_chunks]
         documents = [chunk.retrieval_text for chunk in child_chunks]
-        metadatas = [
-            {
+        metadatas = []
+        for chunk in child_chunks:
+            locations = self._metadata_list(chunk.metadata.get("locations"))
+            metadata = {
                 "record_type": chunk.record_type,
                 "child_id": chunk.child_id,
                 "parent_id": chunk.parent_id,
@@ -107,7 +110,7 @@ class ChromaVectorStore:
                 "language": str(chunk.metadata.get("language") or "en"),
                 "source_domain": str(chunk.metadata.get("source_domain") or ""),
                 "primary_location": str(chunk.metadata.get("primary_location") or ""),
-                "locations": self._flatten_metadata_value(chunk.metadata.get("locations")),
+                "locations": self._flatten_metadata_value(locations),
                 "region": str(chunk.metadata.get("region") or ""),
                 "category": self._flatten_metadata_value(chunk.metadata.get("category")),
                 "topic": str(chunk.metadata.get("topic") or ""),
@@ -119,8 +122,8 @@ class ChromaVectorStore:
                 "char_length": int(chunk.metadata.get("char_length") or 0),
                 "chunker_version": str(chunk.metadata.get("chunker_version") or ""),
             }
-            for chunk in child_chunks
-        ]
+            metadata.update(self._location_filter_fields(locations))
+            metadatas.append(metadata)
 
         batch_size = 200
         total_added = 0
@@ -151,8 +154,30 @@ class ChromaVectorStore:
             return ", ".join(str(item) for item in value if str(item).strip())
         return str(value)
 
+    @staticmethod
+    def _metadata_list(value: Any) -> List[str]:
+        """Coerce scalar/list metadata into a clean list."""
+        if value in (None, ""):
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, (list, tuple, set)):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return [str(value).strip()]
+
+    @staticmethod
+    def _location_filter_fields(locations: List[str]) -> Dict[str, str]:
+        """Store multi-value locations as scalar fields Chroma can exact-filter."""
+        fields = {f"location_{index}": "" for index in range(1, MAX_LOCATION_FILTER_FIELDS + 1)}
+        for index, location in enumerate(locations[:MAX_LOCATION_FILTER_FIELDS], start=1):
+            fields[f"location_{index}"] = location
+        return fields
+
     def search_similar(
-        self, query_embedding: List[float], top_k: int = 4
+        self,
+        query_embedding: List[float],
+        top_k: int = 4,
+        where: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Search top-k most similar text chunks for a query embedding.
 
@@ -162,11 +187,15 @@ class ChromaVectorStore:
         if not query_embedding:
             return []
 
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"],
-        )
+        query_kwargs: Dict[str, Any] = {
+            "query_embeddings": [query_embedding],
+            "n_results": top_k,
+            "include": ["documents", "metadatas", "distances"],
+        }
+        if where:
+            query_kwargs["where"] = where
+
+        results = self.collection.query(**query_kwargs)
 
         formatted_results: List[Dict[str, Any]] = []
 

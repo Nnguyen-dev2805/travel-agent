@@ -1,4 +1,4 @@
-"""Elasticsearch BM25 retrieval for Chroma-backed child chunks."""
+"""Đánh index và truy xuất BM25 bằng Elasticsearch cho các child chunk lấy từ Chroma."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ logger = logging.getLogger("travel_agent_elasticsearch_bm25")
 
 
 class ElasticsearchBM25Store:
-    """Indexes and searches child chunks in Elasticsearch using BM25."""
+    """Quản lý Elasticsearch index và search child chunk bằng BM25."""
 
     def __init__(
         self,
@@ -30,6 +30,11 @@ class ElasticsearchBM25Store:
         request_timeout: int = 30,
         client: Any = None,
     ) -> None:
+        """Khởi tạo Elasticsearch client và lưu thông tin index.
+
+        Có thể truyền `client` giả trong unit test. Nếu không truyền, class sẽ
+        tự tạo Elasticsearch client từ URL, credential và timeout trong config.
+        """
         self.url = url
         self.index_name = index_name
         self.request_timeout = request_timeout
@@ -57,9 +62,14 @@ class ElasticsearchBM25Store:
 
     @staticmethod
     def index_settings() -> Dict[str, Any]:
-        """Return Elasticsearch settings and mappings for child chunks."""
+        """Tạo settings/mapping cho index child chunks.
+
+        Mapping định nghĩa analyzer `travel_text` với lowercase + asciifolding
+        để search không phân biệt hoa/thường và dấu. Các field text chính dùng
+        similarity BM25 tùy chỉnh `travel_bm25`.
+        """
         text_field = {
-            "type": "text",
+            "type": "text", # phục vụ text search
             "analyzer": "travel_text",
             "fields": {"keyword": {"type": "keyword", "ignore_above": 256}},
         }
@@ -123,7 +133,11 @@ class ElasticsearchBM25Store:
         }
 
     def create_index(self, recreate: bool = False) -> None:
-        """Create the Elasticsearch index if needed."""
+        """Tạo Elasticsearch index nếu chưa tồn tại.
+
+        Nếu `recreate=True`, index cũ sẽ bị xóa rồi tạo lại từ đầu. Dùng khi
+        muốn rebuild toàn bộ dữ liệu BM25 từ Chroma.
+        """
         exists = self.client.indices.exists(index=self.index_name)
         if exists and recreate:
             logger.info("Deleting existing Elasticsearch index '%s'.", self.index_name)
@@ -136,6 +150,7 @@ class ElasticsearchBM25Store:
 
     @staticmethod
     def _metadata_value(metadata: Dict[str, Any], key: str, default: Any = "") -> Any:
+        """Lấy giá trị metadata theo key, trả default nếu value là None."""
         value = metadata.get(key)
         return default if value is None else value
 
@@ -146,7 +161,12 @@ class ElasticsearchBM25Store:
         retrieval_text: str,
         metadata: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """Build an Elasticsearch document from a Chroma result item."""
+        """Chuyển một Chroma chunk thành document để index vào Elasticsearch.
+
+        Hàm gom `retrieval_text`, `source_text` và các metadata quan trọng
+        như location, topic, entity_type, content_type vào cùng một document
+        Elasticsearch để phục vụ BM25 search và metadata filtering.
+        """
         meta = metadata or {}
         child_id = str(cls._metadata_value(meta, "child_id", chunk_id) or chunk_id)
         source_text = str(cls._metadata_value(meta, "source_text", "") or "")
@@ -183,6 +203,11 @@ class ElasticsearchBM25Store:
         vector_store: ChromaVectorStore,
         batch_size: int,
     ) -> Iterable[Dict[str, Any]]:
+        """Sinh các bulk action để copy dữ liệu từ Chroma sang Elasticsearch.
+
+        Dữ liệu được đọc theo batch từ Chroma collection, sau đó mỗi chunk được
+        chuyển thành action `_op_type=index` cho Elasticsearch helpers.bulk().
+        """
         total = vector_store.count()
         for offset in range(0, total, batch_size):
             batch = vector_store.collection.get(
@@ -209,7 +234,12 @@ class ElasticsearchBM25Store:
         recreate: bool = False,
         refresh: bool = True,
     ) -> int:
-        """Sync all chunks from a Chroma collection into Elasticsearch."""
+        """Đồng bộ toàn bộ chunks từ Chroma collection sang Elasticsearch.
+
+        Đây là hàm chính cho bước offline indexing BM25. Nó đảm bảo index tồn tại,
+        đọc documents/metadatas từ Chroma, bulk index vào Elasticsearch và refresh
+        index để dữ liệu có thể search ngay sau khi sync.
+        """
         if helpers is None:
             raise RuntimeError("The 'elasticsearch' helpers module is unavailable.")
 
@@ -235,7 +265,12 @@ class ElasticsearchBM25Store:
         top_k: int = 30,
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        """Search Elasticsearch with BM25 and return Chroma-compatible results."""
+        """Search Elasticsearch bằng BM25 và trả kết quả theo format giống Chroma.
+
+        Query chính dùng `multi_match` trên `retrieval_text`, `heading`, `title`
+        và `locations`. Nếu có metadata filters, hàm thêm filter clause, gồm
+        key nội bộ `__locations_any` để match trên nhiều field location.
+        """
         query = query_text.strip()
         if not query:
             return []
@@ -245,26 +280,35 @@ class ElasticsearchBM25Store:
                 "multi_match": {
                     "query": query,
                     "fields": [
-                        "title^4",
-                        "heading^3",
-                        "heading_path^2",
-                        "locations^3",
-                        "primary_location.text^3",
-                        "region.text^2",
-                        "category.text^2",
-                        "topic^2",
-                        "retrieval_text",
+                        "retrieval_text^4",
+                        "heading^1.5",
+                        "title^1",
+                        "locations^1",
                     ],
                     "type": "best_fields",
                     "operator": "or",
                 }
             }
         ]
-        filter_clauses = [
-            {"term": {key: value}}
-            for key, value in (filters or {}).items()
-            if value not in (None, "")
-        ]
+        filter_clauses = []
+        for key, value in (filters or {}).items():
+            if value in (None, ""):
+                continue
+            if key == "__locations_any":
+                location_should = []
+                for location in value:
+                    location_should.extend(
+                        [
+                            {"match_phrase": {"locations": location}},
+                            {"match_phrase": {"primary_location.text": location}},
+                        ]
+                    )
+                if location_should:
+                    filter_clauses.append(
+                        {"bool": {"should": location_should, "minimum_should_match": 1}}
+                    )
+            else:
+                filter_clauses.append({"term": {key: value}})
 
         body = {
             "query": {"bool": {"must": must, "filter": filter_clauses}},

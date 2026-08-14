@@ -40,4 +40,17 @@ class Settings(BaseModel):
     RERANKER_MAX_TEXT_CHARS: int = int(os.getenv("RERANKER_MAX_TEXT_CHARS", "2000"))
     RERANKER_RAW_SCORES: bool = os.getenv("RERANKER_RAW_SCORES", "false").lower() == "true"
 
+    QUERY_PARSER_ENABLED: bool = os.getenv("QUERY_PARSER_ENABLED", "false").lower() == "true"
+    QUERY_PARSER_BASE_URL: str = os.getenv("QUERY_PARSER_BASE_URL", "http://localhost:8001/v1")
+    QUERY_PARSER_API_KEY: str = os.getenv("QUERY_PARSER_API_KEY", "EMPTY")
+    QUERY_PARSER_MODEL: str = os.getenv("QUERY_PARSER_MODEL", "Qwen/Qwen2.5-14B-Instruct")
+    QUERY_PARSER_TIMEOUT_SECONDS: float = float(os.getenv("QUERY_PARSER_TIMEOUT_SECONDS", "30"))
+    QUERY_PARSER_DEFAULT_LANGUAGE: str = os.getenv("QUERY_PARSER_DEFAULT_LANGUAGE", "en")
+
+    METADATA_FILTERING_ENABLED: bool = os.getenv("METADATA_FILTERING_ENABLED", "true").lower() == "true"
+    METADATA_FILTER_CANDIDATE_MULTIPLIER: int = int(os.getenv("METADATA_FILTER_CANDIDATE_MULTIPLIER", "4"))
+    METADATA_BONUS_ENABLED: bool = os.getenv("METADATA_BONUS_ENABLED", "true").lower() == "true"
+    METADATA_BONUS_CROSS_ENCODER_WEIGHT: float = float(os.getenv("METADATA_BONUS_CROSS_ENCODER_WEIGHT", "0.8"))
+    METADATA_BONUS_WEIGHT: float = float(os.getenv("METADATA_BONUS_WEIGHT", "0.2"))
+
 settings = Settings()
