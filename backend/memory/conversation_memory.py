@@ -2,7 +2,9 @@
 
 import logging
 from typing import Any, Dict, List, Optional
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
+# pyrefly: ignore [missing-import]
 from sqlalchemy import select
 
 from backend.app.config import settings
@@ -25,14 +27,12 @@ class ConversationMemoryService:
         if not session:
             session = ChatSession(id=clean_sid, user_id=user_id)
             db.add(session)
-            db.commit()
-            db.refresh(session)
+            db.flush()
             logger.info(f"Created new ChatSession ID='{clean_sid}', UserID={user_id}")
         elif user_id and session.user_id is None:
             # Bind anonymous session to user upon login
             session.user_id = user_id
-            db.commit()
-            db.refresh(session)
+            db.flush()
             logger.info(f"Bound existing ChatSession ID='{clean_sid}' to UserID={user_id}")
 
         return session
@@ -53,9 +53,8 @@ class ConversationMemoryService:
         if role not in ("user", "assistant"):
             raise ValueError(f"Invalid message role '{role}'. Must be 'user' or 'assistant'.")
 
-        self.ensure_session_exists(db, session_id, user_id=user_id)
+        session = self.ensure_session_exists(db, session_id, user_id=user_id)
         clean_sid = session_id.strip()
-        session = db.get(ChatSession, clean_sid)
 
         # Auto-set session title from first user message if missing
         if session and role == "user" and not session.title:
@@ -66,12 +65,12 @@ class ConversationMemoryService:
         if session:
             from datetime import datetime, timezone
             session.updated_at = datetime.now(timezone.utc)
-            db.commit()
+            db.flush()
 
         msg = ChatMessage(session_id=clean_sid, role=role, content=text_clean)
         db.add(msg)
-        db.commit()
-        db.refresh(msg)
+        db.flush()
+        # db.refresh(msg) is removed because flush already syncs the ID
 
         logger.debug(f"Added ChatMessage ID={msg.id} [{role}] to Session='{session_id}'")
         return msg

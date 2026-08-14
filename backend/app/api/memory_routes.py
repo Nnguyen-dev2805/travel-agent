@@ -10,16 +10,22 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.database import get_db
 from backend.app.models.user import User
-from backend.app.api.deps import get_current_user
+from backend.app.api.deps import get_current_user, get_optional_user
 from backend.memory.conversation_memory import ConversationMemoryService
 from backend.memory.fact_memory import FactMemoryService
 
 logger = logging.getLogger("travel_agent_memory_api")
 router = APIRouter(prefix="/memory", tags=["Memory Management"])
+from backend.app.models.session import ChatSession
+from functools import lru_cache
 
-# Helper instances
-_conv_service = ConversationMemoryService()
-_fact_service = FactMemoryService()
+@lru_cache()
+def get_conv_service() -> ConversationMemoryService:
+    return ConversationMemoryService()
+
+@lru_cache()
+def get_fact_service() -> FactMemoryService:
+    return FactMemoryService()
 
 
 class UserMemoryResponse(BaseModel):
@@ -47,36 +53,53 @@ class ChatSessionResponse(BaseModel):
 def get_user_sessions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    conv_service: ConversationMemoryService = Depends(get_conv_service),
 ):
     """Get all chat sessions belonging to the authenticated user."""
-    return _conv_service.get_user_sessions(db, current_user.id)
+    return conv_service.get_user_sessions(db, current_user.id)
 
 
 @router.get("/history/{session_id}")
 def get_session_history(
     session_id: str,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+    conv_service: ConversationMemoryService = Depends(get_conv_service),
 ) -> List[Dict[str, str]]:
     """Get formatted sliding window conversation history for a chat session."""
-    return _conv_service.format_messages_for_llm(db, session_id.strip())
+    clean_sid = session_id.strip()
+    session = db.get(ChatSession, clean_sid)
+    if not session:
+        return []
+        
+    if session.user_id is not None:
+        if current_user is None or session.user_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền truy cập session này.")
+            
+    return conv_service.format_messages_for_llm(db, clean_sid)
 
 
 @router.delete("/history/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_session_history(
     session_id: str,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+    conv_service: ConversationMemoryService = Depends(get_conv_service),
 ):
     """Clear all chat messages and delete a session."""
-    _conv_service.delete_session(db, session_id.strip())
+    user_id = current_user.id if current_user else None
+    if not conv_service.delete_session(db, session_id.strip(), user_id=user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Không tìm thấy session hoặc bạn không có quyền xóa.")
 
 
 @router.get("/facts", response_model=List[UserMemoryResponse])
 def get_user_facts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    fact_service: FactMemoryService = Depends(get_fact_service),
 ):
     """Get all long-term preference facts belonging to the authenticated user."""
-    return _fact_service.get_user_facts(db, current_user.id)
+    return fact_service.get_user_facts(db, current_user.id)
 
 
 @router.delete("/facts/{fact_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -84,9 +107,10 @@ def delete_user_fact(
     fact_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    fact_service: FactMemoryService = Depends(get_fact_service),
 ):
     """Delete a specific memory fact ensuring strict user ownership isolation."""
-    success = _fact_service.delete_fact(db, user_id=current_user.id, fact_id=fact_id)
+    success = fact_service.delete_fact(db, user_id=current_user.id, fact_id=fact_id)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -78,6 +78,7 @@ def test_fact_memory_upsert_and_isolation(db_session):
         fact_type="dietary",
         fact_key="allergy",
         content="Dị ứng hải sản",
+        status="active"
     )
     db_session.add(mem_a1)
     db_session.commit()
@@ -90,7 +91,7 @@ def test_fact_memory_upsert_and_isolation(db_session):
     assert facts_a[0].content == "Dị ứng hải sản"
 
     # Upsert fact for User A (Updating same key 'food_allergy')
-    existing_mem = db_session.query(UserMemory).filter_by(user_id=user_a.id, fact_key="food_allergy").first()
+    existing_mem = db_session.query(UserMemory).filter_by(user_id=user_a.id, fact_key="allergy").first()
     existing_mem.content = "Dị ứng hải sản và đậu nành"
     db_session.commit()
 
@@ -114,6 +115,7 @@ def test_delete_fact_isolation(db_session):
         fact_type="preference",
         fact_key="fav_city",
         content="Đà Nẵng",
+        status="active"
     )
     db_session.add(fact_a)
     db_session.commit()
@@ -123,14 +125,18 @@ def test_delete_fact_isolation(db_session):
     assert deleted_by_b is False
     assert db_session.get(UserMemory, fact_a.id) is not None
 
-    # User A deletes their own fact -> succeeds
+    # User A deletes their own fact -> succeeds (soft delete)
     deleted_by_a = fact_service.delete_fact(db_session, user_id=user_a.id, fact_id=fact_a.id)
     assert deleted_by_a is True
-    assert db_session.get(UserMemory, fact_a.id) is None
+    assert db_session.get(UserMemory, fact_a.id).status == "deleted"
 
 
-def test_memory_manager_guest_vs_user_context(db_session):
+from unittest.mock import patch
+
+@patch("backend.memory.fact_memory.FactMemoryService.retrieve_relevant_facts")
+def test_memory_manager_guest_vs_user_context(mock_retrieve, db_session):
     """Test MemoryManager routes context differently for Guest vs Authenticated User."""
+    mock_retrieve.return_value = "• [PREFERENCE] Thích du lịch sinh thái"
     manager = MemoryManager()
     session_id = str(uuid.uuid4())
 
@@ -144,6 +150,7 @@ def test_memory_manager_guest_vs_user_context(db_session):
         fact_type="preference",
         fact_key="style",
         content="Thích du lịch sinh thái",
+        status="active"
     )
     db_session.add(fact)
     db_session.commit()
@@ -157,7 +164,7 @@ def test_memory_manager_guest_vs_user_context(db_session):
     assert guest_context["user_facts"] == ""
 
     # 2. Build context for Authenticated User -> Has history AND long-term facts
-    user_context = manager.build_memory_context(db_session, session_id, user=user)
+    user_context = manager.build_memory_context(db_session, session_id, user=user, user_message="Tôi muốn tìm địa điểm đẹp")
     assert len(user_context["conversation_history"]) == 2
     assert "Thích du lịch sinh thái" in user_context["user_facts"]
 

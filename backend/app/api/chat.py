@@ -18,30 +18,19 @@ from backend.rag.routing.router import ContextRouter, RouteType, RouteDecision
 logger = logging.getLogger("travel_agent_backend")
 router = APIRouter()
 
-# Global instances
-_rag_service = None
-_memory_manager = None
-_router = None
+from functools import lru_cache
 
-
+@lru_cache()
 def get_rag_service() -> RAGService:
-    global _rag_service
-    if _rag_service is None:
-        _rag_service = RAGService()
-    return _rag_service
+    return RAGService()
 
-
+@lru_cache()
 def get_memory_manager() -> MemoryManager:
-    global _memory_manager
-    if _memory_manager is None:
-        _memory_manager = MemoryManager()
-    return _memory_manager
+    return MemoryManager()
 
+@lru_cache()
 def get_router() -> ContextRouter:
-    global _router
-    if _router is None:
-        _router = ContextRouter()
-    return _router
+    return ContextRouter()
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -50,6 +39,9 @@ async def chat_endpoint(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user),
+    memory_mgr: MemoryManager = Depends(get_memory_manager),
+    rag_service: RAGService = Depends(get_rag_service),
+    router: ContextRouter = Depends(get_router),
 ):
     """Chat endpoint supporting Guest (Session-based) and Authenticated User (Dual-layer Memory)."""
     user_message = request.message.strip()
@@ -62,9 +54,6 @@ async def chat_endpoint(
     logger.info(f"Received chat request from User={user_id_log}, Session='{session_id}': '{user_message[:50]}...'")
 
     try:
-        memory_mgr = get_memory_manager()
-        rag_service = get_rag_service()
-        router = get_router()
 
         # 1. Fetch History for routing
         user_id = current_user.id if current_user else None
@@ -87,7 +76,7 @@ async def chat_endpoint(
 
         # 3. Read Memory if needed
         user_facts = ""
-        if decision.needs_memory_read and current_user:
+        if decision.needs_memory_read and current_user and current_user.memory_enabled:
             user_facts = await run_in_threadpool(
                 memory_mgr.fact_service.retrieve_relevant_facts, 
                 user_id=current_user.id, 
@@ -130,7 +119,7 @@ async def chat_endpoint(
         )
 
         # 6. Schedule Fact Extraction in Background Task
-        if current_user and settings.MEMORY_EXTRACTION_ENABLED and decision.should_write_memory:
+        if current_user and current_user.memory_enabled and settings.MEMORY_EXTRACTION_ENABLED and decision.should_write_memory:
             background_tasks.add_task(
                 memory_mgr.run_fact_extraction_task,
                 user_id=current_user.id,

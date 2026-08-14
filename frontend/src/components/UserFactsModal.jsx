@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { getUserFacts, deleteUserFact } from '../services/api';
-import { Brain, X, Trash2, Loader2, FolderX } from 'lucide-react';
+import { getUserFacts, deleteUserFact, updateMemoryConsent } from '../services/api';
+import { Brain, X, Trash2, Loader2, FolderX, ToggleLeft, ToggleRight } from 'lucide-react';
 
-export default function UserFactsModal({ isOpen, onClose }) {
+export default function UserFactsModal({ isOpen, onClose, currentUser, onConsentChange }) {
   const [facts, setFacts] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingConsent, setIsSavingConsent] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -26,6 +27,17 @@ export default function UserFactsModal({ isOpen, onClose }) {
     }
   };
 
+  const handleToggleConsent = async () => {
+    if (!currentUser) return;
+    setIsSavingConsent(true);
+    const newConsent = !currentUser.memory_enabled;
+    const updatedUser = await updateMemoryConsent(newConsent);
+    if (updatedUser && onConsentChange) {
+      onConsentChange(updatedUser.memory_enabled);
+    }
+    setIsSavingConsent(false);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -44,11 +56,41 @@ export default function UserFactsModal({ isOpen, onClose }) {
           <div className="w-10 h-10 rounded-[10px] bg-[#f9f9f9] text-[#0d0d0d] flex items-center justify-center border border-[#0000001a]">
             <Brain className="w-5 h-5 text-[#0d0d0d] stroke-[1.75]" />
           </div>
-          <div>
+          <div className="flex-1">
             <h2 className="text-base font-semibold text-[#0d0d0d] leading-tight">Long-term AI Memory (User Facts)</h2>
             <p className="text-xs text-[#5d5d5d]">Personalized facts & preferences automatically remembered by AI.</p>
           </div>
         </div>
+
+        {/* Consent Toggle Area */}
+        {currentUser && (
+          <div className="flex items-center justify-between p-3 mb-2 rounded-[10px] border border-[#0000001a] bg-[#f9f9f9]">
+            <div>
+              <p className="text-sm font-medium text-[#0d0d0d]">AI Memory is {currentUser.memory_enabled ? 'ON' : 'OFF'}</p>
+              <p className="text-[11px] text-[#5d5d5d]">
+                {currentUser.memory_enabled 
+                  ? "VietraAI will learn from your conversations." 
+                  : "VietraAI will not store new facts or use past memories."}
+              </p>
+            </div>
+            <button
+              onClick={handleToggleConsent}
+              disabled={isSavingConsent}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-[10px] bg-white border border-[#0000001a] text-sm hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              {isSavingConsent ? (
+                <Loader2 className="w-4 h-4 animate-spin text-[#0d0d0d]" />
+              ) : currentUser.memory_enabled ? (
+                <ToggleRight className="w-6 h-6 text-green-600 stroke-[1.5]" />
+              ) : (
+                <ToggleLeft className="w-6 h-6 text-[#8f8f8f] stroke-[1.5]" />
+              )}
+              <span className="font-medium text-[#0d0d0d]">
+                {currentUser.memory_enabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Facts List Container */}
         <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar my-2">

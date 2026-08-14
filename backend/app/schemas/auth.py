@@ -19,6 +19,12 @@ class UserLoginRequest(BaseModel):
     password: str = Field(..., json_schema_extra={"example": "password123"})
 
 
+class MemoryConsentUpdate(BaseModel):
+    """Schema for updating memory consent."""
+    
+    memory_enabled: bool = Field(..., description="Whether the user allows AI to remember facts.")
+
+
 class TokenResponse(BaseModel):
     """Schema for authentication token response."""
 
@@ -35,3 +41,4 @@ class UserResponse(BaseModel):
     email: str = Field(..., json_schema_extra={"example": "user@travel.vn"})
     full_name: Optional[str] = Field(None, json_schema_extra={"example": "Nguyễn Văn A"})
     is_active: bool = Field(True, json_schema_extra={"example": True})
+    memory_enabled: bool = Field(True, json_schema_extra={"example": True})

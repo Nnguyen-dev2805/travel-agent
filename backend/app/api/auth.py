@@ -13,6 +13,7 @@ from backend.app.schemas.auth import (
     UserLoginRequest,
     TokenResponse,
     UserResponse,
+    MemoryConsentUpdate,
 )
 from backend.app.api.deps import get_current_user
 
@@ -88,4 +89,19 @@ def get_user_profile(
     current_user: User = Depends(get_current_user),
 ):
     """Get profile information for the authenticated user."""
+    return current_user
+
+
+@router.patch("/me/memory_consent", response_model=UserResponse)
+def update_memory_consent(
+    request: MemoryConsentUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update memory consent (opt-in/opt-out) for the authenticated user."""
+    current_user.memory_enabled = request.memory_enabled
+    db.commit()
+    db.refresh(current_user)
+    
+    logger.info(f"User ID={current_user.id} updated memory_enabled to {current_user.memory_enabled}")
     return current_user

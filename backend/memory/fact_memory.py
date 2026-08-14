@@ -29,13 +29,21 @@ class FactItemModel(BaseModel):
 class FactMemoryService:
     """Manages long-term user facts and preference extraction."""
 
+    def __init__(self):
+        self._client = None
+        self._embedder = None
+        self._vector_store = None
+
     def _get_llm_client(self) -> Optional[OpenAI]:
         """Get configured OpenAI client for LLM fact extraction."""
+        if self._client is not None:
+            return self._client
+            
         if not settings.GOOGLE_API_KEY:
             logger.warning("API key missing; skipping LLM fact extraction.")
             return None
         try:
-            return OpenAI(
+            self._client = OpenAI(
                 base_url=settings.LLM_BASE_URL,
                 api_key=settings.GOOGLE_API_KEY,
             )
@@ -55,6 +63,11 @@ class FactMemoryService:
             "Bạn là một AI Memory Extractor chuyên nghiệp cho ứng dụng du lịch Việt Nam.\n"
             "Hãy phân tích đoạn hội thoại mới nhất bên dưới giữa User và Assistant để trích xuất các THÔNG TIN CÁ NHÂN "
             "của User (sở thích ăn uống, phong cách du lịch, địa điểm đã từng đi, hạn chế chế độ ăn, ngân sách...).\n\n"
+            "=== CHÍNH SÁCH TRÍCH XUẤT (QUAN TRỌNG) ===\n"
+            "1. CHỈ trích xuất thông tin từ câu nói của USER. KHÔNG trích xuất thông tin mà Assistant đề xuất.\n"
+            "2. KHÔNG trích xuất thông tin chung về địa điểm du lịch (VD: 'Đà Lạt lạnh' -> KHÔNG phải thông tin cá nhân).\n"
+            "3. TUYỆT ĐỐI KHÔNG trích xuất thông tin nhạy cảm PII (số điện thoại, email, địa chỉ nhà, CCCD, thẻ tín dụng/ngân hàng).\n"
+            "4. Nếu User nói KHÔNG thích hoặc phủ định (VD: 'Tôi không ăn cay'), hãy ghi rõ sự phủ định trong phần 'content' hoặc dùng fact_key dạng 'dislike_...'.\n\n"
             "=== ĐOẠN HỘI THOẠI ===\n"
             f"User: {user_message}\n"
             f"Assistant: {assistant_reply}\n\n"
@@ -118,9 +131,9 @@ class FactMemoryService:
             f"- Mới: {new_content}\n\n"
             "Chọn MỘT trong các hành động sau (chỉ trả về TÊN HÀNH ĐỘNG, không giải thích):\n"
             "SKIP: Thông tin mới giống hệt hoặc không mang thêm giá trị.\n"
-            "UPDATE: Thông tin mới là bản cập nhật chi tiết hơn (VD: ngân sách tăng lên).\n"
+            "UPDATE: Thông tin mới là bản cập nhật chi tiết hơn cùng bản chất (VD: ngân sách tăng lên, ngày đi thay đổi).\n"
             "MERGE: Hai thông tin bổ sung cho nhau, cần gộp lại.\n"
-            "DEPRECATE: Thông tin mới mâu thuẫn hoàn toàn (đổi sở thích), cái cũ không còn đúng.\n"
+            "DEPRECATE: Thông tin mới mâu thuẫn hoàn toàn (thay đổi sở thích: từ thích sang ghét, từ đi 1 mình sang đi với gia đình), cái cũ không còn đúng.\n"
         )
         try:
             completion = client.chat.completions.create(
@@ -289,14 +302,16 @@ class FactMemoryService:
             return ""
 
         # Initialize Embedder and Store (lazy load)
-        embedder = VectorEmbedder()
-        vector_store = ChromaVectorStore(collection_name="user_memory")
+        if self._embedder is None:
+            self._embedder = VectorEmbedder()
+        if self._vector_store is None:
+            self._vector_store = ChromaVectorStore(collection_name="user_memory")
 
         # 1. Embed query
-        query_embedding = embedder.embed_query(query)
+        query_embedding = self._embedder.embed_query(query)
 
         # 2. Search ChromaDB with Metadata Filter for Security
-        results = vector_store.search_similar(
+        results = self._vector_store.search_similar(
             query_embedding=query_embedding,
             top_k=top_k,
             where={"user_id": user_id}

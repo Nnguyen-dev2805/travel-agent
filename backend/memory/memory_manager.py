@@ -76,6 +76,9 @@ class MemoryManager:
         self.conversation_service.add_message(
             db, session_id, role="assistant", content=assistant_reply, user_id=user_id
         )
+        
+        # Commit the transaction for both messages and any session updates
+        db.commit()
 
     def run_fact_extraction_task(
         self,

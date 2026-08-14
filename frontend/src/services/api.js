@@ -223,3 +223,13 @@ export const deleteUserFact = async (factId) => {
     return false;
   }
 };
+
+export const updateMemoryConsent = async (enabled) => {
+  try {
+    const response = await apiClient.patch('/api/v1/auth/me/memory_consent', { memory_enabled: enabled });
+    return response.data;
+  } catch (error) {
+    console.error('Error updating memory consent:', error);
+    return null;
+  }
+};

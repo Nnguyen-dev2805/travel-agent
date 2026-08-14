@@ -252,6 +252,8 @@ export default function App() {
       <UserFactsModal
         isOpen={isFactsModalOpen}
         onClose={() => setIsFactsModalOpen(false)}
+        currentUser={currentUser}
+        onConsentChange={(enabled) => setCurrentUser(prev => prev ? {...prev, memory_enabled: enabled} : prev)}
       />
     </div>
   );

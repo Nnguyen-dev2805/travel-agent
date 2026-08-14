@@ -1,10 +1,11 @@
 """Integration tests for End-to-End Chat API, Memory Routing, and Memory Management Endpoints."""
 
+# pyrefly: ignore [missing-import]
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 # pyrefly: ignore [missing-import]
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import sessionmaker
 # pyrefly: ignore [missing-import]
@@ -42,20 +43,36 @@ def client_and_db():
     Base.metadata.drop_all(engine)
 
 
-@patch("backend.app.api.chat.get_rag_service")
+from backend.app.api.chat import get_router, get_rag_service
+from backend.rag.routing.router import RouteDecision, RouteType
+
+@patch("backend.memory.memory_manager.SessionLocal")
 @patch("backend.memory.fact_memory.FactMemoryService.extract_facts")
-def test_guest_chat_flow_and_history(mock_extract_facts, mock_get_rag, client_and_db):
+def test_guest_chat_flow_and_history(mock_extract_facts, mock_session_local, client_and_db):
     """Test End-to-End Chat flow for Guest User (No Auth Token)."""
     client, db = client_and_db
 
-    # Mock RAG Service answer generation
+    # Mock Router
+    mock_router = MagicMock()
+    mock_router.determine_route.return_value = RouteDecision(
+        route=RouteType.RAG_AND_MEMORY,
+        needs_rag=True,
+        needs_memory_read=True,
+        should_write_memory=True,
+        confidence=1.0,
+        rewritten_query="Hà Nội có gì đẹp?",
+        reason="Mocked router"
+    )
+
     mock_rag = MagicMock()
     mock_rag.generate_answer.return_value = {
         "reply": "Hà Nội có 36 phố phường và Hồ Hoàn Kiếm.",
         "model": "gpt-4o-mini",
         "citations": [{"title": "Cẩm nang Hà Nội", "url": "https://vietnam.travel/hanoi"}],
     }
-    mock_get_rag.return_value = mock_rag
+
+    app.dependency_overrides[get_router] = lambda: mock_router
+    app.dependency_overrides[get_rag_service] = lambda: mock_rag
 
     # 1. Guest sends chat message (No Authorization Header)
     req_payload = {"message": "Hà Nội có gì đẹp?"}
@@ -82,12 +99,24 @@ def test_guest_chat_flow_and_history(mock_extract_facts, mock_get_rag, client_an
     assert facts_resp.status_code == 401
 
 
-@patch("backend.app.api.chat.get_rag_service")
+@patch("backend.memory.memory_manager.SessionLocal")
 @patch("backend.memory.fact_memory.FactMemoryService.extract_facts")
 @patch("backend.memory.fact_memory.FactMemoryService.retrieve_relevant_facts")
-def test_authenticated_user_chat_flow_and_fact_management(mock_retrieve, mock_extract_facts, mock_get_rag, client_and_db):
+def test_authenticated_user_chat_flow_and_fact_management(mock_retrieve, mock_extract_facts, mock_session_local, client_and_db):
     """Test End-to-End Chat flow for Authenticated User and Memory Fact endpoints."""
     client, db = client_and_db
+
+    # Mock Router
+    mock_router = MagicMock()
+    mock_router.determine_route.return_value = RouteDecision(
+        route=RouteType.RAG_AND_MEMORY,
+        needs_rag=True,
+        needs_memory_read=True,
+        should_write_memory=True,
+        confidence=1.0,
+        rewritten_query="Gợi ý điểm du lịch",
+        reason="Mocked router"
+    )
 
     # Mock RAG Service
     mock_rag = MagicMock()
@@ -96,7 +125,9 @@ def test_authenticated_user_chat_flow_and_fact_management(mock_retrieve, mock_ex
         "model": "gpt-4o-mini",
         "citations": [],
     }
-    mock_get_rag.return_value = mock_rag
+
+    app.dependency_overrides[get_router] = lambda: mock_router
+    app.dependency_overrides[get_rag_service] = lambda: mock_rag
 
     # 1. Register & Login
     client.post(
@@ -111,7 +142,7 @@ def test_authenticated_user_chat_flow_and_fact_management(mock_retrieve, mock_ex
     auth_headers = {"Authorization": f"Bearer {token}"}
 
     # 2. Add a fact directly to DB for this user
-    user_in_db = db.query(User).filter_by(email="memoryuser@travel.vn").first()
+    user_in_db = db.scalars(select(User).where(User.email == "memoryuser@travel.vn")).first()
     mem = UserMemory(
         user_id=user_in_db.id,
         fact_type="dietary",
