@@ -68,3 +68,4 @@ Thumbs.db
 # Agent & IDE Temporary Files
 .gemini/
 .antigravity/
+.agents/skills/

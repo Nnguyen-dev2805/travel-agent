@@ -377,6 +377,7 @@ class FactMemoryService:
         # 4. Update last_accessed_at for valid memories
         if valid_memory_ids:
             try:
+                # pyrefly: ignore [missing-import]
                 from sqlalchemy import update
                 from datetime import datetime, timezone
                 stmt = update(UserMemory).where(UserMemory.memory_id.in_(valid_memory_ids)).values(last_accessed_at=datetime.now(timezone.utc))
