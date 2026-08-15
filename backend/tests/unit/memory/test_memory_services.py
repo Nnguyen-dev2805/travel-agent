@@ -1,6 +1,7 @@
 """Unit tests for ConversationMemoryService, FactMemoryService, and MemoryManager."""
 
 import uuid
+from unittest.mock import MagicMock
 # pyrefly: ignore [missing-import]
 import pytest
 # pyrefly: ignore [missing-import]
@@ -9,7 +10,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.models import Base, User, UserMemory
-from backend.memory.conversation_memory import ConversationMemoryService
+from backend.memory.episodic_memory import EpisodicMemoryService
+from backend.memory.short_term_memory import ShortTermMemoryService
 from backend.memory.fact_memory import FactMemoryService
 from backend.memory.memory_manager import MemoryManager
 
@@ -30,16 +32,17 @@ def db_session():
 
 def test_conversation_memory_sliding_window(db_session):
     """Test sliding window retrieves only N most recent messages in chronological order."""
-    service = ConversationMemoryService()
+    episodic_service = EpisodicMemoryService(llm_client=MagicMock(), embedder=MagicMock(), vector_store=MagicMock())
+    short_term_service = ShortTermMemoryService()
     session_id = str(uuid.uuid4())
 
     # Add 15 messages (15 turns)
     for i in range(1, 16):
         role = "user" if i % 2 != 0 else "assistant"
-        service.add_message(db_session, session_id, role=role, content=f"Message {i}")
+        episodic_service.add_message(db_session, session_id, role=role, content=f"Message {i}")
 
     # Fetch recent messages with limit=6
-    recent = service.get_recent_messages(db_session, session_id, limit=6)
+    recent = short_term_service.get_sliding_window(db_session, session_id, limit=6)
     assert len(recent) == 6
 
     # Verify chronological order (Message 10 to Message 15)
@@ -49,13 +52,15 @@ def test_conversation_memory_sliding_window(db_session):
 
 def test_conversation_memory_formatting(db_session):
     """Test format_messages_for_llm produces OpenAI-compatible message list."""
-    service = ConversationMemoryService()
+    episodic_service = EpisodicMemoryService(llm_client=MagicMock(), embedder=MagicMock(), vector_store=MagicMock())
+    short_term_service = ShortTermMemoryService()
     session_id = str(uuid.uuid4())
 
-    service.add_message(db_session, session_id, "user", "Hà Nội đi đâu đẹp?")
-    service.add_message(db_session, session_id, "assistant", "Bạn nên thăm Hồ Hoàn Kiếm.")
+    episodic_service.add_message(db_session, session_id, "user", "Hà Nội đi đâu đẹp?")
+    episodic_service.add_message(db_session, session_id, "assistant", "Bạn nên thăm Hồ Hoàn Kiếm.")
 
-    formatted = service.format_messages_for_llm(db_session, session_id)
+    msgs = short_term_service.get_sliding_window(db_session, session_id)
+    formatted = short_term_service.format_messages_for_llm(msgs)
     assert formatted == [
         {"role": "user", "content": "Hà Nội đi đâu đẹp?"},
         {"role": "assistant", "content": "Bạn nên thăm Hồ Hoàn Kiếm."},
@@ -64,7 +69,7 @@ def test_conversation_memory_formatting(db_session):
 
 def test_fact_memory_upsert_and_isolation(db_session):
     """Test fact memory upserts existing keys and isolates user facts."""
-    fact_service = FactMemoryService()
+    fact_service = FactMemoryService(llm_client=MagicMock(), embedder=MagicMock(), vector_store=MagicMock())
 
     # Create User A and User B
     user_a = User(email="usera@travel.vn", hashed_password="hashpassword")
@@ -103,7 +108,7 @@ def test_fact_memory_upsert_and_isolation(db_session):
 
 def test_delete_fact_isolation(db_session):
     """Test fact deletion enforces strict User ID authorization."""
-    fact_service = FactMemoryService()
+    fact_service = FactMemoryService(llm_client=MagicMock(), embedder=MagicMock(), vector_store=MagicMock())
 
     user_a = User(email="owner@travel.vn", hashed_password="hash")
     user_b = User(email="attacker@travel.vn", hashed_password="hash")
@@ -134,10 +139,23 @@ def test_delete_fact_isolation(db_session):
 from unittest.mock import patch
 
 @patch("backend.memory.fact_memory.FactMemoryService.retrieve_relevant_facts")
-def test_memory_manager_guest_vs_user_context(mock_retrieve, db_session):
+@patch("backend.memory.episodic_memory.EpisodicMemoryService.recall_past_episodes")
+def test_memory_manager_guest_vs_user_context(mock_recall, mock_retrieve, db_session):
     """Test MemoryManager routes context differently for Guest vs Authenticated User."""
     mock_retrieve.return_value = "• [PREFERENCE] Thích du lịch sinh thái"
-    manager = MemoryManager()
+    mock_recall.return_value = "=== HỒI TƯỞNG CÁC PHIÊN CHAT CŨ ===\nLần trước User hỏi về Sapa"
+    
+    mock_episodic = EpisodicMemoryService(llm_client=MagicMock(), embedder=MagicMock(), vector_store=MagicMock())
+    mock_episodic.recall_past_episodes = mock_recall
+    
+    manager = MemoryManager(
+        episodic_service=mock_episodic,
+        short_term_service=ShortTermMemoryService(),
+        fact_service=MagicMock()
+    )
+    # Re-mock fact_service retrieval since we overwrote the instance
+    manager.fact_service.retrieve_relevant_facts = mock_retrieve
+    
     session_id = str(uuid.uuid4())
 
     user = User(email="member@travel.vn", hashed_password="hash")
@@ -171,7 +189,7 @@ def test_memory_manager_guest_vs_user_context(mock_retrieve, db_session):
 
 def test_session_auto_title_creation(db_session):
     """Test first user message automatically sets the title for ChatSession."""
-    service = ConversationMemoryService()
+    service = EpisodicMemoryService(llm_client=MagicMock(), embedder=MagicMock(), vector_store=MagicMock())
     session_id = str(uuid.uuid4())
 
     # Add first user message
@@ -186,7 +204,7 @@ def test_session_auto_title_creation(db_session):
 
 def test_get_and_delete_user_sessions(db_session):
     """Test fetching user session list and deleting sessions cleanly."""
-    service = ConversationMemoryService()
+    service = EpisodicMemoryService(llm_client=MagicMock(), embedder=MagicMock(), vector_store=MagicMock())
     user = User(email="sessionowner@travel.vn", hashed_password="hash")
     db_session.add(user)
     db_session.commit()

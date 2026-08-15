@@ -2,6 +2,7 @@
 
 import logging
 import os
+import json
 from typing import Any, Dict, List, Optional
 # pyrefly: ignore [missing-import]
 from openai import OpenAI
@@ -15,21 +16,15 @@ logger = logging.getLogger("travel_agent_rag_service")
 class RAGService:
     """Orchestrates retrieval of relevant travel knowledge and LLM answer generation."""
 
-    def __init__(self, collection_name: str = "vietnam_travel_parent_child") -> None:
-        self.embedder = VectorEmbedder(model_name="BAAI/bge-m3")
-        self.vector_store = ChromaVectorStore(collection_name=collection_name)
-
-    def _get_llm_client(self) -> OpenAI:
-        """Get OpenAI-compatible client configured for Google Gemini API."""
-        api_key = settings.GOOGLE_API_KEY
-        if not api_key:
-            logger.warning("API key missing in environment settings.")
-            raise ValueError("API Key (GOOGLE_API_KEY) is missing in .env file.")
-
-        return OpenAI(
-            base_url=settings.LLM_BASE_URL,
-            api_key=api_key,
-        )
+    def __init__(
+        self,
+        llm_client: OpenAI,
+        embedder: VectorEmbedder,
+        vector_store: ChromaVectorStore,
+    ) -> None:
+        self._client = llm_client
+        self.embedder = embedder
+        self.vector_store = vector_store
 
 
     def generate_answer(
@@ -105,9 +100,11 @@ class RAGService:
         if conversation_history:
             messages.extend(conversation_history)
         messages.append({"role": "user", "content": user_text})
+        
+        logger.info(f"\n{'='*20} RAG GENERATION PROMPT {'='*20}\n{json.dumps(messages, ensure_ascii=False, indent=2)}\n{'='*63}")
 
         # 5. Call LLM API
-        client = self._get_llm_client()
+        client = self._client
         completion = client.chat.completions.create(
             model=model_name,
             messages=messages,
@@ -116,6 +113,7 @@ class RAGService:
         )
 
         reply_content = completion.choices[0].message.content
+        logger.info(f"\n{'='*20} RAG GENERATION OUTPUT {'='*20}\n{reply_content}\n{'='*63}")
         
         if not reply_content or not reply_content.strip():
             logger.warning(f"LLM returned empty content. Raw response: {completion.model_dump()}")

@@ -5,14 +5,14 @@ from unittest.mock import MagicMock, patch
 from backend.rag.routing.router import ContextRouter, RouteType, RouteDecision
 
 def test_greeting_fast_path():
-    router = ContextRouter()
+    router = ContextRouter(llm_client=MagicMock())
     decision = router.determine_route("Xin chào bạn")
     assert decision.route == RouteType.DIRECT_ANSWER
     assert decision.needs_rag is False
     assert decision.confidence == 1.0
 
 def test_greeting_llm_fallback():
-    router = ContextRouter()
+    router = ContextRouter(llm_client=MagicMock())
     # Mock LLM to avoid real API calls
     mock_llm = MagicMock()
     mock_choice = MagicMock()
@@ -24,13 +24,13 @@ def test_greeting_llm_fallback():
     assert decision.route == RouteType.DIRECT_ANSWER
 
 def test_memory_write_fast_path():
-    router = ContextRouter()
+    router = ContextRouter(llm_client=MagicMock())
     decision = router.determine_route("Tôi bị dị ứng hải sản nhé")
     assert decision.route == RouteType.MEMORY_WRITE
     assert decision.should_write_memory is True
 
 def test_rag_only_route():
-    router = ContextRouter()
+    router = ContextRouter(llm_client=MagicMock())
     mock_llm = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message.content = '{"route": "rag_only", "needs_rag": true, "needs_memory_read": false, "should_write_memory": false, "confidence": 0.95, "rewritten_query": "địa điểm du lịch Đà Lạt", "reason": "asking for travel info"}'
@@ -42,7 +42,7 @@ def test_rag_only_route():
     assert decision.needs_rag is True
 
 def test_json_error_fallback():
-    router = ContextRouter()
+    router = ContextRouter(llm_client=MagicMock())
     mock_llm = MagicMock()
     mock_choice = MagicMock()
     # Return invalid JSON
@@ -57,7 +57,7 @@ def test_json_error_fallback():
     assert decision.confidence == 0.0
 
 def test_vague_query_clarify():
-    router = ContextRouter()
+    router = ContextRouter(llm_client=MagicMock())
     mock_llm = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message.content = '{"route": "clarify", "needs_rag": false, "needs_memory_read": false, "should_write_memory": false, "confidence": 0.85, "rewritten_query": "", "reason": "Too vague"}'

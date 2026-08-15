@@ -8,29 +8,53 @@ from sqlalchemy.orm import Session
 from backend.app.config import settings
 
 from backend.app.database import get_db
-from backend.app.schemas.chat import ChatRequest, ChatResponse
+from backend.app.schemas.chat import ChatRequest, ChatResponse, DebugInfo
 from backend.app.models.user import User
 from backend.app.api.deps import get_optional_user
 from backend.memory.memory_manager import MemoryManager
+from backend.memory.episodic_memory import EpisodicMemoryService
+from backend.memory.short_term_memory import ShortTermMemoryService
+from backend.memory.fact_memory import FactMemoryService
 from backend.rag.generation import RAGService
 from backend.rag.routing.router import ContextRouter, RouteType, RouteDecision
+
+from openai import OpenAI
+from backend.rag.embedding.embedder import VectorEmbedder
+from backend.rag.retrieval.vector_store import ChromaVectorStore
+from backend.app.core.dependencies import (
+    get_llm_client,
+    get_vector_embedder,
+    get_rag_store,
+    get_user_memory_store,
+    get_episodic_memory_service,
+    get_short_term_memory_service,
+)
 
 logger = logging.getLogger("travel_agent_backend")
 router = APIRouter()
 
-from functools import lru_cache
+def get_rag_service(
+    llm_client: OpenAI = Depends(get_llm_client),
+    embedder: VectorEmbedder = Depends(get_vector_embedder),
+    store: ChromaVectorStore = Depends(get_rag_store)
+) -> RAGService:
+    return RAGService(llm_client=llm_client, embedder=embedder, vector_store=store)
 
-@lru_cache()
-def get_rag_service() -> RAGService:
-    return RAGService()
+def get_router(llm_client: OpenAI = Depends(get_llm_client)) -> ContextRouter:
+    return ContextRouter(llm_client=llm_client)
 
-@lru_cache()
-def get_memory_manager() -> MemoryManager:
-    return MemoryManager()
-
-@lru_cache()
-def get_router() -> ContextRouter:
-    return ContextRouter()
+def get_memory_manager(
+    llm_client: OpenAI = Depends(get_llm_client),
+    embedder: VectorEmbedder = Depends(get_vector_embedder),
+    store: ChromaVectorStore = Depends(get_user_memory_store),
+    episodic_service: EpisodicMemoryService = Depends(get_episodic_memory_service),
+    short_term_service: ShortTermMemoryService = Depends(get_short_term_memory_service)
+) -> MemoryManager:
+    return MemoryManager(
+        episodic_service=episodic_service,
+        short_term_service=short_term_service,
+        fact_service=FactMemoryService(llm_client=llm_client, embedder=embedder, vector_store=store)
+    )
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -57,8 +81,13 @@ async def chat_endpoint(
 
         # 1. Fetch History for routing
         user_id = current_user.id if current_user else None
-        await run_in_threadpool(memory_mgr.conversation_service.ensure_session_exists, db, session_id, user_id=user_id)
-        history = await run_in_threadpool(memory_mgr.conversation_service.format_messages_for_llm, db, session_id)
+        await run_in_threadpool(memory_mgr.episodic_service.ensure_session_exists, db, session_id, user_id=user_id)
+        
+        def _get_history():
+            msgs = memory_mgr.short_term_service.get_sliding_window(db, session_id)
+            return memory_mgr.short_term_service.format_messages_for_llm(msgs)
+            
+        history = await run_in_threadpool(_get_history)
 
         # 2. Determine Route
         if settings.ENABLE_CONTEXT_ROUTER:
@@ -74,15 +103,20 @@ async def chat_endpoint(
                 reason="Router disabled, defaulting to full RAG."
             )
 
-        # 3. Read Memory if needed
+        # 3. Read Memory if needed (Semantic + Recalled Episodes)
         user_facts = ""
+        recalled_episodes = ""
         if decision.needs_memory_read and current_user and current_user.memory_enabled:
-            user_facts = await run_in_threadpool(
-                memory_mgr.fact_service.retrieve_relevant_facts, 
-                user_id=current_user.id, 
-                query=user_message, 
-                top_k=5
-            )
+            def _get_long_term_context():
+                facts = memory_mgr.fact_service.retrieve_relevant_facts(
+                    user_id=current_user.id, query=user_message, top_k=5
+                )
+                episodes = memory_mgr.episodic_service.recall_past_episodes(
+                    user_id=current_user.id, current_query=user_message, top_k=2
+                )
+                return f"{facts}\n\n{episodes}" if (facts and episodes) else (facts or episodes)
+                
+            user_facts = await run_in_threadpool(_get_long_term_context)
 
         # 4. Generate Answer based on Route
         if decision.route == RouteType.MEMORY_WRITE and decision.confidence >= 0.8:
@@ -118,21 +152,32 @@ async def chat_endpoint(
             user=current_user,
         )
 
-        # 6. Schedule Fact Extraction in Background Task
-        if current_user and current_user.memory_enabled and settings.MEMORY_EXTRACTION_ENABLED and decision.should_write_memory:
-            background_tasks.add_task(
-                memory_mgr.run_fact_extraction_task,
-                user_id=current_user.id,
-                user_message=user_message,
-                assistant_reply=result["reply"],
-                session_id=session_id
-            )
+        # 6. Schedule Background Tasks (Fact Extraction & Episodic Consolidation)
+        if current_user and current_user.memory_enabled:
+            if settings.MEMORY_EXTRACTION_ENABLED and decision.should_write_memory:
+                background_tasks.add_task(
+                    memory_mgr.run_fact_extraction_task,
+                    user_id=current_user.id,
+                    user_message=user_message,
+                    assistant_reply=result["reply"],
+                    session_id=session_id
+                )
+            # Always schedule episodic consolidation for authenticated users (it checks message count internally)
+            background_tasks.add_task(memory_mgr.run_consolidation_task, session_id=session_id)
+
+        # 7. Construct DebugInfo
+        debug_info = DebugInfo(
+            router_decision=decision.model_dump() if decision else None,
+            user_facts=user_facts if decision.needs_memory_read else None,
+            rag_context_used=decision.needs_rag if decision else False,
+        )
 
         return ChatResponse(
             reply=result["reply"],
             model=result["model"],
             citations=result["citations"],
             session_id=session_id,
+            debug_info=debug_info,
         )
 
     except ValueError as ve:

@@ -1,5 +1,6 @@
 """Unit tests for Fact Extraction and Conflict Resolution LLM logic."""
 
+# pyrefly: ignore [missing-import]
 import pytest
 from unittest.mock import MagicMock, patch
 from backend.memory.fact_memory import FactMemoryService
@@ -10,7 +11,7 @@ import json
 @pytest.fixture
 def memory_service():
     """Returns an instance of FactMemoryService."""
-    return FactMemoryService()
+    return FactMemoryService(llm_client=MagicMock(), embedder=MagicMock(), vector_store=MagicMock())
 
 
 # ---------------------------------------------------------
@@ -144,12 +145,16 @@ def test_resolve_conflict_skip(mock_openai_class, memory_service):
     mock_openai_class.return_value = mock_client
     mock_completion = MagicMock()
     
-    mock_completion.choices[0].message.content = "SKIP"
-    mock_client.chat.completions.create.return_value = mock_completion
+    from backend.memory.fact_memory import ConflictDecision
+    from backend.memory.enums import ConflictAction
+    mock_decision = ConflictDecision(action=ConflictAction.SKIP, reasoning="Test")
+
+    mock_completion.choices[0].message.parsed = mock_decision
+    mock_client.beta.chat.completions.parse.return_value = mock_completion
     memory_service._client = mock_client
 
-    action = memory_service.resolve_conflict("Thích bún bò", "Tôi rất thích bún bò")
-    assert action == ConflictAction.SKIP
+    decision = memory_service.resolve_conflict("Thích bún bò", "Tôi rất thích bún bò")
+    assert decision.action == ConflictAction.SKIP
 
 
 @patch("backend.memory.fact_memory.OpenAI")
@@ -159,12 +164,16 @@ def test_resolve_conflict_update(mock_openai_class, memory_service):
     mock_openai_class.return_value = mock_client
     mock_completion = MagicMock()
     
-    mock_completion.choices[0].message.content = "UPDATE"
-    mock_client.chat.completions.create.return_value = mock_completion
+    from backend.memory.fact_memory import ConflictDecision
+    from backend.memory.enums import ConflictAction
+    mock_decision = ConflictDecision(action=ConflictAction.UPDATE, reasoning="Test")
+
+    mock_completion.choices[0].message.parsed = mock_decision
+    mock_client.beta.chat.completions.parse.return_value = mock_completion
     memory_service._client = mock_client
 
-    action = memory_service.resolve_conflict("Ngân sách 5 triệu", "Ngân sách 10 triệu")
-    assert action == ConflictAction.UPDATE
+    decision = memory_service.resolve_conflict("Ngân sách 5 triệu", "Ngân sách 10 triệu")
+    assert decision.action == ConflictAction.UPDATE
 
 
 @patch("backend.memory.fact_memory.OpenAI")
@@ -174,12 +183,16 @@ def test_resolve_conflict_merge(mock_openai_class, memory_service):
     mock_openai_class.return_value = mock_client
     mock_completion = MagicMock()
     
-    mock_completion.choices[0].message.content = "MERGE"
-    mock_client.chat.completions.create.return_value = mock_completion
+    from backend.memory.fact_memory import ConflictDecision
+    from backend.memory.enums import ConflictAction
+    mock_decision = ConflictDecision(action=ConflictAction.MERGE, reasoning="Test", merged_content="Merged")
+
+    mock_completion.choices[0].message.parsed = mock_decision
+    mock_client.beta.chat.completions.parse.return_value = mock_completion
     memory_service._client = mock_client
 
-    action = memory_service.resolve_conflict("Đi với vợ", "Đi cùng con nhỏ 5 tuổi")
-    assert action == ConflictAction.MERGE
+    decision = memory_service.resolve_conflict("Đi với vợ", "Đi cùng con nhỏ 5 tuổi")
+    assert decision.action == ConflictAction.MERGE
 
 
 @patch("backend.memory.fact_memory.OpenAI")
@@ -189,12 +202,16 @@ def test_resolve_conflict_deprecate(mock_openai_class, memory_service):
     mock_openai_class.return_value = mock_client
     mock_completion = MagicMock()
     
-    mock_completion.choices[0].message.content = "DEPRECATE"
-    mock_client.chat.completions.create.return_value = mock_completion
+    from backend.memory.fact_memory import ConflictDecision
+    from backend.memory.enums import ConflictAction
+    mock_decision = ConflictDecision(action=ConflictAction.DEPRECATE_AND_CREATE, reasoning="Test")
+
+    mock_completion.choices[0].message.parsed = mock_decision
+    mock_client.beta.chat.completions.parse.return_value = mock_completion
     memory_service._client = mock_client
 
-    action = memory_service.resolve_conflict("Ghét đi Đà Lạt", "Bây giờ tôi lại thích Đà Lạt")
-    assert action == ConflictAction.DEPRECATE_AND_CREATE
+    decision = memory_service.resolve_conflict("Ghét đi Đà Lạt", "Bây giờ tôi lại thích Đà Lạt")
+    assert decision.action == ConflictAction.DEPRECATE_AND_CREATE
 
 
 @patch("backend.memory.fact_memory.OpenAI")
@@ -202,13 +219,12 @@ def test_resolve_conflict_fallback(mock_openai_class, memory_service):
     """Test resolve_conflict falls back to UPDATE on unknown output."""
     mock_client = MagicMock()
     mock_openai_class.return_value = mock_client
-    mock_completion = MagicMock()
     
-    # Garbage output from LLM
-    mock_completion.choices[0].message.content = "Tôi không hiểu rõ ý bạn."
-    mock_client.chat.completions.create.return_value = mock_completion
+    from backend.memory.enums import ConflictAction
+    # Simulate exception to trigger fallback
+    mock_client.beta.chat.completions.parse.side_effect = Exception("Garbage")
     memory_service._client = mock_client
 
-    action = memory_service.resolve_conflict("A", "B")
+    decision = memory_service.resolve_conflict("A", "B")
     # Default fallback is UPDATE
-    assert action == ConflictAction.UPDATE
+    assert decision.action == ConflictAction.UPDATE

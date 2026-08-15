@@ -26,36 +26,32 @@ class FactItemModel(BaseModel):
     content: str = Field(...)
     confidence: float = Field(...)
 
+class FactExtractionResult(BaseModel):
+    facts: List[FactItemModel] = Field(default_factory=list)
+
+class ConflictDecision(BaseModel):
+    action: ConflictAction = Field(..., description="Hành động giải quyết mâu thuẫn dữ liệu: skip, update, merge, deprecate.")
+    reasoning: str = Field(..., description="Lý do tại sao chọn hành động này.")
+    merged_content: Optional[str] = Field(None, description="CHỈ BẮT BUỘC nếu action là merge. Hãy đóng vai trò biên tập viên, viết lại một câu văn Tiếng Việt hoàn chỉnh, mượt mà bao hàm ý nghĩa của cả thông tin cũ và mới.")
+
 class FactMemoryService:
     """Manages long-term user facts and preference extraction."""
 
-    def __init__(self):
-        self._client = None
-        self._embedder = None
-        self._vector_store = None
-
-    def _get_llm_client(self) -> Optional[OpenAI]:
-        """Get configured OpenAI client for LLM fact extraction."""
-        if self._client is not None:
-            return self._client
-            
-        if not settings.GOOGLE_API_KEY:
-            logger.warning("API key missing; skipping LLM fact extraction.")
-            return None
-        try:
-            self._client = OpenAI(
-                base_url=settings.LLM_BASE_URL,
-                api_key=settings.GOOGLE_API_KEY,
-            )
-        except Exception as e:
-            logger.error(f"Failed to initialize OpenAI client for Fact Extraction: {str(e)}")
-            return None
+    def __init__(
+        self,
+        llm_client: OpenAI,
+        embedder: VectorEmbedder,
+        vector_store: ChromaVectorStore,
+    ):
+        self._client = llm_client
+        self._embedder = embedder
+        self._vector_store = vector_store
 
     def extract_facts_from_text(
         self, user_message: str, assistant_reply: str
     ) -> List[Dict[str, Any]]:
         """Call LLM to extract structured facts from a conversation turn."""
-        client = self._get_llm_client()
+        client = self._client
         if not client:
             return []
 
@@ -67,10 +63,15 @@ class FactMemoryService:
             "1. CHỈ trích xuất thông tin từ câu nói của USER. KHÔNG trích xuất thông tin mà Assistant đề xuất.\n"
             "2. KHÔNG trích xuất thông tin chung về địa điểm du lịch (VD: 'Đà Lạt lạnh' -> KHÔNG phải thông tin cá nhân).\n"
             "3. TUYỆT ĐỐI KHÔNG trích xuất thông tin nhạy cảm PII (số điện thoại, email, địa chỉ nhà, CCCD, thẻ tín dụng/ngân hàng).\n"
-            "4. Nếu User nói KHÔNG thích hoặc phủ định (VD: 'Tôi không ăn cay'), hãy ghi rõ sự phủ định trong phần 'content' hoặc dùng fact_key dạng 'dislike_...'.\n\n"
+            "4. CẤM trích xuất các câu cảm thán ngắn, hoặc thông tin do user lặp lại câu hỏi của Assistant.\n"
+            "5. Nếu User nói KHÔNG thích hoặc phủ định (VD: 'Tôi không ăn cay'), hãy ghi rõ sự phủ định trong phần 'content' hoặc dùng fact_key dạng 'dislike_...'.\n\n"
             "=== ĐOẠN HỘI THOẠI ===\n"
             f"User: {user_message}\n"
             f"Assistant: {assistant_reply}\n\n"
+            "=== EXAMPLES ===\n"
+            "- User: 'Tôi dị ứng hải sản nhé' -> {\"facts\": [{\"fact_type\": \"dietary\", \"fact_key\": \"seafood_allergy\", \"content\": \"Dị ứng hải sản\", \"confidence\": 0.99}]}\n"
+            "- User: 'Nóng quá' -> {\"facts\": []} (Không phải sở thích)\n"
+            "- Assistant: 'Bạn thích ăn lẩu không?'. User: 'Cũng được' -> {\"facts\": []} (Thiếu thông tin cụ thể)\n\n"
             "=== YÊU CẦU ĐẦU RA ===\n"
             "Trả về kết quả dưới dạng JSON object, bắt buộc phải có key 'facts' chứa danh sách các fact tìm thấy.\n"
             "Mỗi item trong mảng 'facts' có dạng đúng JSON schema sau:\n"
@@ -81,21 +82,25 @@ class FactMemoryService:
             '  "confidence": 0.9\n'
             "}\n"
             "Nếu không có thông tin cá nhân mới nào, trả về JSON rỗng: {\"facts\": []}. "
-            "Chỉ trả về JSON hợp lệ, không kèm câu dẫn nào khác."
+            "BẮT BUỘC bọc chuỗi JSON trả về trong cặp dấu ```json và ```."
         )
+
+        logger.info(f"\n{'='*20} FACT EXTRACTOR PROMPT {'='*20}\n{extraction_prompt}\n{'='*63}")
 
         try:
             completion = client.chat.completions.create(
                 model=settings.MEMORY_EXTRACTION_MODEL,
                 messages=[{"role": "user", "content": extraction_prompt}],
                 temperature=0.1,
-                max_tokens=500,
-                response_format={"type": "json_object"}
+                max_tokens=2000,
             )
             raw_text = completion.choices[0].message.content.strip()
+            logger.info(f"\n{'='*20} FACT EXTRACTOR OUTPUT {'='*20}\n{raw_text}\n{'='*63}")
 
-            if raw_text.startswith("```"):
-                raw_text = raw_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            if "```json" in raw_text:
+                raw_text = raw_text.split("```json")[1].rsplit("```", 1)[0].strip()
+            elif raw_text.startswith("```"):
+                raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
             parsed_json = json.loads(raw_text)
             extracted_items = parsed_json.get("facts", [])
@@ -117,11 +122,11 @@ class FactMemoryService:
 
         return []
 
-    def resolve_conflict(self, old_content: str, new_content: str) -> ConflictAction:
+    def resolve_conflict(self, old_content: str, new_content: str) -> ConflictDecision:
         """Use LLM to determine the ConflictAction when fact_key collides."""
-        client = self._get_llm_client()
+        client = self._client
         if not client:
-            return ConflictAction.UPDATE  # Fallback
+            return ConflictDecision(action=ConflictAction.UPDATE, reasoning="Fallback to update", merged_content=None)
 
         prompt = (
             "Bạn là AI phân xử mâu thuẫn bộ nhớ (Memory Conflict Resolver).\n"
@@ -129,34 +134,24 @@ class FactMemoryService:
             "Nhiệm vụ của bạn là so sánh 2 thông tin và quyết định HÀNH ĐỘNG xử lý phù hợp nhất.\n\n"
             f"- Cũ: {old_content}\n"
             f"- Mới: {new_content}\n\n"
-            "Chọn MỘT trong các hành động sau (chỉ trả về TÊN HÀNH ĐỘNG, không giải thích):\n"
-            "SKIP: Thông tin mới giống hệt hoặc không mang thêm giá trị.\n"
-            "UPDATE: Thông tin mới là bản cập nhật chi tiết hơn cùng bản chất (VD: ngân sách tăng lên, ngày đi thay đổi).\n"
-            "MERGE: Hai thông tin bổ sung cho nhau, cần gộp lại.\n"
-            "DEPRECATE: Thông tin mới mâu thuẫn hoàn toàn (thay đổi sở thích: từ thích sang ghét, từ đi 1 mình sang đi với gia đình), cái cũ không còn đúng.\n"
+            "=== EXAMPLES ===\n"
+            "- Cũ: 'Thích ăn hải sản', Mới: 'Dị ứng hải sản' -> action: 'deprecate' (Mâu thuẫn hoàn toàn)\n"
+            "- Cũ: 'Đi Sapa', Mới: 'Đi Sapa tháng 10' -> action: 'update' (Chi tiết hơn)\n"
+            "- Cũ: 'Thích đi biển', Mới: 'Thích đi núi' -> action: 'merge', merged_content: 'Thích đi cả biển và núi' (Bổ sung cho nhau)\n"
+            "- Cũ: 'Không ăn cay', Mới: 'Không ăn cay' -> action: 'skip' (Giống hệt)\n"
         )
         try:
-            completion = client.chat.completions.create(
+            completion = client.beta.chat.completions.parse(
                 model=settings.CONFLICT_RESOLUTION_MODEL,
                 messages=[{"role": "user", "content": prompt}],
+                response_format=ConflictDecision,
                 temperature=0.0,
-                max_tokens=20,
             )
-            action_str = completion.choices[0].message.content.strip().upper()
-
-            if "SKIP" in action_str:
-                return ConflictAction.SKIP
-            if "UPDATE" in action_str:
-                return ConflictAction.UPDATE
-            if "MERGE" in action_str:
-                return ConflictAction.MERGE
-            if "DEPRECATE" in action_str:
-                return ConflictAction.DEPRECATE_AND_CREATE
-
+            return completion.choices[0].message.parsed
         except Exception as e:
             logger.warning(f"Conflict resolution failed: {str(e)}")
 
-        return ConflictAction.UPDATE  # Default fallback
+        return ConflictDecision(action=ConflictAction.UPDATE, reasoning="Exception fallback", merged_content=None)
 
     def extract_facts(
         self,
@@ -213,8 +208,9 @@ class FactMemoryService:
                 logger.info(f"Created new Fact '{fact_key}' for UserID={user_id}")
             else:
                 # 3. Conflict Resolution
-                action = self.resolve_conflict(existing.content, content)
-                logger.info(f"Conflict detected for '{fact_key}'. Action decided: {action.value}")
+                decision = self.resolve_conflict(existing.content, content)
+                action = decision.action
+                logger.info(f"Conflict detected for '{fact_key}'. Action decided: {action.value}. Reason: {decision.reasoning}")
 
                 if action == ConflictAction.SKIP:
                     existing.confirmation_count += 1
@@ -227,7 +223,10 @@ class FactMemoryService:
                     saved_memories.append(existing)
 
                 elif action == ConflictAction.MERGE:
-                    existing.content = f"{existing.content} | {content}"
+                    if decision.merged_content:
+                        existing.content = decision.merged_content
+                    else:
+                        existing.content = f"{existing.content} | {content}"
                     existing.version += 1
                     saved_memories.append(existing)
 
@@ -300,12 +299,6 @@ class FactMemoryService:
         """Retrieve relevant user facts using Semantic Vector Search from ChromaDB (Phase 4)."""
         if not query or not query.strip():
             return ""
-
-        # Initialize Embedder and Store (lazy load)
-        if self._embedder is None:
-            self._embedder = VectorEmbedder()
-        if self._vector_store is None:
-            self._vector_store = ChromaVectorStore(collection_name="user_memory")
 
         # 1. Embed query
         query_embedding = self._embedder.embed_query(query)

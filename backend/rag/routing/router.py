@@ -36,8 +36,8 @@ class RouteDecision(BaseModel):
 class ContextRouter:
     """Intelligent Router to decide the context requirements of a user query."""
 
-    def __init__(self) -> None:
-        self.client = self._get_llm_client()
+    def __init__(self, llm_client: OpenAI) -> None:
+        self.client = llm_client
         self.model_name = settings.ROUTER_MODEL
         self.confidence_threshold = 0.80
 
@@ -54,20 +54,6 @@ class ContextRouter:
             r"(bạn nhớ gì về tôi|tôi thích gì|tôi đã nói gì|sở thích của tôi)",
             re.IGNORECASE
         )
-
-    def _get_llm_client(self) -> Optional[OpenAI]:
-        """Get OpenAI client."""
-        if not settings.GOOGLE_API_KEY:
-            logger.warning("Google API Key missing. Router will fallback to default.")
-            return None
-        try:
-            return OpenAI(
-                base_url=settings.LLM_BASE_URL,
-                api_key=settings.GOOGLE_API_KEY,
-            )
-        except Exception as e:
-            logger.error(f"Failed to initialize OpenAI client for Router: {str(e)}")
-            return None
 
     def determine_route(self, user_query: str, history: Optional[List[Dict[str, str]]] = None) -> RouteDecision:
         """Determine the route using fast paths first, then LLM classifier."""
@@ -143,7 +129,7 @@ class ContextRouter:
                 
         return None
 
-    def _classify_with_llm(self, user_query: str, history: Optional[List[Dict[str, str]]] = None, retries: int = 1) -> RouteDecision:
+    def _classify_with_llm(self, user_query: str, history: Optional[List[Dict[str, str]]] = None) -> RouteDecision:
         """Call LLM to classify the intent into a JSON object."""
         system_prompt = (
             "You are an intelligent Context Router for a Vietnam Travel AI Assistant.\n"
@@ -156,16 +142,23 @@ class ContextRouter:
             "4. 'memory_write': User explicitly states a preference or personal fact (e.g., 'I am allergic to seafood') without asking for a travel recommendation.\n"
             "5. 'rag_and_memory': User asks for a personalized travel recommendation based on their facts.\n"
             "6. 'clarify': The query is too ambiguous to answer.\n\n"
-            "You MUST output a raw JSON object exactly matching this schema:\n"
+            "=== EXAMPLES ===\n"
+            "- User: 'Đi Đà Lạt nên ăn gì?' -> route: 'rag_only'\n"
+            "- User: 'Gợi ý cho tôi nhà hàng Đà Lạt, tôi bị dị ứng hải sản' -> route: 'rag_and_memory'\n"
+            "- User: 'Tôi không thích ăn cay' -> route: 'memory_write'\n"
+            "- User: 'Bạn nhớ tôi thích đi đâu không?' -> route: 'memory_read'\n"
+            "- User: 'Cảm ơn bạn' -> route: 'direct_answer'\n\n"
+            "BẮT BUỘC trả về duy nhất một chuỗi JSON hợp lệ được bọc trong cặp dấu ```json và ```. "
+            "JSON phải tuân theo cấu trúc sau:\n"
             "{\n"
-            "  \"route\": \"direct_answer\" | \"rag_only\" | \"memory_read\" | \"memory_write\" | \"rag_and_memory\" | \"clarify\",\n"
-            "  \"needs_rag\": boolean,\n"
-            "  \"needs_memory_read\": boolean,\n"
-            "  \"should_write_memory\": boolean,\n"
-            "  \"confidence\": float between 0.0 and 1.0,\n"
-            "  \"rewritten_query\": \"A better search query for RAG, or the original if fine\",\n"
-            "  \"reason\": \"Why you chose this route\"\n"
-            "}\n"
+            '  "route": "direct_answer" | "rag_only" | "memory_read" | "memory_write" | "rag_and_memory" | "clarify",\n'
+            '  "needs_rag": boolean,\n'
+            '  "needs_memory_read": boolean,\n'
+            '  "should_write_memory": boolean,\n'
+            '  "confidence": float (0.0 to 1.0),\n'
+            '  "rewritten_query": "string (optimized query for vector search)",\n'
+            '  "reason": "string (explanation of why this route was chosen)"\n'
+            "}"
         )
 
         messages = [{"role": "system", "content": system_prompt}]
@@ -174,37 +167,35 @@ class ContextRouter:
             messages.extend(history[-4:])
         messages.append({"role": "user", "content": user_query})
 
-        error_msg = ""
-        for attempt in range(retries + 1):
-            if error_msg:
-                messages.append({"role": "user", "content": f"Your previous JSON failed validation: {error_msg}. Please fix it and output ONLY valid JSON."})
-                
-            try:
-                completion = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    temperature=0.0, # Deterministic
-                    response_format={"type": "json_object"}
-                )
-                
-                raw_json = completion.choices[0].message.content
-                if not raw_json:
-                    raise ValueError("LLM returned empty content")
-                    
-                # Parse and validate
-                decision = RouteDecision.model_validate_json(raw_json)
-                return decision
-                
-            except (ValidationError, json.JSONDecodeError, ValueError) as e:
-                logger.error(f"LLM Routing failed validation on attempt {attempt+1}: {str(e)}")
-                error_msg = str(e)
-            except Exception as e:
-                logger.error(f"Unexpected error during LLM routing: {str(e)}")
-                break
-                
-        # If all retries fail, return safe fallback
-        logger.warning("All routing retries failed. Returning safe fallback.")
-        return self._fallback_decision(user_query, "JSON Validation Failed multiple times")
+        logger.info(f"\n{'='*20} ROUTER PROMPT {'='*20}\n{json.dumps(messages, ensure_ascii=False, indent=2)}\n{'='*55}")
+
+        try:
+            completion = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=0.0, # Deterministic
+            )
+            raw_text = completion.choices[0].message.content.strip()
+            
+            # Extract JSON block using same logic as fact extractor
+            if "```json" in raw_text:
+                json_str = raw_text.split("```json")[1].rsplit("```", 1)[0].strip()
+            elif raw_text.startswith("```"):
+                json_str = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            else:
+                json_str = raw_text
+
+            parsed_data = json.loads(json_str)
+            parsed = RouteDecision(**parsed_data)
+            
+            logger.info(f"\n{'='*20} ROUTER OUTPUT {'='*20}\n{parsed.model_dump_json(indent=2)}\n{'='*55}")
+            return parsed
+        except json.JSONDecodeError as jde:
+            logger.error(f"JSON Parsing Error in Router: {str(jde)}\nRaw Output: {raw_text}")
+            return self._fallback_decision(user_query, f"Invalid JSON returned: {str(jde)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during LLM routing: {str(e)}")
+            return self._fallback_decision(user_query, f"LLM Routing failed: {str(e)}")
 
     def _fallback_decision(self, user_query: str, reason: str) -> RouteDecision:
         """Safe fallback route (assuming it needs RAG and Memory to be safe)."""

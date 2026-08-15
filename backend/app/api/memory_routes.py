@@ -11,7 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.database import get_db
 from backend.app.models.user import User
 from backend.app.api.deps import get_current_user, get_optional_user
-from backend.memory.conversation_memory import ConversationMemoryService
+from backend.memory.episodic_memory import EpisodicMemoryService
+from backend.memory.short_term_memory import ShortTermMemoryService
 from backend.memory.fact_memory import FactMemoryService
 
 logger = logging.getLogger("travel_agent_memory_api")
@@ -19,13 +20,31 @@ router = APIRouter(prefix="/memory", tags=["Memory Management"])
 from backend.app.models.session import ChatSession
 from functools import lru_cache
 
-@lru_cache()
-def get_conv_service() -> ConversationMemoryService:
-    return ConversationMemoryService()
+from openai import OpenAI
+from backend.rag.embedding.embedder import VectorEmbedder
+from backend.rag.retrieval.vector_store import ChromaVectorStore
+from backend.app.core.dependencies import (
+    get_llm_client,
+    get_vector_embedder,
+    get_user_memory_store,
+    get_episodic_memory_service,
+    get_short_term_memory_service,
+)
 
 @lru_cache()
-def get_fact_service() -> FactMemoryService:
-    return FactMemoryService()
+def get_episodic_service(service: EpisodicMemoryService = Depends(get_episodic_memory_service)) -> EpisodicMemoryService:
+    return service
+
+@lru_cache()
+def get_short_term_service(service: ShortTermMemoryService = Depends(get_short_term_memory_service)) -> ShortTermMemoryService:
+    return service
+
+def get_fact_service(
+    llm_client: OpenAI = Depends(get_llm_client),
+    embedder: VectorEmbedder = Depends(get_vector_embedder),
+    store: ChromaVectorStore = Depends(get_user_memory_store)
+) -> FactMemoryService:
+    return FactMemoryService(llm_client=llm_client, embedder=embedder, vector_store=store)
 
 
 class UserMemoryResponse(BaseModel):
@@ -53,10 +72,10 @@ class ChatSessionResponse(BaseModel):
 def get_user_sessions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    conv_service: ConversationMemoryService = Depends(get_conv_service),
+    episodic_service: EpisodicMemoryService = Depends(get_episodic_service),
 ):
     """Get all chat sessions belonging to the authenticated user."""
-    return conv_service.get_user_sessions(db, current_user.id)
+    return episodic_service.get_user_sessions(db, current_user.id)
 
 
 @router.get("/history/{session_id}")
@@ -64,7 +83,7 @@ def get_session_history(
     session_id: str,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user),
-    conv_service: ConversationMemoryService = Depends(get_conv_service),
+    short_term_service: ShortTermMemoryService = Depends(get_short_term_service),
 ) -> List[Dict[str, str]]:
     """Get formatted sliding window conversation history for a chat session."""
     clean_sid = session_id.strip()
@@ -76,7 +95,8 @@ def get_session_history(
         if current_user is None or session.user_id != current_user.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền truy cập session này.")
             
-    return conv_service.format_messages_for_llm(db, clean_sid)
+    msgs = short_term_service.get_sliding_window(db, clean_sid)
+    return short_term_service.format_messages_for_llm(msgs)
 
 
 @router.delete("/history/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -84,11 +104,11 @@ def delete_session_history(
     session_id: str,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user),
-    conv_service: ConversationMemoryService = Depends(get_conv_service),
+    episodic_service: EpisodicMemoryService = Depends(get_episodic_service),
 ):
     """Clear all chat messages and delete a session."""
     user_id = current_user.id if current_user else None
-    if not conv_service.delete_session(db, session_id.strip(), user_id=user_id):
+    if not episodic_service.delete_session(db, session_id.strip(), user_id=user_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Không tìm thấy session hoặc bạn không có quyền xóa.")
 
 

@@ -9,8 +9,21 @@ from backend.app.api.chat import router as chat_router, get_rag_service
 from backend.app.api.auth import router as auth_router
 from backend.app.api.memory_routes import router as memory_router
 
+import os
+
+# Ensure data directory exists for logs
+os.makedirs("data", exist_ok=True)
+
 # Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+log_format = "%(asctime)s - %(levelname)s - %(message)s"
+logging.basicConfig(
+    level=logging.INFO, 
+    format=log_format,
+    handlers=[
+        logging.FileHandler("data/debug.log", mode='a', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger("travel_agent_main")
 
 
