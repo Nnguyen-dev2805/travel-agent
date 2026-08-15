@@ -138,13 +138,37 @@ class ChromaVectorStore:
         )
         logger.info(f"Upserted UserMemory {memory_id} into ChromaDB.")
 
+    def batch_upsert_user_memory(self, memory_ids: List[str], contents: List[str], metadatas: List[Dict[str, Any]], embeddings: List[List[float]]) -> None:
+        """Upsert a batch of user memory vectors into ChromaDB."""
+        if not memory_ids:
+            return
+            
+        self.collection.upsert(
+            ids=memory_ids,
+            documents=contents,
+            metadatas=metadatas,
+            embeddings=embeddings
+        )
+        logger.info(f"Upserted batch of {len(memory_ids)} UserMemories into ChromaDB.")
+
     def delete_user_memory(self, memory_id: str) -> None:
-        """Delete a user memory vector from ChromaDB (Phase 3 Outbox)."""
+        """Delete a single user memory vector from ChromaDB (Phase 3 Outbox)."""
         try:
             self.collection.delete(ids=[memory_id])
             logger.info(f"Deleted UserMemory {memory_id} from ChromaDB.")
         except ValueError:
             logger.warning(f"Failed to delete UserMemory {memory_id} from ChromaDB - Not found.")
+
+    def batch_delete_user_memory(self, memory_ids: List[str]) -> None:
+        """Delete a batch of user memory vectors from ChromaDB."""
+        if not memory_ids:
+            return
+            
+        try:
+            self.collection.delete(ids=memory_ids)
+            logger.info(f"Deleted batch of {len(memory_ids)} UserMemories from ChromaDB.")
+        except ValueError:
+            logger.warning(f"Failed to delete batch of UserMemories from ChromaDB - Not found.")
 
     def search_similar(
         self, query_embedding: List[float], top_k: int = 4, where: Optional[Dict[str, Any]] = None
