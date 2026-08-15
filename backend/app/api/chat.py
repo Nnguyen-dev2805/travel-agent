@@ -109,7 +109,7 @@ async def chat_endpoint(
         if decision.needs_memory_read and current_user and current_user.memory_enabled:
             def _get_long_term_context():
                 facts = memory_mgr.fact_service.retrieve_relevant_facts(
-                    user_id=current_user.id, query=user_message, top_k=5
+                    db=db, user_id=current_user.id, query=user_message, top_k=5
                 )
                 episodes = memory_mgr.episodic_service.recall_past_episodes(
                     user_id=current_user.id, current_query=user_message, top_k=2

@@ -47,6 +47,9 @@ class UserMemory(Base):
     last_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     
+    last_conflict_action: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    last_conflict_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False

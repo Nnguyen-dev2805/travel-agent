@@ -52,7 +52,7 @@ class MemoryManager:
         user_facts = ""
         recalled_episodes = ""
         if user and user_message:
-            user_facts = self.fact_service.retrieve_relevant_facts(user_id=user.id, query=user_message, top_k=5)
+            user_facts = self.fact_service.retrieve_relevant_facts(db=db, user_id=user.id, query=user_message, top_k=5)
             recalled_episodes = self.episodic_service.recall_past_episodes(user_id=user.id, current_query=user_message, top_k=2)
 
         logger.debug(

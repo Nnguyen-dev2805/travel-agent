@@ -243,6 +243,9 @@ class FactMemoryService:
 
                         # Re-attach existing to the session if needed (commit expired it)
                         existing = db.merge(existing)
+                        
+                        existing.last_conflict_action = action.value
+                        existing.last_conflict_reasoning = decision.reasoning
 
                         if action == ConflictAction.SKIP:
                             existing.confirmation_count += 1
@@ -333,7 +336,7 @@ class FactMemoryService:
         )
         return list(db.scalars(stmt).all())
 
-    def retrieve_relevant_facts(self, user_id: int, query: str, top_k: int = 5, min_score: float = 0.55) -> str:
+    def retrieve_relevant_facts(self, db: Session, user_id: int, query: str, top_k: int = 5, min_score: float = 0.55) -> str:
         """Retrieve relevant user facts using Semantic Vector Search from ChromaDB (Phase 4)."""
         if not query or not query.strip():
             return ""
@@ -341,19 +344,20 @@ class FactMemoryService:
         # 1. Embed query
         query_embedding = self._embedder.embed_query(query)
 
-        # 2. Search ChromaDB with Metadata Filter for Security
+        # 2. Search ChromaDB with Metadata Filter for Security and Isolation
         results = self._vector_store.search_similar(
             query_embedding=query_embedding,
             top_k=top_k,
-            where={"user_id": user_id}
+            where={"user_id": user_id, "memory_type": "semantic_fact"}
         )
 
         if not results:
             return ""
 
-        # 3. Format to string
-        # Filter active only in case the outbox didn't delete deprecated ones properly
+        # 3. Format to string and track accessed IDs
         lines = []
+        valid_memory_ids = []
+        
         for res in results:
             if res.get("score", 0.0) < min_score:
                 continue
@@ -363,6 +367,24 @@ class FactMemoryService:
                 fact_type = meta.get("fact_type", "fact").upper()
                 content = res.get("text", "")
                 lines.append(f"• [{fact_type}] {content}")
+                
+                # Try to extract the source memory_id from metadata or id
+                # Usually ChromaDB id is the memory_id
+                mem_id = res.get("id")
+                if mem_id:
+                    valid_memory_ids.append(mem_id)
+
+        # 4. Update last_accessed_at for valid memories
+        if valid_memory_ids:
+            try:
+                from sqlalchemy import update
+                from datetime import datetime, timezone
+                stmt = update(UserMemory).where(UserMemory.memory_id.in_(valid_memory_ids)).values(last_accessed_at=datetime.now(timezone.utc))
+                db.execute(stmt)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Failed to update last_accessed_at for retrieved facts: {e}")
 
         return "\n".join(lines)
 
