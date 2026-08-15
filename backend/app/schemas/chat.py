@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., json_schema_extra={"example": "Chào bạn, Hà Nội có gì đẹp?"})
+    message: str = Field(..., max_length=2000, json_schema_extra={"example": "Chào bạn, Hà Nội có gì đẹp?"})
     session_id: Optional[str] = Field(
         None, json_schema_extra={"example": "550e8400-e29b-41d4-a716-446655440000"}
     )

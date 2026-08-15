@@ -3,6 +3,8 @@
 import logging
 from typing import Optional
 # pyrefly: ignore [missing-import]
+import httpx
+# pyrefly: ignore [missing-import]
 from openai import OpenAI
 
 from backend.app.config import settings
@@ -27,6 +29,7 @@ def get_llm_client() -> OpenAI:
         _llm_client = OpenAI(
             base_url=settings.LLM_BASE_URL,
             api_key=settings.GOOGLE_API_KEY or "dummy_key",
+            timeout=httpx.Timeout(30.0)
         )
         logger.info("Initialized OpenAI Client singleton.")
     return _llm_client

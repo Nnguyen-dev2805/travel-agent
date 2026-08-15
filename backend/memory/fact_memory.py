@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session
 # pyrefly: ignore [missing-import]
 from sqlalchemy import select
 # pyrefly: ignore [missing-import]
+from sqlalchemy.exc import IntegrityError
+# pyrefly: ignore [missing-import]
+from sqlalchemy.orm.exc import StaleDataError
+import time
+# pyrefly: ignore [missing-import]
 from openai import OpenAI
 
 from backend.app.config import settings
@@ -184,102 +189,135 @@ class FactMemoryService:
                 logger.info(f"Ignored fact '{fact_key}' due to low confidence ({confidence}).")
                 continue
 
-            # 2. Deduplication (Find existing ACTIVE memory with same fact_key)
-            stmt = select(UserMemory).where(
-                UserMemory.user_id == user_id,
-                UserMemory.fact_key == fact_key,
-                UserMemory.status == MemoryStatus.ACTIVE.value
-            )
-            existing = db.scalars(stmt).first()
-
-            if not existing:
-                # CREATE NEW
-                new_mem = UserMemory(
-                    user_id=user_id,
-                    fact_type=fact_type,
-                    fact_key=fact_key,
-                    content=content,
-                    confidence=confidence,
-                    status=MemoryStatus.ACTIVE.value,
-                    source_session_id=session_id
-                )
-                db.add(new_mem)
-                saved_memories.append(new_mem)
-                logger.info(f"Created new Fact '{fact_key}' for UserID={user_id}")
-            else:
-                # 3. Conflict Resolution
-                decision = self.resolve_conflict(existing.content, content)
-                action = decision.action
-                logger.info(f"Conflict detected for '{fact_key}'. Action decided: {action.value}. Reason: {decision.reasoning}")
-
-                if action == ConflictAction.SKIP:
-                    existing.confirmation_count += 1
-                    saved_memories.append(existing)
-
-                elif action == ConflictAction.UPDATE:
-                    existing.content = content
-                    existing.confidence = max(existing.confidence, confidence)
-                    existing.version += 1
-                    saved_memories.append(existing)
-
-                elif action == ConflictAction.MERGE:
-                    if decision.merged_content:
-                        existing.content = decision.merged_content
-                    else:
-                        existing.content = f"{existing.content} | {content}"
-                    existing.version += 1
-                    saved_memories.append(existing)
-
-                elif action == ConflictAction.DEPRECATE_AND_CREATE:
-                    existing.status = MemoryStatus.DEPRECATED.value
-
-                    new_mem = UserMemory(
-                        user_id=user_id,
-                        fact_type=fact_type,
-                        fact_key=fact_key,
-                        content=content,
-                        confidence=confidence,
-                        status=MemoryStatus.ACTIVE.value,
-                        source_session_id=session_id
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    # 2. Deduplication (Find existing ACTIVE memory with same fact_key)
+                    # We do not use FOR UPDATE to avoid blocking the DB during slow LLM calls.
+                    stmt = select(UserMemory).where(
+                        UserMemory.user_id == user_id,
+                        UserMemory.fact_key == fact_key,
+                        UserMemory.status == MemoryStatus.ACTIVE.value
                     )
-                    db.add(new_mem)
-                    db.flush()  # Get ID for superseded_by
+                    existing = db.scalars(stmt).first()
 
-                    existing.superseded_by = new_mem.memory_id
-                    saved_memories.append(new_mem)
-                    saved_memories.append(existing) # Also return the deprecated one if needed, or omit it.
-
-        # 4. Persistence (Commit once at the end)
-        if saved_memories:
-            try:
-                # Remove duplicates if same object added twice to list
-                unique_memories = list({id(m): m for m in saved_memories}.values())
-                
-                # Need to flush to get memory_id generated for new objects
-                db.flush() 
-
-                # Insert Outbox events in the same transaction
-                for m in unique_memories:
-                    # Decide action based on status
-                    action = "DELETE" if m.status == MemoryStatus.DEPRECATED.value else "UPSERT"
+                    # Pre-fetch content in case we need to pass it to LLM outside transaction
+                    existing_content = existing.content if existing else None
                     
-                    # Create Outbox record
-                    outbox_entry = MemoryOutbox(
-                        memory_id=m.memory_id,
-                        action=action,
-                        status="PENDING"
-                    )
-                    db.add(outbox_entry)
+                    # Ensure we have no pending locks from read before slow LLM call
+                    db.commit()
 
-                db.commit()
+                    if not existing:
+                        # CREATE NEW
+                        new_mem = UserMemory(
+                            user_id=user_id,
+                            fact_type=fact_type,
+                            fact_key=fact_key,
+                            content=content,
+                            confidence=confidence,
+                            status=MemoryStatus.ACTIVE.value,
+                            source_session_id=session_id
+                        )
+                        db.add(new_mem)
+                        db.flush()
+                        
+                        outbox_entry = MemoryOutbox(
+                            memory_id=new_mem.memory_id,
+                            action="UPSERT",
+                            status="PENDING"
+                        )
+                        db.add(outbox_entry)
+                        
+                        db.commit()
+                        db.refresh(new_mem)
+                        saved_memories.append(new_mem)
+                        logger.info(f"Created new Fact '{fact_key}' for UserID={user_id}")
+                        break # Break retry loop
+                        
+                    else:
+                        # 3. Conflict Resolution (Slow I/O)
+                        # We are not holding any row locks here!
+                        decision = self.resolve_conflict(existing_content, content)
+                        action = decision.action
+                        logger.info(f"Conflict detected for '{fact_key}'. Action decided: {action.value}. Reason: {decision.reasoning}")
 
-                for m in unique_memories:
-                    db.refresh(m)
-                saved_memories = unique_memories
-            except Exception as e:
-                db.rollback()
-                logger.error(f"Failed to commit extracted facts: {e}")
-                return []
+                        # Re-attach existing to the session if needed (commit expired it)
+                        existing = db.merge(existing)
+
+                        if action == ConflictAction.SKIP:
+                            existing.confirmation_count += 1
+                            outbox_action = "UPSERT"
+
+                        elif action == ConflictAction.UPDATE:
+                            existing.content = content
+                            existing.confidence = max(existing.confidence, confidence)
+                            outbox_action = "UPSERT"
+
+                        elif action == ConflictAction.MERGE:
+                            if decision.merged_content:
+                                existing.content = decision.merged_content
+                            else:
+                                existing.content = f"{existing_content} | {content}"
+                            outbox_action = "UPSERT"
+
+                        elif action == ConflictAction.DEPRECATE_AND_CREATE:
+                            existing.status = MemoryStatus.DEPRECATED.value
+                            outbox_entry_del = MemoryOutbox(
+                                memory_id=existing.memory_id,
+                                action="DELETE",
+                                status="PENDING"
+                            )
+                            db.add(outbox_entry_del)
+
+                            new_mem = UserMemory(
+                                user_id=user_id,
+                                fact_type=fact_type,
+                                fact_key=fact_key,
+                                content=content,
+                                confidence=confidence,
+                                status=MemoryStatus.ACTIVE.value,
+                                source_session_id=session_id
+                            )
+                            db.add(new_mem)
+                            db.flush()  # Get ID
+                            existing.superseded_by = new_mem.memory_id
+                            
+                            outbox_entry_new = MemoryOutbox(
+                                memory_id=new_mem.memory_id,
+                                action="UPSERT",
+                                status="PENDING"
+                            )
+                            db.add(outbox_entry_new)
+                            
+                            db.commit()
+                            db.refresh(new_mem)
+                            db.refresh(existing)
+                            saved_memories.append(new_mem)
+                            saved_memories.append(existing)
+                            break # Break retry loop
+
+                        if action != ConflictAction.DEPRECATE_AND_CREATE:
+                            outbox_entry = MemoryOutbox(
+                                memory_id=existing.memory_id,
+                                action=outbox_action,
+                                status="PENDING"
+                            )
+                            db.add(outbox_entry)
+                            db.commit()
+                            db.refresh(existing)
+                            saved_memories.append(existing)
+                            break # Break retry loop
+
+                except (StaleDataError, IntegrityError) as e:
+                    db.rollback()
+                    logger.warning(f"TOCTOU race condition intercepted for '{fact_key}'. Retrying ({attempt+1}/{max_retries})... Error: {e}")
+                    if attempt == max_retries - 1:
+                        logger.error(f"Failed to process fact '{fact_key}' after {max_retries} attempts due to concurrency.")
+                    time.sleep(0.5)
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Failed to commit extracted fact '{fact_key}': {e}")
+                    break
 
         return [m for m in saved_memories if m.status == MemoryStatus.ACTIVE.value]
 
@@ -295,7 +333,7 @@ class FactMemoryService:
         )
         return list(db.scalars(stmt).all())
 
-    def retrieve_relevant_facts(self, user_id: int, query: str, top_k: int = 5) -> str:
+    def retrieve_relevant_facts(self, user_id: int, query: str, top_k: int = 5, min_score: float = 0.55) -> str:
         """Retrieve relevant user facts using Semantic Vector Search from ChromaDB (Phase 4)."""
         if not query or not query.strip():
             return ""
@@ -317,6 +355,9 @@ class FactMemoryService:
         # Filter active only in case the outbox didn't delete deprecated ones properly
         lines = []
         for res in results:
+            if res.get("score", 0.0) < min_score:
+                continue
+                
             meta = res.get("metadata", {})
             if meta.get("status") in [MemoryStatus.ACTIVE.value, MemoryStatus.REINFORCED.value]:
                 fact_type = meta.get("fact_type", "fact").upper()

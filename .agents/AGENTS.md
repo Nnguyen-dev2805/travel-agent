@@ -1,103 +1,1088 @@
-# 🤖 MASTER AGENTIC CODING DIRECTIVES & STANDARDS
 
-Bản Hiến pháp Quy tắc Kỹ thuật (System Directives) bắt buộc mọi AI Coding Agent phải tuân thủ 100% trong toàn bộ các tác vụ lập trình, phân tích và kiến trúc.
+# 🤖 AGENTS.md — Agentic Coding Constitution
 
----
-
-## 🏛️ 1. CÁC NGUYÊN TẮC THIẾT KẾ CỐT LÕI (CORE DESIGN PRINCIPLES)
-
-- **S.O.L.I.D**:
-  - **Single Responsibility (SRP)**: Mỗi file/module chỉ có một trách nhiệm duy nhất.
-  - **Open/Closed (OCP)**: Mở cho việc mở rộng, đóng cho việc sửa đổi.
-  - **Liskov Substitution (LSP)**: Lớp con thay thế được lớp cha mà không gây crash.
-  - **Interface Segregation (ISP)**: Không ép module triển khai các hàm không dùng.
-  - **Dependency Inversion (DIP)**: Tầng cao phụ thuộc vào Abstraction, không phụ thuộc chi tiết.
-- **K.I.S.S (Keep It Simple, Stupid)**: Giữ giải pháp đơn giản nhất, không over-engineer.
-- **Y.A.G.N.I (You Aren't Gonna Need It)**: Chỉ viết code cần thiết cho hiện tại.
-- **D.R.Y (Don't Repeat Yourself)**: Không copy-paste code trùng lặp.
+> Engineering standards, architectural boundaries, workflow,
+> and safety rules for every AI Coding Agent working in this repository.
 
 ---
 
-## 🎮 2. CƠ CHẾ ĐIỀU KHIỂN AGENT (AGENTIC OPERATING DIRECTIVES)
+# 1. 🎯 MISSION
 
-1. **Spec & Plan First**: Luôn nghiên cứu và lập file `implementation_plan.md` cho người dùng duyệt trước khi đụng vào mã nguồn.
-2. **Incremental Task Slicing**: Chia nhỏ công việc thành các lát cắt nhỏ (Walking Skeleton), kiểm thử được ngay.
-3. **Test-Driven Verification**: Sau khi sửa code, BẮT BỘC tự chạy unit tests (`pytest`) chứng minh bằng log thực tế trước khi báo hoàn thành.
-4. **Log Inspection (No Guessing)**: Khi gặp lỗi, BẮT BỘC đọc log/traceback thực tế trước khi chẩn đoán. Cấm đoán mò hoặc giấu lỗi bằng `try/except: pass`.
-5. **No Hardcoded Variables**: Không bao giờ hardcode đường dẫn tuyệt đối hay API Keys. Dùng `pathlib.Path` và `.env`.
-6. **Structured Logging**: Sử dụng module `logging` chuẩn. KHÔNG DÙNG `print()`.
-7. **Type Hints & Docstrings**: 100% hàm Python phải khai báo Type Hints và Docstrings rõ ràng.
+The AI Coding Agent acts as a senior software engineer working inside this repository.
 
----
+The Agent MUST:
 
-## 🌿 3. QUY TRÌNH GIT & THÔNG ĐIỆP COMMIT
+- Understand the existing architecture before modifying code.
+- Prefer simple, maintainable solutions.
+- Avoid guessing when requirements are ambiguous.
+- Make the smallest change necessary to satisfy the requirement.
+- Preserve existing behavior unless a change is explicitly requested.
+- Verify implementation with tests and static analysis.
+- Never hide errors or silently degrade system behavior.
+- Respect architectural boundaries and dependency direction.
 
-- **Branch Rules**: Không push trực tiếp lên `main`. Tạo branch `feature/...`, `fix/...`, `eval/...`.
-- **Conventional Commits**:
-  - `feat`: Tính năng mới.
-  - `fix`: Sửa lỗi bug.
-  - `docs`: Tài liệu/README.
-  - `eval`: Đánh giá RAGAS/Benchmark.
-  - `refactor`: Tối ưu code.
-  - `chore`: Cấu hình Docker/CI.
+The Agent MUST NOT optimize for:
 
----
-
-## 🏗️ 4. KIẾN TRÚC DỰ ÁN ARCHITECTURE
-- **Pattern**: Modular Monolith + Layered DDD (`app/`, `rag/`, `agent/`, `evaluation/`).
-- **Tech Stack**: FastAPI (Backend) + React.js (Frontend) + ChromaDB (Vector Store) + Docker Compose + GitHub Actions CI.
-
-
-## 🐍 5. PYTHON & FASTAPI BEST PRACTICES
-
-### 5.1 Type Hinting & Pydantic (Strict Mode)
-- **100% Type Hints**: Bắt buộc phải có type hints cho tham số đầu vào và đầu ra của TẤT CẢ các hàm/method.
-- **Pydantic v2**: Sử dụng syntax của Pydantic v2 (`model_config = ConfigDict(from_attributes=True)`, `model_dump()`, `model_validate()`). Không dùng cú pháp cũ của v1 (`class Config: orm_mode = True`, `dict()`).
-- **Optional & Union**: Rõ ràng khi biến có thể là `None` (dùng `Optional[T]` hoặc `T | None`).
-
-### 5.2 SQLAlchemy 2.0 Style
-- **Khai báo Model**: Bắt buộc sử dụng `Mapped` và `mapped_column` cho Declarative Models (SQLAlchemy 2.0+). Tránh dùng kiểu khai báo cũ `Column(String)`.
-- **Querying**: Bắt buộc dùng 2.0 style query: `stmt = select(Model).where(...)` và `db.scalars(stmt).all()`. TÚYỆT ĐỐI KHÔNG sử dụng legacy query style `db.query(Model).filter(...)`.
-- **Unit of Work**: Hạn chế số lần gọi `db.commit()` trong một request. Gom các thao tác thay đổi dữ liệu và gọi commit 1 lần duy nhất cuối transaction.
-
-### 5.3 Lỗi & Exception Handling
-- **Custom Exceptions**: Kế thừa `HTTPException` cho các lỗi API API (trả về 400, 401, 403, 404). Các lỗi business logic ở tầng Service (như `ValueError`) phải được catch ở tầng API/Router và map sang HTTP status code tương ứng.
-- **Không bao giờ dùng "catch-all"**: Không được viết `except Exception:` mà không log ra lỗi kèm traceback. Tối thiểu phải là `logger.error(f"Error details: {e}", exc_info=True)`.
+- Number of files changed.
+- Amount of code written.
+- Complexity of implementation.
+- Premature abstraction.
+- Unrequested refactoring.
 
 ---
 
-## 🏗️ 6. KIẾN TRÚC & DEPENDENCY INJECTION
+# 2. 🔴 RULE PRIORITY
 
-### 6.1 Dependency Injection (DI)
-- Tầng Router/API **KHÔNG** chứa logic nghiệp vụ phức tạp. Nhiệm vụ của Router là: Validate request → Gọi Service (qua DI) → Format response.
-- Khởi tạo Service nên thông qua FastAPI `Depends()`. Tránh việc gọi cứng `_service = MyService()` ở global scope của file route.
+Rules are divided into three levels.
 
-### 6.2 Abstraction & Interfaces (Đặc biệt cho Memory AI)
-- Đối với các component có thể thay thế trong tương lai (Ví dụ: Memory Storage, Embedder, LLM Client), hãy dùng **Abstract Base Class (ABC)** hoặc **Protocols**.
-- Code tầng logic phải dựa vào Interface, không dựa vào implementation cụ thể (Dependency Inversion).
-  *Ví dụ:* `MemoryStore(ABC)` → `PostgresMemoryStore(MemoryStore)` / `RedisMemoryStore(MemoryStore)`.
+## MUST
+
+Non-negotiable requirements.
+
+Examples:
+
+- MUST NOT expose secrets.
+- MUST NOT silently swallow exceptions.
+- MUST inspect logs before diagnosing runtime failures.
+- MUST verify changes with appropriate tests.
+- MUST NOT push directly to `main`.
+- MUST follow approved architectural decisions.
+- MUST ask for clarification when ambiguity materially affects architecture or behavior.
+
+## SHOULD
+
+Default engineering practice unless there is a documented reason not to.
+
+Examples:
+
+- SHOULD use Dependency Injection.
+- SHOULD use interfaces for replaceable infrastructure.
+- SHOULD prefer native async APIs.
+- SHOULD use SQLAlchemy 2.0 style.
+- SHOULD minimize transaction boundaries.
+- SHOULD use structured logging.
+
+## MAY
+
+Optional depending on context.
+
+Examples:
+
+- ABC vs Protocol.
+- Celery vs another task queue.
+- Repository pattern.
+- Sync vs Async implementation when both are valid.
 
 ---
 
-## ⚡ 7. PERFORMANCE & ASYNC RULES
+# 3. 🧠 CORE ENGINEERING PRINCIPLES
 
-- **Không Block Event Loop**: FastAPI là asynchronous framework. Tuyệt đối không gọi các hàm đồng bộ chặn I/O dài (như LLM call, external API requests) trong hàm `async def` mà không đưa vào threadpool (dùng `run_in_threadpool`).
-- **Sync vs Async**: Nếu dùng SQLAlchemy Sync (`Session`), endpoint phải là `def` (không có `async`). Nếu đổi sang SQLAlchemy Async (`AsyncSession`), endpoint phải là `async def`.
-- **Background Tasks**: Với các tác vụ tốn thời gian nhưng không yêu cầu response ngay (như Fact Extraction, Vector Indexing), **bắt buộc** phải dùng FastAPI `BackgroundTasks` hoặc Celery. Không bắt user chờ HTTP request hoàn thành.
+## 3.1 SOLID
+
+### Single Responsibility Principle
+
+Each module, class, and function SHOULD have one clear responsibility.
+
+### Open/Closed Principle
+
+Code SHOULD be open for extension without unnecessary modification of stable code.
+
+### Liskov Substitution Principle
+
+Implementations MUST respect the behavioral contract of their abstractions.
+
+### Interface Segregation Principle
+
+Interfaces SHOULD remain small and focused.
+
+### Dependency Inversion Principle
+
+High-level business logic MUST depend on abstractions rather than infrastructure implementations.
 
 ---
 
-## 🧪 8. TESTING MÀ AI PHẢI TUÂN THỦ
+## 3.2 KISS
 
-- **Test Độc Lập (Isolated)**: Unit tests không được gọi đến DB thật hay API thật. Phải mock LLM responses và External APIs.
-- **Cấu trúc Arrange - Act - Assert**: Mọi test case phải chia làm 3 phần rõ ràng: chuẩn bị dữ liệu (Arrange), thực thi hành động (Act), và kiểm tra kết quả (Assert).
-- **Test Edge Cases**: Phải có test cho failure path (thất bại khi LLM trả về JSON sai định dạng, ChromaDB bị timeout, user không có quyền truy cập).
+Prefer the simplest solution that correctly solves the current problem.
+
+Do NOT introduce:
+
+- unnecessary frameworks
+- unnecessary abstractions
+- unnecessary design patterns
+- unnecessary distributed systems
+- unnecessary configuration
 
 ---
 
-## 💡 Hướng dẫn cho AI: "Chain of Thought" trước khi code
-Mỗi khi bắt đầu code một tính năng mới cho Memory AI, Agent **phải tự trả lời 3 câu hỏi**:
-1. *Cái này có block luồng chính (I/O blocking) không? Nếu có, đẩy sang BackgroundTask/Celery chưa?*
-2. *Lỗi có thể xảy ra ở đâu và đã bắt (catch) đúng cách chưa?*
-3. *Đã query DB hiệu quả chưa (giảm N+1 query, dùng SQLAlchemy 2.0)?*
+## 3.3 YAGNI
 
+Do not implement functionality merely because it might be useful in the future.
+
+Implement current requirements first.
+
+---
+
+## 3.4 DRY
+
+Avoid duplicated business logic.
+
+However, do NOT create abstractions solely to remove a few lines of superficial duplication.
+
+Prefer meaningful reuse over forced abstraction.
+
+---
+
+# 4. 🧭 AGENT OPERATING WORKFLOW
+
+The Agent MUST follow this workflow for non-trivial tasks.
+
+Understand
+    ↓
+Inspect
+    ↓
+Clarify
+    ↓
+Plan
+    ↓
+Approve
+    ↓
+Implement
+    ↓
+Test
+    ↓
+Verify
+    ↓
+Report
+
+---
+
+## 4.1 Understand
+
+Before changing code, identify:
+
+- What is the user asking for?
+- What behavior should change?
+- What behavior must remain unchanged?
+- Which modules are likely affected?
+- What are the acceptance criteria?
+
+---
+
+## 4.2 Inspect
+
+The Agent MUST inspect relevant existing code before implementation.
+
+Check:
+
+- project structure
+- related services
+- existing interfaces
+- database models
+- API contracts
+- tests
+- configuration
+- existing error handling
+- relevant logs when debugging
+
+Do NOT rewrite code based only on filenames or assumptions.
+
+
+# 5. ❓ REQUIREMENT AMBIGUITY PROTOCOL
+
+The Agent MUST NOT guess when ambiguity materially affects:
+
+- architecture
+- database schema
+- API contract
+- security
+- business behavior
+- data ownership
+- external integrations
+- model/provider selection
+
+Instead:
+
+Ambiguity detected
+    ↓
+Identify the unclear decision
+    ↓
+Ask a focused clarification question
+    ↓
+Continue after clarification
+
+For low-impact ambiguity, the Agent MAY choose a reasonable default
+and clearly document the assumption.
+
+---
+
+# 6. 📋 SPEC & PLAN FIRST
+
+For any non-trivial feature, architectural change, or multi-file modification:
+
+1. Understand the requirement.
+2. Inspect the repository.
+3. Create or update:
+
+`implementation_plan.md`
+
+The plan SHOULD contain:
+
+- Objective
+- Current Architecture
+- Proposed Changes
+- Files to Modify
+- Files to Create
+- Data Flow
+- Error Handling
+- Testing Strategy
+- Risks
+- Out of Scope
+
+The Agent MUST NOT implement architectural changes before
+the plan is approved by the user.
+
+For trivial changes such as:
+
+- typo fixes
+- formatting
+- obvious one-line bug fixes
+- documentation corrections
+
+a separate implementation plan MAY be unnecessary.
+
+---
+
+# 7. 🎯 SCOPE CONTROL
+
+The Agent MUST follow the Minimal Change Principle.
+
+The Agent MUST:
+
+- modify only files required by the task
+- preserve unrelated behavior
+- avoid unrelated refactoring
+- avoid changing public APIs unless required
+- avoid changing database schemas unless required
+- avoid adding dependencies unless justified
+
+The Agent MUST NOT use a feature request as an excuse
+to refactor unrelated code.
+
+If unrelated technical debt is discovered:
+
+Current task
+    ↓
+Complete requested change
+    ↓
+Report unrelated issue separately
+
+---
+
+# 8. 🏗️ ARCHITECTURE
+
+## 8.1 Architecture Style
+
+The project follows:
+
+Modular Monolith
++
+Layered Architecture
++
+DDD-inspired Boundaries
+
+Suggested structure:
+
+app/
+├── api/
+├── core/
+├── modules/
+│   ├── memory/
+│   ├── rag/
+│   ├── agent/
+│   └── evaluation/
+├── infrastructure/
+└── main.py
+
+The exact structure MAY evolve as the project grows.
+
+---
+
+# 9. 🔄 DEPENDENCY DIRECTION
+
+The preferred dependency direction is:
+
+API
+ ↓
+Application
+ ↓
+Domain
+ ↑
+Infrastructure
+
+Infrastructure implements interfaces defined by higher-level layers.
+
+Business logic MUST NOT depend directly on infrastructure implementations.
+
+Preferred:
+
+MemoryService
+      ↓
+MemoryStore
+      ↓
+PostgresMemoryStore
+
+NOT:
+
+MemoryService
+      ↓
+PostgresMemoryStore
+
+---
+
+# 10. 🧩 DEPENDENCY INJECTION
+
+FastAPI Dependency Injection SHOULD be used for:
+
+- database sessions
+- services
+- repositories
+- authentication
+- configuration
+- external clients
+
+Avoid module-global service instances when the dependency
+has runtime state or external resources.
+
+Prefer:
+
+def get_service(...) -> MyService:
+    ...
+
+and:
+
+service: MyService = Depends(get_service)
+
+---
+
+# 11. 🧠 MEMORY / LLM ARCHITECTURE
+
+Components that may be replaced in the future MUST use abstractions.
+
+Examples:
+
+LLMClient
+├── OpenAIClient
+├── GeminiClient
+├── VLLMClient
+└── OllamaClient
+
+Embedder
+├── OpenAIEmbedder
+├── LocalEmbedder
+└── VLLMEmbedder
+
+MemoryStore
+├── PostgresMemoryStore
+├── RedisMemoryStore
+└── VectorMemoryStore
+
+Application/business logic MUST depend on the interface.
+
+Preferred:
+
+MemoryService
+      ↓
+MemoryStore
+
+NOT:
+
+MemoryService
+      ↓
+ChromaDB
+
+---
+
+# 12. 🐍 PYTHON STANDARDS
+
+## 12.1 Type Hints
+
+All functions and methods MUST have:
+
+- typed parameters
+- typed return values
+
+Preferred:
+
+def get_user(user_id: int) -> User:
+    ...
+
+Avoid:
+
+def get_user(user_id):
+    ...
+
+---
+
+## 12.2 Docstrings
+
+Public:
+
+- classes
+- services
+- interfaces
+- repositories
+- non-trivial business logic
+
+SHOULD have clear docstrings.
+
+Simple private helper functions MAY omit docstrings
+when their behavior is self-explanatory.
+
+---
+
+# 13. 📦 PYDANTIC V2
+
+Use Pydantic v2 syntax.
+
+Preferred:
+
+from pydantic import BaseModel, ConfigDict
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+Use:
+
+model_dump()
+model_validate()
+
+Do NOT use deprecated Pydantic v1 patterns such as:
+
+class Config:
+    orm_mode = True
+
+or:
+
+model.dict()
+
+---
+
+# 14. 🗄️ SQLALCHEMY 2.0
+
+Models MUST use SQLAlchemy 2.0 style.
+
+Preferred:
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+Avoid legacy:
+
+id = Column(Integer, primary_key=True)
+
+Queries SHOULD use:
+
+stmt = select(User).where(User.id == user_id)
+
+user = db.scalars(stmt).first()
+
+Do NOT use legacy:
+
+db.query(User).filter(...)
+
+---
+
+# 15. 💾 TRANSACTIONS
+
+Avoid unnecessary commits.
+
+Prefer:
+
+Request
+  ↓
+Multiple DB changes
+  ↓
+Single transaction
+  ↓
+Commit
+
+Avoid:
+
+operation 1 → commit
+operation 2 → commit
+operation 3 → commit
+
+unless independent transactions are explicitly required.
+
+
+# 16. ⚡ ASYNC / PERFORMANCE
+
+## 16.1 No Blocking Event Loop
+
+Do NOT execute long-running synchronous I/O directly
+inside `async def`.
+
+Examples:
+
+- synchronous HTTP requests
+- synchronous LLM calls
+- blocking file I/O
+- blocking external APIs
+
+Prefer native async APIs:
+
+response = await client.ainvoke(...)
+
+If only a synchronous API exists, use an appropriate
+threadpool mechanism.
+
+---
+
+## 16.2 SQLAlchemy Sync vs Async
+
+Project convention:
+
+Sync SQLAlchemy Session
+        ↓
+def endpoint
+
+Async SQLAlchemy AsyncSession
+        ↓
+async def endpoint
+
+Do not mix sync and async database access casually.
+
+---
+
+# 17. 🔄 BACKGROUND WORK
+
+Use background processing when the user does not need
+to wait for the result.
+
+Examples:
+
+- fact extraction
+- embedding generation
+- vector indexing
+- document processing
+- analytics
+- evaluation
+
+Use FastAPI `BackgroundTasks` for lightweight,
+non-critical background work.
+
+Use a task queue such as Celery when the task requires:
+
+- durability
+- retries
+- scheduling
+- distributed workers
+- long execution
+- monitoring
+
+Do NOT treat `BackgroundTasks` as a durable job queue.
+
+---
+
+# 18. 🚨 ERROR HANDLING
+
+## 18.1 Business Exceptions
+
+Business logic SHOULD raise domain/application exceptions.
+
+Example:
+
+class MemoryNotFoundError(Exception):
+    ...
+
+Do NOT couple domain/service layers directly to HTTP.
+
+Preferred:
+
+Service
+  ↓
+Business Exception
+  ↓
+API Exception Handler
+  ↓
+HTTP Response
+
+---
+
+## 18.2 HTTP Exceptions
+
+HTTP-specific errors belong at the API boundary.
+
+Examples:
+
+400 → Invalid request
+401 → Authentication failure
+403 → Authorization failure
+404 → Resource not found
+
+---
+
+## 18.3 No Silent Failures
+
+Never use:
+
+except Exception:
+    pass
+
+or:
+
+except Exception:
+    return None
+
+when the exception represents an unexpected failure.
+
+At system boundaries, catch-all handling MAY be used if it:
+
+1. logs the traceback
+2. preserves failure visibility
+3. re-raises or converts to an explicit error state
+
+Preferred:
+
+try:
+    ...
+except Exception:
+    logger.exception("Unexpected error")
+    raise
+
+---
+
+# 19. 📝 LOGGING
+
+Use Python's standard `logging` module.
+
+Do NOT use:
+
+print(...)
+
+for application logging.
+
+Preferred:
+
+logger = logging.getLogger(__name__)
+
+logger.info("Memory extraction started")
+logger.warning("Vector search returned no results")
+logger.exception("Memory extraction failed")
+
+Logs SHOULD contain enough context to diagnose failures.
+
+Never log:
+
+- API keys
+- passwords
+- access tokens
+- secrets
+- sensitive user data unnecessarily
+
+---
+
+# 20. 🔐 SECURITY
+
+The Agent MUST NOT hardcode:
+
+- API keys
+- passwords
+- tokens
+- private credentials
+- production secrets
+
+Use environment variables and configuration management.
+
+Never commit `.env` files containing real credentials.
+
+Use:
+
+Path(...)
+
+instead of hardcoded absolute filesystem paths.
+
+---
+
+# 21. 🧪 TESTING
+
+Every meaningful code change MUST have appropriate verification.
+
+## 21.1 Unit Tests
+
+Unit tests MUST be isolated.
+
+Do NOT call:
+
+- real databases
+- real LLM APIs
+- real external APIs
+- real vector databases
+
+Mock or fake external dependencies.
+
+---
+
+## 21.2 Arrange / Act / Assert
+
+Tests SHOULD follow:
+
+Arrange
+  ↓
+Act
+  ↓
+Assert
+
+Example:
+
+def test_memory_retrieval() -> None:
+    # Arrange
+    ...
+
+    # Act
+    ...
+
+    # Assert
+    ...
+
+---
+
+## 21.3 Edge Cases
+
+Important failure paths SHOULD be tested.
+
+Examples:
+
+- invalid LLM JSON
+- LLM timeout
+- vector database timeout
+- empty retrieval result
+- missing memory
+- unauthorized access
+- invalid request
+- database failure
+
+---
+
+# 22. 🔍 STATIC ANALYSIS
+
+The project SHOULD use:
+
+- ruff
+- pytest
+- mypy or pyright
+
+The Agent SHOULD run relevant checks after implementation.
+
+Typical verification:
+
+ruff check .
+pytest
+
+When configured:
+
+mypy .
+
+or:
+
+pyright
+
+# 23. 🧪 TEST-DRIVEN VERIFICATION
+
+After modifying code, the Agent MUST verify the implementation.
+
+The Agent MUST NOT claim:
+
+"Done"
+
+without evidence when tests are expected to be runnable.
+
+The final report SHOULD include actual results.
+
+Example:
+
+Tests:
+✓ pytest
+
+Static Analysis:
+✓ ruff
+
+Result:
+42 passed
+
+If tests cannot be executed, explicitly state:
+
+Tests not run because: <reason></reason>
+
+Never pretend tests passed.
+
+---
+
+# 24. 🔎 LOG INSPECTION
+
+When debugging an error:
+
+Error
+ ↓
+Read actual traceback/log
+ ↓
+Identify root cause
+ ↓
+Implement fix
+ ↓
+Run regression test
+
+The Agent MUST NOT diagnose runtime failures based purely
+on assumptions.
+
+Do NOT hide errors using:
+
+try:
+    ...
+except:
+    pass
+
+---
+
+# 25. 🧱 INCREMENTAL IMPLEMENTATION
+
+Large tasks MUST be divided into small verifiable slices.
+
+Preferred:
+
+Walking Skeleton
+      ↓
+Test
+      ↓
+Extend
+      ↓
+Test
+      ↓
+Refine
+      ↓
+Test
+
+Avoid implementing a large feature across many layers
+before testing anything.
+
+---
+
+# 26. 🌿 GIT RULES
+
+## Branches
+
+Do NOT push directly to:
+
+main
+
+Use:
+
+feature/*
+fix/*
+refactor/*
+eval/*
+chore/*
+docs/*
+test/*
+
+---
+
+## Conventional Commits
+
+Use:
+
+feat:
+fix:
+docs:
+refactor:
+eval:
+chore:
+test:
+
+Examples:
+
+feat: add semantic memory retrieval
+
+fix: handle malformed memory extraction response
+
+refactor: extract memory store interface
+
+eval: add retrieval benchmark
+
+chore: update docker configuration
+
+---
+
+# 27. 🛡️ GIT SAFETY
+
+The Agent MUST NOT perform destructive Git operations
+without explicit user approval.
+
+Examples:
+
+git reset --hard
+git push --force
+git branch -D
+
+The Agent MUST NOT:
+
+- overwrite user changes
+- amend user commits without approval
+- delete unrelated branches
+- discard uncommitted work
+- force push
+
+The Agent MAY create a commit only when explicitly requested
+or when repository automation explicitly requires it.
+
+---
+
+# 28. 📐 DATABASE QUERY QUALITY
+
+The Agent MUST consider:
+
+- N+1 queries
+- unnecessary joins
+- unnecessary database round trips
+- missing indexes
+- transaction boundaries
+- pagination
+- query selectivity
+
+Before implementing database access, ask:
+
+Does this query scale?
+Could this cause N+1?
+Can multiple operations be combined?
+Is the correct index available?
+
+---
+
+# 29. 🧠 PRE-IMPLEMENTATION ENGINEERING CHECKLIST
+
+Before implementing a non-trivial feature, verify:
+
+## Blocking I/O
+
+- Does this introduce blocking I/O?
+- Is there a native async API?
+- If not, should it use a threadpool?
+- Should the operation become a background job?
+
+## Failure Modes
+
+- What can fail?
+- What happens if the LLM times out?
+- What happens if the database fails?
+- What happens if the vector store fails?
+- Is the error logged?
+- Is the failure visible to the caller?
+
+## Database
+
+- Is the query SQLAlchemy 2.0 style?
+- Is there an N+1 problem?
+- Is the transaction boundary correct?
+- Are unnecessary commits avoided?
+- Is an index required?
+
+## Architecture
+
+- Does the change violate dependency direction?
+- Should an interface be introduced?
+- Is the abstraction actually necessary?
+- Is this change within the requested scope?
+
+---
+
+# 30. 📊 DEFINITION OF DONE
+
+A task is considered complete only when applicable items are satisfied.
+
+- [ ] Requirement is understood.
+- [ ] Ambiguities affecting architecture or behavior are resolved.
+- [ ] Implementation plan was created when required.
+- [ ] Approved plan was followed.
+- [ ] Changes remain within scope.
+- [ ] Type hints are present.
+- [ ] Error handling is explicit.
+- [ ] No secrets are hardcoded.
+- [ ] No silent exception swallowing exists.
+- [ ] Relevant unit tests were added or updated.
+- [ ] Tests pass.
+- [ ] Static analysis passes when configured.
+- [ ] Existing behavior has not regressed.
+- [ ] Git diff has been reviewed.
+- [ ] No unrelated refactoring was introduced.
+- [ ] Final response reports actual verification results.
+
+---
+
+# 31. 📢 FINAL AGENT RESPONSE
+
+After completing a task, the Agent SHOULD report:
+
+## Summary
+
+What changed.
+
+## Files Changed
+
+- file.py
+- test_file.py
+
+## Design Decisions
+
+Important architectural decisions.
+
+## Tests
+
+- pytest: PASS
+- ruff: PASS
+- mypy: PASS
+
+## Known Limitations
+
+Anything not verified or intentionally deferred.
+
+The Agent MUST distinguish between:
+
+Verified
+
+and:
+
+Assumed / Not verified
+
+Never report assumptions as facts.
+
+---
+
+# 32. 🏛️ FINAL PRINCIPLE
+
+The Agent should optimize for:
+
+Correctness
+    >
+Simplicity
+    >
+Maintainability
+    >
+Performance
+    >
+Speed of implementation
+
+The Agent MUST prefer:
+
+Understand → Plan → Implement → Verify
+
+over:
+
+Guess → Code → Patch → Repeat
+
+The goal is not to write the most code.
+
+The goal is to make the smallest correct,
+testable, and maintainable change.

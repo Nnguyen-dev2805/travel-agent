@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 dotenv_path = ROOT_DIR / ".env"
@@ -10,9 +10,17 @@ if dotenv_path.exists():
 
 
 class Settings(BaseModel):
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     PROJECT_NAME: str = "Vietnam Travel Agent API"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
+
+    # CORS
+    CORS_ORIGINS: list[str] = [
+        origin.strip() 
+        for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") 
+        if origin.strip()
+    ]
 
     # LLM & Google Gemini API Configuration
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
@@ -40,6 +48,12 @@ class Settings(BaseModel):
     MEMORY_WINDOW_SIZE: int = int(os.getenv("MEMORY_WINDOW_SIZE", "10"))
     MEMORY_EXTRACTION_ENABLED: bool = os.getenv("MEMORY_EXTRACTION_ENABLED", "true").lower() == "true"
     ENABLE_CONTEXT_ROUTER: bool = os.getenv("ENABLE_CONTEXT_ROUTER", "true").lower() == "true"
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self):
+        if self.ENVIRONMENT.lower() == "production" and self.SECRET_KEY == "dev-secret-key-change-in-production-12345":
+            raise ValueError("BẢO MẬT NGHIÊM TRỌNG: SECRET_KEY phải được thiết lập khi chạy trên môi trường production!")
+        return self
 
 
 settings = Settings()

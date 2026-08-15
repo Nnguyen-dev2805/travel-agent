@@ -55,6 +55,9 @@ class UserMemory(Base):
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="memories")
 
+    __mapper_args__ = {
+        "version_id_col": version
+    }
 
 class MemoryOutbox(Base):
     """Transactional Outbox pattern for syncing memory to ChromaDB asynchronously."""

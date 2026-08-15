@@ -17,3 +17,11 @@ def test_chat_empty_message(api_client):
     assert response.status_code == 400
     assert "không được để trống" in response.json()["detail"]
 
+
+def test_chat_message_too_long(api_client):
+    """Test chat endpoint returns 422 when message exceeds max_length."""
+    long_message = "A" * 2001
+    response = api_client.post("/api/v1/chat", json={"message": long_message})
+    assert response.status_code == 422
+    data = response.json()
+    assert data["detail"][0]["type"] == "string_too_long"
