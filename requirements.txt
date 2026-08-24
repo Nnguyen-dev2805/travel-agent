@@ -1,18 +1,17 @@
-# AI & LLM Services
-openai>=1.0.0
-chromadb>=0.4.24
-sentence-transformers>=2.2.2
-
-# Backend Web API
+# Web Framework & Server
 fastapi>=0.110.0
 uvicorn[standard]>=0.28.0
 pydantic>=2.6.0
 python-dotenv>=1.0.0
 
-# Data Processing & Analysis
-pandas>=2.0.0
-tqdm>=4.65.0
-ipykernel>=6.25.0
+# AI & RAG Engine
+openai>=1.0.0
+chromadb>=0.4.24
+sentence-transformers>=2.2.2
+
+# HTML Preprocessing & Crawling
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
 
 # Testing
 pytest>=8.0.0
