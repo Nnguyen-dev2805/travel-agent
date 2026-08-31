@@ -30,6 +30,7 @@ data/processed/
 
 # OS, Editor & AI Agent Files
 .agents/
+.claude/
 .DS_Store
 Thumbs.db
 .vscode/
