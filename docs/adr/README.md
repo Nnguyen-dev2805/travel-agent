@@ -138,5 +138,4 @@ evidence.
 
 | Number | Title | Status | Date | Path |
 | --- | --- | --- | --- | --- |
-
-No architecture decision record has been accepted yet.
+| 0001 | Separate Online RAG Execution from Config-driven Evaluation | Accepted | 2026-09-01 | [ADR 0001](./0001-separate-online-rag-execution-from-config-driven-evaluation.md) |
