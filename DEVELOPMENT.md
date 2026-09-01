@@ -7,37 +7,46 @@ prototype. It documents setup paths, environment names, command effects, known
 side effects, and the verification status recorded for this repository state.
 
 Deployment, incident recovery, production operations, final architecture,
-security policy, and RAG or memory evaluation protocols are owned by later
-approved documentation packages.
+security policy, and RAG or memory evaluation protocols are owned by their
+canonical docs and later runtime milestones.
 
 ## Toolchain Status
 
 | Tool | Configured | Verified | Supported policy |
 | --- | --- | --- | --- |
-| Python | Python 3.11 in `backend/Dockerfile` and CI | Docker Stage A built the backend image and `/health` smoke verified-pass in an escalated local shell | Unknown |
-| Node.js | Node 18 in `frontend/Dockerfile` and CI | Docker Stage A built the frontend image; `npm run build` verified-pass; lint and test verified-fail | Unknown |
-| Docker Compose | Backend and frontend services in `docker-compose.yml` | verified-pass in an escalated local shell; sandbox access to the Docker socket fails | Unknown |
-| FastAPI/Uvicorn | Backend image starts `backend.app.main:app` on port 8000 | Health smoke verified-pass on port 8000 in an escalated local shell | Unknown |
-| Vite | Frontend dev server configured on port 5173 | Vite dev server started through Docker Compose; build verified-pass | Unknown |
+| Python | Python 3.11 in `backend/Dockerfile` and CI | R0 runs `python -m compileall backend` and `pytest backend/tests` as honest checks | Python 3.11 is the R0 baseline |
+| Node.js | Node 18 in `frontend/Dockerfile` and CI | R0 runs `npm ci`, `npm run lint`, `npm run test`, and `npm run build` as honest checks | Node 18 is the R0 baseline |
+| Docker Compose | Backend and frontend services in `docker-compose.yml` | R0 requires `docker compose config`; Stage A smoke requires Docker socket access | Development stack only |
+| FastAPI/Uvicorn | Backend image starts `backend.app.main:app` on port 8000 | Stage A health checks `/health` | Health does not prove chat or RAG quality |
+| Vite | Frontend dev server configured on port 5173 | Frontend build and test commands are R0 checks | Development server only |
 
 Configured means the value is present in checked-in configuration. Verified
 means the command was run for this document and recorded in the ledger.
-Supported policy is unknown until a later approved foundation package defines
-the support matrix.
 
 ## Environment
 
-The checked-in `.env.example` file is currently empty and is not complete setup
-guidance.
+The checked-in `.env.example` file is a safe placeholder file. Copy it to a
+local untracked `.env` only when a local workflow needs environment values.
 
 | Name | Used by | Required for | Sensitive | Notes |
 | --- | --- | --- | --- | --- |
-| `GITHUB_TOKEN` | Backend settings and external model client | Stage B external generation | Yes | Name only; do not commit real values |
+| `GITHUB_TOKEN` | Backend settings and external model client | Stage B external generation | Yes | Placeholder only; do not commit real values |
 | `LLM_MODEL` | Backend settings | Selecting the external model | No secret by itself | Defaults to `gpt-4o-mini` |
-| `VITE_API_URL` | Frontend API client and Docker Compose frontend service | Browser-to-backend API origin | No secret by itself | Defaults to `http://localhost:8000` in code |
+| `VITE_API_URL` | Frontend API client and Docker Compose frontend service | Browser-to-backend API origin | No secret by itself | Defaults to `http://localhost:8000` |
 
 Do not print, paste, or commit real credential values in logs, examples,
-issues, or documentation.
+issues, screenshots, terminal output, or documentation.
+
+## Dependency Ownership
+
+Python dependency source of truth: `requirements.txt` at the repository root.
+`backend/requirements.txt` exists only as a compatibility pointer for backend
+local workflows. Docker and CI install Python dependencies from the root file
+once.
+
+Frontend dependency source of truth: `frontend/package.json` plus
+`frontend/package-lock.json`. Use `npm ci` for repeatable local and CI
+installation after the lockfile exists.
 
 ## Recommended Path: Docker Compose
 
@@ -47,9 +56,9 @@ Use this path for Stage A startup and health inspection:
 docker compose up --build
 ```
 
-Expected effect: builds backend and frontend images if needed, installs image
-dependencies, starts the backend on port 8000, and starts the frontend on port
-5173.
+Expected effect: builds backend and frontend development images if needed,
+installs image dependencies, starts the backend on port 8000, and starts the
+frontend Vite dev server on port 5173.
 
 Known writes and side effects:
 
@@ -75,44 +84,43 @@ depend on locally installed Python, Node.js, and project dependencies.
 Backend from the repository root:
 
 ```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-
-The documented command is kept as a current investigation target, not a verified
-pass. The backend Docker command uses `backend.app.main:app`, and direct host
-execution may require an adjusted working directory or module path.
 
 Frontend from `frontend/`:
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-`npm install` writes `node_modules/` and may update lock data depending on the
-npm version and current dependency state.
+`npm ci` writes `node_modules/` from the lockfile and may use the network.
 
-## Stage A: Startup and Health
+## Readiness Stages
+
+### Stage A: Startup and Health
 
 Stage A proves only local startup and the health route:
 
 ```bash
-curl http://localhost:8000/health
+curl --fail --silent --show-error http://localhost:8000/health
 ```
 
 A successful health response does not prove credential validity, model-provider
-access, retrieval quality, populated Chroma data, or end-to-end chat readiness.
+access, retrieval data availability, retrieval quality, answer groundedness,
+memory behavior, or end-to-end chat readiness.
 
-## Stage B: RAG Chat Readiness
+### Stage B: RAG Chat Readiness
 
 Stage B is the real chat path. Before using `/api/v1/chat`, verify:
 
-- `GITHUB_TOKEN` or the configured model-provider credential is available.
-- Network access to the configured external model provider is acceptable.
-- The embedding model is present locally or first-use download is acceptable.
-- Chroma contains useful travel data.
-- The current request path logs a message prefix.
-- The external model request contains the user message and retrieved travel
+- local `.env` exists when external model credentials are needed;
+- `GITHUB_TOKEN` or the configured model-provider credential is available;
+- network access to the configured external model provider is acceptable;
+- the embedding model is present locally or first-use download is acceptable;
+- Chroma contains useful travel data;
+- the current request path logs a message prefix;
+- the external model request contains the user message and retrieved travel
   context.
 
 The current public chat request body contains only:
@@ -126,32 +134,30 @@ The current public chat request body contains only:
 There is no implemented user, trip, conversation, or memory identifier in this
 bounded request contract.
 
-## Commands
+## Command Contract
 
-| Working directory | Command | Expected effect | Writes | Network | Status |
-| --- | --- | --- | --- | --- | --- |
-| repository root | `docker compose up --build` | Build and start frontend/backend containers | Docker state, mounted app/data paths, possible Chroma state | Possible during build and dependency install | verified-pass |
-| repository root | `curl --fail --silent --show-error http://localhost:8000/health` | Inspect backend health after Stage A startup | No expected source writes | No expected external call | verified-pass |
-| repository root | `docker compose down` | Stop and remove Compose containers and network when no orphan containers keep it in use | Docker state | No expected external call | verified-pass |
-| repository root | `python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000` | Start backend host process if import path is valid | Python cache and possible Chroma state | Possible on model/cache access | not-run |
-| repository root | `pytest` | Run Python tests discovered from root | Test caches | No expected external call for normal unit tests | not-run |
-| `frontend/` | `npm install` | Install frontend dependencies | `node_modules/`, npm cache, possible lock metadata | Yes | not-run |
-| `frontend/` | `npm run dev` | Start Vite development server | Vite cache | No expected external call after dependencies exist | not-run |
-| `frontend/` | `npm run build` | Build frontend production assets | `frontend/dist/` | No expected external call after dependencies exist | verified-pass |
-| `frontend/` | `npm run lint` | Run ESLint | No expected source writes | No expected external call after dependencies exist | verified-fail |
-| `frontend/` | `npm run test` | Run Vitest | Test caches | No expected external call after dependencies exist | verified-fail |
-| `frontend/` | `npm run preview` | Serve built frontend output | No expected source writes | No expected external call after dependencies exist | not-run |
+| Category | Working directory | Command | Claim | Writes | Network | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| Backend static check | repository root | `python -m compileall backend` in CI; `python3 -m compileall backend` on hosts without `python` | Python source imports and compiles | Python cache files | No expected external call | `python3` verified-pass; `python` unavailable in current shell |
+| Backend tests | repository root | `pytest backend/tests` in CI; `python3 -m pytest backend/tests` when pytest is installed as a module | Backend tests pass or fail honestly | Test and Python caches | No expected external call for normal tests | host pytest unavailable in current shell |
+| Frontend install | `frontend/` | `npm ci` | Dependencies match lockfile | `node_modules/`, npm cache | Yes when cache is cold | verified-pass |
+| Frontend lint | `frontend/` | `npm run lint` | ESLint checks pass or fail honestly | No expected source writes | No expected external call after install | verified-pass |
+| Frontend tests | `frontend/` | `npm run test` | Vitest checks pass or fail honestly | Test caches | No expected external call after install | verified-pass |
+| Frontend build | `frontend/` | `npm run build` | Vite production bundle builds | `frontend/dist/` | No expected external call after install | verified-pass |
+| Compose config | repository root | `docker compose config` | Compose file is syntactically valid | No expected source writes | No expected external call | verified-pass |
+| Stage A smoke | repository root | `docker compose up --build` plus `curl --fail --silent --show-error http://localhost:8000/health` | Dev stack starts and health responds | Docker state, mounted app/data paths, possible Chroma state | Possible during image build or dependency install | blocked by missing Docker daemon/socket in current environment |
+| Stage B chat readiness | repository root | opt-in chat request to `/api/v1/chat` | Chat path can reach retrieval and model provider | Possible logs/cache/data state | Yes | Opt-in, not default CI |
+| RAG and memory evaluation | repository root | later approved evaluation command | Approved metric-specific quality claim | Evaluation outputs | Depends on later plan | Future milestone |
 
 ## Opt-in Data and Model Operations
 
-Crawling, ETL, indexing, embedding model downloads, and model-dependent
-evaluation are opt-in operations. They can mutate local data, populate Chroma,
-write cache files, use network access, or call external services. They are not
-part of the default quick start.
+Crawling, ETL, indexing, embedding model downloads, model-dependent chat
+readiness, and model-dependent evaluation are opt-in operations. They can
+mutate local data, populate Chroma, write cache files, use network access, call
+external services, or incur provider-side usage.
 
-Do not run these operations inside a documentation-only change unless the
-repository owner gives execution-time permission and the verification record
-captures the side effects.
+Do not run these operations inside R0 default verification. Run them only under
+the approved task that owns their inputs, side effects, and evidence.
 
 ## Common Setup Symptoms
 
@@ -161,7 +167,8 @@ captures the side effects.
 | Frontend says it cannot connect to FastAPI | Browser cannot reach the backend origin | Check backend port 8000 and `VITE_API_URL` |
 | Chat returns little or irrelevant context | Chroma may be empty or low quality for the query | Inspect data/indexing readiness in a separate approved RAG task |
 | First chat is slow | Embedding model or cache access may be occurring | Confirm whether model download/cache use is acceptable |
-| CI appears green while tests are broken | Current CI masks backend and frontend test failures with shell fallbacks | Run local checks directly and read exit codes |
+| CI is green | CI commands completed, not proof of RAG quality | Read the exact workflow steps and exit statuses |
+| Docker fails in a sandbox | Docker socket or localhost access may be blocked by the environment | Retry only with approved host access or record the limitation |
 
 When normal setup has already failed and the problem needs diagnosis or
 recovery, use the
@@ -169,27 +176,29 @@ recovery, use the
 owns broken-stack recovery, while this guide remains the canonical normal setup
 path.
 
-## Known Tooling Gaps
+For the learning path behind these operational habits, use the Infrastructure
+and Operations track in
+[Engineering Curriculum](docs/learning/engineering-curriculum.md).
 
-- `.env.example` is empty.
-- Current CI masks backend pytest and frontend test failures, so a green CI run
-  is not proof that tests pass.
+## Known Tooling Boundaries
+
 - Docker Stage A requires Docker socket access outside the normal Codex
-  sandbox. The sandboxed attempt failed with Docker socket permission denied;
-  the escalated local-shell rerun passed.
-- `docker compose down` removed the Stage A frontend and backend containers,
-  but the project network remained in use because pre-existing orphan
-  containers `travel_agent_db` and `travel_agent_outbox_worker` were still
-  present. They were not removed under this documentation-only package.
-- Frontend lint currently fails because ESLint cannot find a configuration
-  file.
-- Frontend tests currently fail because `jsdom` is missing and Vitest attempts
-  to bind a WebSocket server on a port blocked by the sandbox.
-- The host backend command in this guide is not yet verified for the current
-  module layout.
-- No approved support policy exists yet for Python, Node.js, Docker, dependency
-  versions, or operating systems.
-- No approved Stage B smoke check was run for this documentation package.
+  sandbox when the sandbox cannot reach the host Docker daemon.
+- The current host shell has `python3` but no `python` command and no installed
+  pytest module. CI remains configured to use Python 3.11 through
+  `actions/setup-python`.
+- `npm install --save-dev jsdom@^24.1.1` reported npm audit findings: 3
+  moderate, 4 high, and 1 critical vulnerability. R0 records the finding but
+  does not run automated audit fixes because dependency remediation requires a
+  separate reviewed change when it changes versions or behavior.
+- `docker compose down` can leave a network in use if pre-existing orphan
+  containers still attach to it. Do not remove orphan resources without an
+  approved cleanup decision.
+- Stage B chat readiness is intentionally not part of default CI because it can
+  require secrets, network access, local model/cache state, and populated
+  Chroma data.
+- RAG and memory quality are not established by R0 checks. They require the
+  approved evaluation protocols and later runtime milestones.
 
 ## Verification Ledger
 
@@ -197,13 +206,22 @@ path.
 | --- | --- | --- | --- | --- | --- |
 | 2026-08-31 | `rg -n '"(dev\|build\|lint\|preview\|test)"' frontend/package.json` | repository root | local shell | verified-pass | Proves script names only, not command success |
 | 2026-08-31 | `rg -n 'FROM python:3\.11\|FROM node:18\|uvicorn\|ports:\|volumes:' backend/Dockerfile frontend/Dockerfile docker-compose.yml` | repository root | local shell | verified-pass | Proves configured values only |
-| 2026-08-31 | `rg -n 'OPENAI\|API\|MODEL\|CHROMA\|DATA\|CACHE\|GITHUB\|VITE' backend/app/config.py frontend/src/services/api.js .env.example` | repository root | local shell | verified-pass | `.env.example` has no values and produced no matches |
+| 2026-08-31 | `rg -n 'OPENAI\|API\|MODEL\|CHROMA\|DATA\|CACHE\|GITHUB\|VITE' backend/app/config.py frontend/src/services/api.js .env.example` | repository root | local shell | verified-pass | `.env.example` had no values at that time |
 | 2026-08-31 | `docker compose up --build` | repository root | Codex sandbox | verified-fail | Docker socket access was denied at `~/.docker/run/docker.sock`; rerun outside the sandbox was required |
 | 2026-08-31 | `docker compose up --build` | repository root | escalated local shell | verified-pass | Built frontend and backend images in 919.4s; backend Uvicorn started on port 8000 and frontend Vite started on port 5173; Docker warned about pre-existing orphan containers |
 | 2026-08-31 | `curl --fail --silent --show-error http://localhost:8000/health` | repository root | Codex sandbox | verified-fail | Sandbox could not connect to localhost port 8000 while the Docker stack was running |
 | 2026-08-31 | `curl --fail --silent --show-error http://localhost:8000/health` | repository root | escalated local shell | verified-pass | Returned `{"status":"ok","service":"Vietnam Travel Agent API"}` and backend logged `GET /health HTTP/1.1` 200 |
 | 2026-08-31 | `docker compose down` | repository root | escalated local shell | verified-pass | Removed `travel_agent_frontend` and `travel_agent_backend`; network remained in use because pre-existing orphan containers were not removed |
 | 2026-08-31 | `docker compose ps --all` | repository root | escalated local shell | verified-pass | Confirmed pre-existing orphan containers `travel_agent_db` and `travel_agent_outbox_worker` remained outside Package 2 cleanup scope |
-| 2026-08-31 | `npm run build` | `frontend/` | local shell | verified-pass | Vite built 342 modules and wrote `frontend/dist/` |
-| 2026-08-31 | `npm run lint` | `frontend/` | local shell | verified-fail | ESLint could not find a configuration file |
-| 2026-08-31 | `npm run test -- --run` | `frontend/` | local shell | verified-fail | `jsdom` dependency missing; Vitest also hit sandbox `EPERM` binding WebSocket port 24678 |
+| 2026-09-01 | `python -m compileall backend` | repository root | local shell | verified-fail | `python` command was not found in the current host shell |
+| 2026-09-01 | `pytest backend/tests` | repository root | local shell | verified-fail | `pytest` command was not found in the current host shell |
+| 2026-09-01 | `python3 -m compileall backend` | repository root | local shell, Python 3.14.5 | verified-pass | Host fallback proves source compilation only; CI remains Python 3.11 |
+| 2026-09-01 | `python3 -m pytest backend/tests` | repository root | local shell, Python 3.14.5 | verified-fail | No pytest module is installed in the current host Python |
+| 2026-09-01 | `npm install --save-dev jsdom@^24.1.1` | `frontend/` | escalated local shell | verified-pass | Required network access to npm registry; npm reported 8 audit vulnerabilities |
+| 2026-09-01 | `npm ci` | `frontend/` | local shell | verified-pass | Installed 484 packages from lockfile |
+| 2026-09-01 | `npm run lint` | `frontend/` | local shell | verified-pass | ESLint completed with 0 errors |
+| 2026-09-01 | `npm run test` | `frontend/` | local shell | verified-pass | Vitest ran 1 file and 2 tests |
+| 2026-09-01 | `npm run build` | `frontend/` | local shell | verified-pass | Vite built 342 modules and wrote `frontend/dist/` |
+| 2026-09-01 | `rg -n "\\|\\| echo|continue-on-error|No backend tests found|Frontend tests completed or skipped" .github/workflows/ci.yml` | repository root | local shell | verified-pass | No success-producing test masks found |
+| 2026-09-01 | `docker compose config` | repository root | local shell | verified-pass | Rendered Compose configuration without needing Docker daemon access |
+| 2026-09-01 | `docker compose up --build` | repository root | local shell | blocked | Docker daemon/socket was unavailable at `~/.docker/run/docker.sock` |

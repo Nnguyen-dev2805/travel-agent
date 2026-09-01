@@ -57,7 +57,8 @@ For detailed setup, command effects, side effects, and verification status, use
 Real RAG chat is a separate readiness stage. Before using chat, expect to
 provide or verify:
 
-- external model credential configuration,
+- a local `.env` copied from `.env.example`,
+- `GITHUB_TOKEN` or the configured external model credential,
 - network access to the configured model provider,
 - local embedding model availability or first-use download,
 - populated Chroma data,
@@ -66,6 +67,8 @@ provide or verify:
 
 Crawling, ETL, indexing, model download, and model-dependent evaluation are
 opt-in development operations. They are not part of the default quick start.
+RAG and memory quality claims require the approved evaluation milestones, not
+only a successful chat response.
 
 ## Repository Map
 

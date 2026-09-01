@@ -194,3 +194,4 @@ commit, push, open a PR, merge, and release.
 | 2026-08-31 | Evaluation Protocols Implementation Plan | [Evaluation Protocols Design](../specs/2026-08-31-evaluation-protocols-design.md) v0.1 | Completed | [Plan](./2026-08-31-evaluation-protocols-implementation.md) |
 | 2026-08-31 | Operations and Security Implementation Plan | [Operations and Security Design](../specs/2026-08-31-operations-and-security-design.md) v0.1 | Completed | [Plan](./2026-08-31-operations-and-security-implementation.md) |
 | 2026-08-31 | GitHub and Open Source Implementation Plan | [GitHub and Open Source Design](../specs/2026-08-31-github-and-open-source-design.md) v0.1 | Completed | [Plan](./2026-08-31-github-and-open-source-implementation.md) |
+| 2026-09-01 | Foundation Cleanup Implementation Plan | [Foundation Cleanup Design](../specs/2026-09-01-foundation-cleanup-design.md) v0.1 | Completed | [Plan](./2026-09-01-foundation-cleanup-implementation.md) |

@@ -288,3 +288,4 @@ must be compared; a cosmetic variant is not a distinct alternative.
 | 2026-08-31 | Evaluation Protocols Design | Level 2 | 0.1 | Approved | [Design](./2026-08-31-evaluation-protocols-design.md) |
 | 2026-08-31 | Operations and Security Design | Level 2 | 0.1 | Approved | [Design](./2026-08-31-operations-and-security-design.md) |
 | 2026-08-31 | GitHub and Open Source Design | Level 2 | 0.1 | Approved | [Design](./2026-08-31-github-and-open-source-design.md) |
+| 2026-09-01 | Foundation Cleanup Design | Level 2 | 0.1 | Approved | [Design](./2026-09-01-foundation-cleanup-design.md) |

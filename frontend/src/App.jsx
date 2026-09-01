@@ -47,7 +47,6 @@ export default function App() {
       {/* Sidebar */}
       <Sidebar
         isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
         onNewChat={handleNewChat}
       />
 

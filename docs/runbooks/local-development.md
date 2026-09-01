@@ -184,6 +184,138 @@ recording the token value.
 [Incident Response Runbook](./incident-response.md) rather than repeatedly
 reusing it.
 
+## Missing Local Environment File
+
+**Symptom:** Stage B chat readiness fails because expected local configuration
+is absent, while Stage A health still works.
+
+**Diagnostic:** confirm file presence without printing secrets:
+
+```bash
+test -f .env && printf '.env exists\n' || printf '.env is missing\n'
+rg -n 'GITHUB_TOKEN|LLM_MODEL|VITE_API_URL' .env.example
+```
+
+**Impact:** model-dependent chat may fail, but the local health route and
+default R0 checks should not require `.env`.
+
+**Reversible recovery:** copy `.env.example` to `.env` and fill only the local
+values needed for the opt-in Stage B workflow. Do not commit `.env`.
+
+**Verify:** check credential presence with `test -n "${GITHUB_TOKEN:-}"` from
+the shell that will start the backend, then rerun only the approved Stage B
+smoke.
+
+**Stop:** if a real credential was pasted into a tracked file, issue, terminal
+evidence, or screenshot, use the incident response process.
+
+## Frontend Lint Failure
+
+**Symptom:** `npm run lint` fails, reports missing ESLint configuration, or
+reports source-level lint errors.
+
+**Diagnostic:** inspect the lint command and configuration:
+
+```bash
+rg -n '"lint"|eslint' frontend/package.json frontend/.eslintrc.cjs
+npm run lint --prefix frontend
+```
+
+**Impact:** frontend static correctness is unknown. This does not prove the
+backend, Docker stack, or RAG path is broken.
+
+**Reversible recovery:** if the failure is a missing dependency after a clean
+checkout, run `npm ci` from `frontend/`. If the failure is a source lint error,
+fix only the reported source issue under the approved task scope.
+
+**Verify:** rerun `npm run lint` from `frontend/` and record the exit status.
+
+**Stop:** if fixing lint requires changing UI behavior, dependency major
+versions, or framework conventions outside the approved task.
+
+## Frontend Test Environment Failure
+
+**Symptom:** `npm run test` fails because `jsdom` is missing, Vitest cannot
+start its test environment, or the sandbox blocks a local test server port.
+
+**Diagnostic:** inspect the test configuration and run the test directly:
+
+```bash
+rg -n 'environment|jsdom|vitest' frontend/vite.config.js frontend/package.json
+npm run test --prefix frontend
+```
+
+**Impact:** frontend test evidence is unavailable. This does not prove the
+browser UI cannot run.
+
+**Reversible recovery:** run `npm ci` from `frontend/` if dependencies are
+missing. If the sandbox blocks a test port, rerun in an approved host
+environment or record the sandbox limitation.
+
+**Verify:** rerun `npm run test` from `frontend/` and record the exit status.
+
+**Stop:** if tests need browser automation, provider calls, backend state, or a
+new test framework not approved by the current plan.
+
+## Dependency Install Failure
+
+**Symptom:** `pip install -r requirements.txt`, `npm ci`, or a Docker build
+dependency step fails.
+
+**Diagnostic:** identify the failing package manager and command:
+
+```bash
+python -m pip --version
+npm --version
+docker compose config
+```
+
+For npm lockfile mismatches, use `npm ci` output as the source of truth. For
+Python dependency conflicts, read the first resolver error before changing
+versions.
+
+**Impact:** local setup is not repeatable until the dependency owner and failed
+package are known.
+
+**Reversible recovery:** rerun the exact install command once after confirming
+network/cache availability. Change dependency versions only under an approved
+dependency task.
+
+**Verify:** rerun the command that failed, then run the smallest dependent
+check: backend compile for Python, frontend lint/test for npm, or Stage A for
+Docker.
+
+**Stop:** if recovery requires a major version upgrade, lockfile policy change,
+base image change, or deleting caches outside the approved scope.
+
+## Sandbox-specific Limitation
+
+**Symptom:** a command that normally needs host resources fails because the
+execution sandbox cannot access Docker, localhost ports, filesystem locations,
+or network resources.
+
+**Diagnostic:** compare the failing command with the Development Guide command
+contract and capture the exact platform error class. Useful read-only checks
+include:
+
+```bash
+docker info
+docker compose config
+curl --fail --silent --show-error http://localhost:8000/health
+```
+
+**Impact:** the result may be an environment limitation rather than a
+repository defect.
+
+**Reversible recovery:** rerun only the required command in an approved host
+environment, or record the limitation as skipped verification.
+
+**Verify:** the final evidence report classifies the result as an environment
+limitation and does not convert it into a pass.
+
+**Stop:** do not weaken tests, disable CI checks, or change application code
+only to satisfy a sandbox limitation.
+
 ## External Model or Network Failure
 
 **Symptom:** credential presence is established but generation times out,

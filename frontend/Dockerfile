@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Copy package files và cài đặt dependencies
 COPY frontend/package*.json ./
-RUN if [ -f package.json ]; then npm install; fi
+RUN npm ci
 
 # Copy mã nguồn frontend
 COPY frontend/ ./

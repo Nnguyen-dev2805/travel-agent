@@ -64,7 +64,7 @@ documentation package.
 | `D5` | Evaluation Protocols | Accepted in working tree | `D4` | RAG and memory evaluation protocols | Owner accepted Package 5 change set | Package 5 spec, plan, protocols, and review evidence |
 | `D6` | Operations and Security | Accepted in working tree | `D5` | Security policy and operational runbooks | Owner accepted Package 6 change set | Package 6 spec, plan, and review evidence |
 | `D7` | GitHub and Open Source | Accepted in working tree | `D6` | Issue templates, PR template, license, notices, and changelog | Owner accepted Package 7 change set | Package 7 spec, plan, and review evidence |
-| `R0` | Foundation Cleanup | Planned | `D4` | Tooling fixes, CI honesty, env examples, dependency hygiene | Basic checks fail honestly and setup is repeatable | Runtime foundation spec, plan, test output, and status |
+| `R0` | Foundation Cleanup | Accepted in working tree | `D4` | Tooling fixes, CI honesty, env examples, dependency hygiene | Owner accepted R0 change set | R0 spec, plan, verification evidence, and owner acceptance |
 | `R1` | RAG Repair and Baseline | Blocked by gate | `R0`, `D5` | Retrieval baseline, dataset policy, and answer-quality baseline | RAG quality is measurable against Package 5 gates | Evaluation report and regression dataset |
 | `R2` | Evaluation Harness | Blocked by gate | `D5`, `R0` | Repeatable local evaluation runner and traceable result format | Evaluation output can compare two runs | Harness tests and sample evaluation report |
 | `R3` | Trip Workspace Foundation | Blocked by gate | `D3`, required ADRs, `R0` | Workspace contracts, storage boundary, and minimal routes | Workspace records can be created and inspected behind approved interfaces | Tests, schema review, and ADR links |

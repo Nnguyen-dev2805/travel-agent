@@ -49,6 +49,7 @@ right lesson to the work that needs it.
 | --- | --- | --- |
 | Repository workflow | Scope, approvals, evidence, rollback | `D0`, `D1`, `D4`, all runtime milestones |
 | Git and GitHub | Branches, commits, PRs, review hygiene | `D7`, `R0`, `R10` |
+| Infrastructure and Operations | Docker, CI, env contracts, dependencies, command evidence, local recovery | `R0`, `R8`, `R10` |
 | Codebase reading | Finding behavior before editing it | `D2`, `D3`, `R0`, `R1` |
 | Architecture design | Boundaries, dependencies, ADRs | `D3`, `R3`, `R5`, `R6`, `R7` |
 | Testing and verification | Cheap checks, regression datasets, gates | `R0`, `R1`, `R2`, `R7` |
@@ -131,6 +132,52 @@ Competent signal: can group changes into atomic commits and explain each one.
 
 Senior signal: preserves unrelated work, keeps history reviewable, and refuses
 to hide failing evidence.
+
+### Infrastructure and Operations
+
+Why it matters in Travel Agent: AI agents can write code quickly, but the
+project only becomes dependable when setup, CI, containers, dependencies,
+environment contracts, and recovery steps are honest and repeatable.
+
+Practice exercises:
+
+1. Inspect the CI workflow and mark every command that can hide a failure.
+2. Draw the Stage A local stack: browser, frontend, backend, health route, data
+   mount, and environment file.
+3. Compare `requirements.txt`, `backend/requirements.txt`, backend Docker
+   installs, and CI installs, then state the approved dependency owner.
+4. Run the baseline verification commands and classify each result as pass,
+   expected current failure, environment failure, regression, or opt-in
+   prerequisite.
+5. Update one runbook entry after a real failed local command.
+6. Write a short evidence journal entry for the R0 change set.
+
+Evidence to keep: approved R0 spec and plan, command output summaries, CI
+workflow diff, safe `.env.example`, dependency ownership note, Stage A and
+Stage B command taxonomy, and one evidence journal entry.
+
+Beginner signal: can run setup commands and identify whether a failure is from
+the repo, local environment, or missing prerequisite.
+
+Competent signal: can read CI, Docker, dependency, and env contracts and
+explain what each check proves.
+
+Senior signal: designs checks that fail honestly, keeps deployment and release
+claims separate from local development, and records enough evidence for the
+next engineer to reproduce the result.
+
+### Evidence Journal Entry
+
+| Field | Entry |
+| --- | --- |
+| Date | 2026-09-01 |
+| Milestone | R0 Foundation Cleanup |
+| Environment | Local shell, Docker, CI, or sandbox |
+| Command or review | Exact command or review method |
+| Result | Passed, failed, skipped, or blocked |
+| Failure class | Current-state defect, regression, environment limitation, or expected opt-in prerequisite |
+| Evidence summary | Short factual result |
+| Next action | Repair, document, defer, or return to design |
 
 ### Codebase reading
 

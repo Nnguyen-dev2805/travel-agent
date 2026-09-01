@@ -17,12 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-# Cài đặt các thư viện còn lại
+# Cài đặt các thư viện còn lại từ dependency source of truth
 COPY requirements.txt .
-COPY backend/requirements.txt ./backend_requirements.txt
-RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi && \
-    if [ -f backend_requirements.txt ]; then pip install --no-cache-dir -r backend_requirements.txt; fi && \
-    pip install --no-cache-dir fastapi uvicorn pydantic openai python-dotenv
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy mã nguồn backend
 COPY backend/ ./backend/

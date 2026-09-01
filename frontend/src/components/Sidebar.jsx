@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function Sidebar({ onNewChat, isOpen, onToggle }) {
+export default function Sidebar({ onNewChat, isOpen }) {
   return (
     <aside
       className={`w-[260px] h-full fixed left-0 top-0 bg-[#171717] border-r border-[#2f2f2f] flex flex-col p-4 transition-transform duration-300 z-50 ${
