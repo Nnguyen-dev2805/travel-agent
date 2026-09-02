@@ -27,10 +27,12 @@ data/processed/
 *.db
 *.sqlite3
 .codebase-memory/
+docs/
 
 # OS, Editor & AI Agent Files
 .agents/
 .claude/
+.codegraph/
 .DS_Store
 Thumbs.db
 .vscode/

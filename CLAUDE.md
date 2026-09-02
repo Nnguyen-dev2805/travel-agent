@@ -83,35 +83,20 @@ matches a skill trigger, invoke that skill first and follow its workflow. Use th
 smallest set of skills that fully governs the task; repository and user
 instructions retain precedence.
 
+For development requests that may create or modify repository files, invoke
+`development-workflow` first to determine the current workflow state and route
+to the required process skill or approval gate.
+
 ## Codebase Discovery
 
-Use Codebase Memory MCP first for structural code questions.
+Use the repository's currently available code-intelligence tooling for
+structural discovery, then confirm material claims against source. Use `rg` and
+direct reads for literals, errors, configuration, non-code files, and any case
+where indexed or generated code intelligence is unavailable or insufficient.
 
-Priority:
-
-1. `search_graph` to find candidate symbols and paths.
-2. `trace_path` for inbound or outbound relationships.
-3. `get_code_snippet` for exact material source.
-4. `check_index_coverage` once for every relied-on path.
-5. `query_graph` for bounded complex relationships.
-6. `get_architecture` for a high-level graph summary.
-
-Choose and disclose the evidence tier:
-
-- **Scout:** quick positive lookup; conclusions remain provisional.
-- **Verify:** default task-directed evidence with relevant traces and snippets.
-- **Auditor:** bounded exhaustive review with complete relevant pagination and
-  disclosed limitations.
-
-Coverage checking is mandatory at every tier. A clean result means no recorded
-index gap, not semantic completeness. For partial, skipped, excluded, stale,
-pending, or unknown coverage, read every relevant missed range directly before
-relying on the graph.
-
-Use `rg` or direct source reads for literals, errors, configuration, non-code
-files, insufficient graph results, and missed ranges. Negative or exhaustive
-claims require a bounded scope and disclosed coverage limitations. After a
-session reset, confirm the graph project and generation before structural claims.
+Negative or exhaustive claims require a bounded scope and direct evidence for
+the relevant paths. Do not depend on a removed or unavailable MCP server as a
+prerequisite for code discovery.
 
 ## Engineering Practice
 
@@ -137,10 +122,12 @@ they make the approved task unsafe or impossible.
 
 Destructive Git operations and history rewriting require the repository owner to
 request that exact operation and any execution-time platform approval. The
-repository owner creates or selects branches and decides when to stage, commit,
-push, open a PR, merge, and release. Execute one of those actions only when the
-owner explicitly requests that exact action. Drafting names, messages, PR text,
-and review notes is allowed.
+repository owner creates or selects branches and decides when to stage, commit
+in the primary working tree, push, open a PR, merge, and release. An agent or
+subagent working in an isolated linked worktree may create local commits needed
+to hand completed task work back to the coordinating agent. Worktree commits do
+not authorize push, PR creation, merge, release, or destructive Git. Drafting
+names, messages, PR text, and review notes is allowed.
 
 ## Verification
 

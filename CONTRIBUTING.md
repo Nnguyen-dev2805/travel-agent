@@ -104,9 +104,11 @@ fix: preserve citation source identity
 docs: define retrieval evaluation gates
 ```
 
-The repository owner decides when to stage, commit, push, open a PR, squash,
-merge, and release. Coding agents may draft those artifacts but do not execute
-the actions without an exact request.
+The repository owner decides when to stage, commit in the primary working tree,
+push, open a PR, squash, merge, and release. Coding agents may create local
+commits inside isolated linked worktrees when those commits are used to return
+completed task work to the coordinating agent. This worktree exception does not
+authorize push, PR creation, merge, release, or destructive Git.
 
 ## Tests and Evidence
 
