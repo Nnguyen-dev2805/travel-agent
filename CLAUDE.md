@@ -56,6 +56,21 @@ fails or cannot run, or unrelated work is at risk. An ad hoc request does not
 silently repeal this governance; changing governance is itself a classified
 repository change.
 
+## Local Governance Artifacts
+
+The `docs/` directory may intentionally remain local-only and Git-ignored.
+Approved specifications, plans, ADRs, roadmap state, reports, and task checklists
+under `docs/` remain workflow authority when the repository owner explicitly
+approved them; Git tracking status does not grant or remove that authority.
+
+Treat changes to ignored `docs/` files as local governance evidence, not as part
+of the Git delivery change set. Task checkbox state is local execution evidence
+only; it does not prove that code review or verification passed.
+
+Repository review evidence consists of the implementation change set visible to
+Git, fresh verification output, and the agent completion report. Review ignored
+governance artifacts separately when the governing plan requires it.
+
 ## Context Routing
 
 Read a target only when its trigger applies:

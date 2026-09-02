@@ -26,8 +26,8 @@ data/chromadb/
 data/processed/
 *.db
 *.sqlite3
-.codebase-memory/
 docs/
+data
 
 # OS, Editor & AI Agent Files
 .agents/
@@ -40,3 +40,4 @@ Thumbs.db
 
 # Logs
 *.log
+
