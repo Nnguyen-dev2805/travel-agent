@@ -48,8 +48,6 @@ class RecordingVectorStoreProxy:
 
 ALLOWED_CURRENT_RUNTIME_PROMPTS = frozenset({
     "legacy-rag-service-inline-prompt-v1",
-    "rag-current-prompt-v0.1",
-    "current-runtime-prompt-v0.1",
 })
 
 
@@ -162,6 +160,7 @@ def preflight(
         raise ValueError("preflight failed: dataset contains no examples.")
 
     # 2. Config validation
+    mode_normalized = mode.lower().strip()
     if isinstance(config, (str, bytes)):
         from pathlib import Path
         import json
@@ -219,7 +218,6 @@ def preflight(
         )
 
     # 5. Full mode checks (credentials and model)
-    mode_normalized = mode.lower().strip()
     if mode_normalized == "full":
         if not settings.GITHUB_TOKEN:
             raise ValueError(

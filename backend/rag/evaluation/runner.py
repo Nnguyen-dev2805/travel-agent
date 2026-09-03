@@ -184,7 +184,7 @@ class EvaluationRunner:
         started_at = datetime.now(timezone.utc).isoformat()
 
         rev, dirty, short_sha = _get_git_info()
-        ts_compact = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        ts_compact = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         run_id = f"rag-{self.config.config_id}-{ts_compact}-{short_sha}"
 
 
@@ -246,8 +246,8 @@ class EvaluationRunner:
                     ]
 
                     # Spec check 10: Citation cannot map to retrieved evidence -> citation_mismatch
-                    # Both context_evidence (used by generation) and ranked_evidence are valid targets
-                    available_evidence = list(context_evidence) + list(ranked_evidence)
+                    # Citations must map to context_evidence (used by generation)
+                    available_evidence = list(context_evidence)
                     if generated.citations:
                         for c in generated.citations:
                             matched = False

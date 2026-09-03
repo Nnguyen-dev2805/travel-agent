@@ -85,7 +85,7 @@ def sample_run_config() -> RunConfig:
         score_semantics="higher_is_better_similarity",
         generation_context_top_k=4,
         generation_model="gpt-4o-mini",
-        prompt_id="rag-current-prompt-v0.1",
+        prompt_id="legacy-rag-service-inline-prompt-v1",
         temperature=0.7,
         max_tokens=800,
         judge=JudgeConfig(
@@ -410,6 +410,8 @@ def test_runner_output_dir_creates_run_id_subdirectory(
     assert (run1_dir / "examples.jsonl").exists()
 
     # Second run creates its own subdirectory and does not overwrite run1
+    from dataclasses import replace
+    runner.config = replace(runner.config, config_id="rag-baseline-v0.2")
     artifact2 = runner.run(mode=RunMode.RETRIEVAL, output_dir=runs_dir)
     run2_dir = runs_dir / artifact2.run_record["run_id"]
     assert artifact1.run_record["run_id"] != artifact2.run_record["run_id"]

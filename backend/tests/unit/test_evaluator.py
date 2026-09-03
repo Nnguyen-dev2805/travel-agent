@@ -90,3 +90,70 @@ def test_evaluator_main_delegates_to_cli():
     with pytest.raises(SystemExit) as exc:
         evaluator.main(["--help"])
     assert exc.value.code == 0
+
+
+def test_generate_report_supports_unknown_strategy(tmp_path, monkeypatch):
+    """generate_report must produce a Markdown file for any arbitrary strategy name."""
+    import backend.rag.evaluation.evaluator as ev_mod
+
+    monkeypatch.setattr(ev_mod, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(ev_mod, "REPORT_MARKDOWN_PATH", tmp_path / "report.md")
+
+    evaluator = RAGEvaluator()
+    monkeypatch.setattr(evaluator, "eval_path", tmp_path / "fake_dataset.jsonl")
+
+    summary = [
+        {
+            "chunk_strategy": "hybrid_reranker",
+            **{f"hit@{k}": 0.9 for k in ev_mod.K_VALUES},
+            **{f"mrr@{k}": 0.85 for k in ev_mod.K_VALUES},
+            **{f"ndcg@{k}": 0.88 for k in ev_mod.K_VALUES},
+            **{f"precision@{k}": 0.45 for k in ev_mod.K_VALUES},
+            "query_count": 10,
+        }
+    ]
+
+    # Must not raise and must produce a file
+    evaluator.generate_report(summary, total_queries=10)
+
+    report_text = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "hybrid_reranker" in report_text
+    # Must NOT contain any hard-coded legacy strategy names
+    assert "baseline_fixed_1000ch" not in report_text
+    assert "semantic_parent_child" not in report_text
+    assert "Hit Rate (hybrid_reranker)" in report_text
+    assert "MRR (hybrid_reranker)" in report_text
+
+
+def test_generate_report_multi_strategy_columns(tmp_path, monkeypatch):
+    """generate_report must produce one column per strategy, for any number of strategies."""
+    import backend.rag.evaluation.evaluator as ev_mod
+
+    monkeypatch.setattr(ev_mod, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(ev_mod, "REPORT_MARKDOWN_PATH", tmp_path / "report.md")
+
+    evaluator = RAGEvaluator()
+    monkeypatch.setattr(evaluator, "eval_path", tmp_path / "fake_dataset.jsonl")
+
+    strategy_names = ["dense_sparse", "parent_child_v2", "baseline_bm25"]
+    summary = [
+        {
+            "chunk_strategy": s,
+            **{f"hit@{k}": 0.7 + i * 0.05 for k in ev_mod.K_VALUES},
+            **{f"mrr@{k}": 0.6 + i * 0.05 for k in ev_mod.K_VALUES},
+            **{f"ndcg@{k}": 0.65 + i * 0.05 for k in ev_mod.K_VALUES},
+            **{f"precision@{k}": 0.3 + i * 0.05 for k in ev_mod.K_VALUES},
+            "query_count": 10,
+        }
+        for i, s in enumerate(strategy_names)
+    ]
+
+    evaluator.generate_report(summary, total_queries=10)
+
+    report_text = (tmp_path / "report.md").read_text(encoding="utf-8")
+    for name in strategy_names:
+        assert f"Hit Rate ({name})" in report_text
+        assert f"MRR ({name})" in report_text
+        assert f"NDCG ({name})" in report_text
+        assert f"Precision ({name})" in report_text
+

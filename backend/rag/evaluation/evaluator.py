@@ -311,14 +311,24 @@ class RAGEvaluator:
         logger.info(f"Exported CSV report to {path}")
 
     def generate_report(self, summary_by_run: List[Dict[str, Any]], total_queries: int) -> None:
-        """Generate Markdown benchmark metrics report."""
+        """Generate Markdown benchmark metrics report.
+
+        Dynamically derives table columns from the strategies present in
+        *summary_by_run*.  No strategy name is hard-coded.
+        """
         REPORT_MARKDOWN_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-        b_run = next((r for r in summary_by_run if r["chunk_strategy"] == "baseline_fixed_1000ch"), {})
-        pc_run = next((r for r in summary_by_run if r["chunk_strategy"] == "semantic_parent_child"), {})
+        # Build an ordered lookup: strategy_name -> row dict
+        strategy_data: Dict[str, Dict[str, Any]] = {
+            r["chunk_strategy"]: r for r in summary_by_run
+        }
+        strategies = list(strategy_data)  # preserves insertion order
+        if not strategies:
+            logger.warning("No strategies found to generate report.")
+            return
 
         lines = [
-            "# Báo Cáo Đánh Giá Chi Tiết Retrieval RAG: Baseline vs Parent-Child Strategy",
+            "# Báo Cáo Đánh Giá Chi Tiết Retrieval RAG",
             "",
             "## 1. Kết Quả Đo Đạc Tổng Thể (7 Chỉ Số trên các Mức K)",
             "",
@@ -326,45 +336,61 @@ class RAGEvaluator:
             "",
             "### 📌 1.1. Bảng So Sánh Hit Rate & MRR",
             "",
-            "| Mức K | Hit Rate (Baseline) | Hit Rate (Parent-Child) | Hit Rate Gain | MRR (Baseline) | MRR (Parent-Child) | MRR Gain |",
-            "|---|:---:|:---:|:---:|:---:|:---:|:---:|",
         ]
 
+        header_row = (
+            "| Mức K | "
+            + " | ".join(f"Hit Rate ({s})" for s in strategies)
+            + " | "
+            + " | ".join(f"MRR ({s})" for s in strategies)
+            + " |"
+        )
+        sep_row = (
+            "|---|"
+            + "|".join(":---:" for _ in strategies)
+            + "|"
+            + "|".join(":---:" for _ in strategies)
+            + "|"
+        )
+        lines.extend([header_row, sep_row])
+
         for k in K_VALUES:
-            b_hit = b_run.get(f"hit@{k}", 0.0) * 100
-            b_mrr = b_run.get(f"mrr@{k}", 0.0)
-
-            pc_hit = pc_run.get(f"hit@{k}", 0.0) * 100
-            pc_mrr = pc_run.get(f"mrr@{k}", 0.0)
-
-            delta_hit = round(pc_hit - b_hit, 2)
-            delta_mrr = round(pc_mrr - b_mrr, 4)
-
-            lines.append(
-                f"| **K={k}** | {b_hit:.2f}% | **{pc_hit:.2f}%** | **+{delta_hit}%** | {b_mrr:.4f} | **{pc_mrr:.4f}** | **+{delta_mrr:.4f}** |"
-            )
+            row_vals = [f"**K={k}**"]
+            for s in strategies:
+                row_vals.append(f"{strategy_data[s].get(f'hit@{k}', 0.0) * 100:.2f}%")
+            for s in strategies:
+                row_vals.append(f"{strategy_data[s].get(f'mrr@{k}', 0.0):.4f}")
+            lines.append("| " + " | ".join(row_vals) + " |")
 
         lines.extend([
             "",
             "### 📌 1.2. Bảng So Sánh NDCG & Precision",
             "",
-            "| Mức K | NDCG (Baseline) | NDCG (Parent-Child) | NDCG Gain | Precision (Baseline) | Precision (Parent-Child) | Precision Gain |",
-            "|---|:---:|:---:|:---:|:---:|:---:|:---:|",
         ])
 
+        header_row = (
+            "| Mức K | "
+            + " | ".join(f"NDCG ({s})" for s in strategies)
+            + " | "
+            + " | ".join(f"Precision ({s})" for s in strategies)
+            + " |"
+        )
+        sep_row = (
+            "|---|"
+            + "|".join(":---:" for _ in strategies)
+            + "|"
+            + "|".join(":---:" for _ in strategies)
+            + "|"
+        )
+        lines.extend([header_row, sep_row])
+
         for k in K_VALUES:
-            b_ndcg = b_run.get(f"ndcg@{k}", 0.0)
-            b_prec = b_run.get(f"precision@{k}", 0.0) * 100
-
-            pc_ndcg = pc_run.get(f"ndcg@{k}", 0.0)
-            pc_prec = pc_run.get(f"precision@{k}", 0.0) * 100
-
-            delta_ndcg = round(pc_ndcg - b_ndcg, 4)
-            delta_prec = round(pc_prec - b_prec, 2)
-
-            lines.append(
-                f"| **K={k}** | {b_ndcg:.4f} | **{pc_ndcg:.4f}** | **+{delta_ndcg:.4f}** | {b_prec:.2f}% | **{pc_prec:.2f}%** | **+{delta_prec}%** |"
-            )
+            row_vals = [f"**K={k}**"]
+            for s in strategies:
+                row_vals.append(f"{strategy_data[s].get(f'ndcg@{k}', 0.0):.4f}")
+            for s in strategies:
+                row_vals.append(f"{strategy_data[s].get(f'precision@{k}', 0.0) * 100:.2f}%")
+            lines.append("| " + " | ".join(row_vals) + " |")
 
         lines.extend([
             "",
