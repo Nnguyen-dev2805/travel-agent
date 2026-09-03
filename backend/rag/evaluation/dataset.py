@@ -447,3 +447,6 @@ def load_run_config(path: Path) -> RunConfig:
     path = Path(path)
     raw = _read_json(path, "run config")
     return _parse_run_config(raw)
+
+
+validate_run_config = _parse_run_config
