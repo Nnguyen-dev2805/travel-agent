@@ -362,7 +362,133 @@ def test_runner_persistence_and_reload(sample_dataset, sample_run_config, tmp_pa
     out_dir = tmp_path / "persisted_run"
     artifact = runner.run(mode=RunMode.RETRIEVAL, output_dir=out_dir)
 
-    reloaded = load_run_artifact(out_dir)
+    target_run_dir = out_dir / artifact.run_record["run_id"]
+    reloaded = load_run_artifact(target_run_dir)
     assert reloaded.run_record["run_id"] == artifact.run_record["run_id"]
     assert reloaded.run_record["state"] == ResultState.PASS.value
     assert len(reloaded.example_records) == len(sample_dataset.examples)
+
+
+def test_runner_retrieval_exception_fails_with_infrastructure_failure_and_invalid(
+    sample_dataset, sample_run_config
+):
+    """Retrieval/index exceptions must record infrastructure_failure and result in INVALID state."""
+    class FailingRuntime:
+        def retrieve(self, question: str, top_k: int):
+            raise RuntimeError("index disappeared")
+
+        def generate(self, question: str, top_k: int):
+            raise RuntimeError("index disappeared")
+
+    runner = EvaluationRunner(
+        dataset=sample_dataset, config=sample_run_config, runtime=FailingRuntime()
+    )
+    artifact = runner.run(mode=RunMode.RETRIEVAL)
+
+    assert artifact.run_record["state"] == ResultState.INVALID.value
+    assert artifact.run_record["invalid_count"] > 0
+    assert "infrastructure_failure" in artifact.run_record["failed_gates"]
+    assert artifact.run_record["failure_counts"].get("infrastructure_failure", 0) > 0
+    assert any("retrieval_error" in err for err in artifact.run_record["errors"])
+    for ex in artifact.example_records:
+        assert "infrastructure_failure" in ex["failure_labels"]
+
+
+def test_runner_output_dir_creates_run_id_subdirectory(
+    sample_dataset, sample_run_config, tmp_path
+):
+    """Passing a parent runs directory creates a unique <run-id>/ subdirectory without overwrite."""
+    hits = {ex.question: ex.expected_document_ids[0] for ex in sample_dataset.examples}
+    runtime = FakeRuntime(hit_docs=hits)
+    runner = EvaluationRunner(dataset=sample_dataset, config=sample_run_config, runtime=runtime)
+
+    runs_dir = tmp_path / "runs"
+    artifact1 = runner.run(mode=RunMode.RETRIEVAL, output_dir=runs_dir)
+    run1_dir = runs_dir / artifact1.run_record["run_id"]
+    assert run1_dir.is_dir()
+    assert (run1_dir / "run.json").exists()
+    assert (run1_dir / "examples.jsonl").exists()
+
+    # Second run creates its own subdirectory and does not overwrite run1
+    artifact2 = runner.run(mode=RunMode.RETRIEVAL, output_dir=runs_dir)
+    run2_dir = runs_dir / artifact2.run_record["run_id"]
+    assert run2_dir.is_dir()
+    assert (run2_dir / "run.json").exists()
+    assert (run1_dir / "run.json").exists()
+
+
+def test_runner_records_structured_evidence_and_failure_taxonomy(
+    sample_dataset, sample_run_config
+):
+    """Runner must record structured evidence and emit citation_mismatch and unsupported_claim."""
+    from backend.rag.contracts import CitationEvidence, GeneratedAnswer, RetrievalResult
+    from backend.rag.evaluation.judge import JudgeResult
+
+    retrieved_item = RetrievalResult(
+        chunk_id="chunk-001",
+        document_id="doc-001",
+        title="Guide 1",
+        url="https://vietnam.travel/doc-001",
+        score=0.95,
+        text="Detail text for guide 1",
+    )
+
+    class CustomRuntime:
+        def retrieve(self, question: str, top_k: int):
+            return [retrieved_item]
+
+        def generate(self, question: str, top_k: int):
+            # Return citation that does NOT match retrieved evidence -> citation_mismatch
+            citations = (
+                CitationEvidence(
+                    title="Hallucinated Title",
+                    url="https://unrelated.com/fake",
+                    evidence_ids=("fake-chunk",),
+                ),
+            )
+            ans = GeneratedAnswer(reply="Answer text", model="gpt-4o-mini", citations=citations)
+            return ans, (retrieved_item,)
+
+    class LowGroundednessJudge:
+        def score(self, question, answer, evidence, reference_answer=None):
+            return JudgeResult(
+                judge_valid=True,
+                scores={
+                    "groundedness": 2,  # < 3 triggers unsupported_claim
+                    "answer_relevance": 4,
+                    "correctness": 3,
+                    "completeness": 3,
+                    "practical_usefulness": 3,
+                    "clarity": 4,
+                },
+                total_score=19,
+                mean_score=3.17,
+                reasoning="Evidence does not support answer claims.",
+                failure_label="unsupported_claim",
+                error=None,
+                raw_response="{}",
+            )
+
+    runner = EvaluationRunner(
+        dataset=sample_dataset,
+        config=sample_run_config,
+        runtime=CustomRuntime(),
+        judge_adapter=LowGroundednessJudge(),
+    )
+    artifact = runner.run(mode=RunMode.FULL)
+
+    rec = artifact.example_records[0]
+    # Check failure labels
+    assert "citation_mismatch" in rec["failure_labels"]
+    assert "unsupported_claim" in rec["failure_labels"]
+
+    # Check structured evidence persistence
+    assert "ranked_evidence" in rec
+    assert len(rec["ranked_evidence"]) == 1
+    ev = rec["ranked_evidence"][0]
+    assert ev["chunk_id"] == "chunk-001"
+    assert ev["document_id"] == "doc-001"
+    assert ev["title"] == "Guide 1"
+    assert ev["url"] == "https://vietnam.travel/doc-001"
+    assert ev["score"] == 0.95
+    assert "text_excerpt" in ev

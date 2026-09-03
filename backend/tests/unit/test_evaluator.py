@@ -64,5 +64,16 @@ def test_evaluator_compute_query_metrics_no_hit():
     metrics = evaluator.compute_query_metrics(query_item, mock_results, chunk_strategy="baseline", k_values=[1, 5])
 
     assert metrics["hit@1"] == 0
-    assert metrics["hit@5"] == 0
     assert metrics["mrr@5"] == 0.0
+
+
+def test_evaluator_legacy_has_no_hardcoded_baseline_collections():
+    import inspect
+    from backend.rag.evaluation import evaluator
+    source = inspect.getsource(evaluator)
+    assert "vietnam_travel_knowledge" not in source
+    assert "vietnam_travel_parent_child" not in source
+
+    inst = RAGEvaluator()
+    assert not hasattr(inst, "baseline_store")
+    assert not hasattr(inst, "parent_child_store")

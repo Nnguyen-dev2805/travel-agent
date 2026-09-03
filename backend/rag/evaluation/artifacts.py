@@ -103,6 +103,8 @@ class RunArtifact:
 
     run_record: dict[str, Any]
     example_records: tuple[dict[str, Any], ...]
+    run_dir: Optional[Path] = None
+
 
 
 def _configured_secret_values() -> list[str]:
@@ -763,10 +765,21 @@ def load_run_artifact(run_dir: Path) -> RunArtifact:
     """
     run_dir = Path(run_dir)
     run_path = run_dir / RUN_ARTIFACT_NAME
+    if not run_path.is_file() and run_dir.is_dir():
+        children_with_run = [
+            sub
+            for sub in run_dir.iterdir()
+            if sub.is_dir() and (sub / RUN_ARTIFACT_NAME).is_file()
+        ]
+        if len(children_with_run) == 1:
+            run_dir = children_with_run[0]
+            run_path = run_dir / RUN_ARTIFACT_NAME
+
     examples_path = run_dir / EXAMPLES_ARTIFACT_NAME
 
     if not run_path.is_file():
         raise ValueError(f"Missing run artifact file: {run_path}")
+
     if not examples_path.is_file():
         raise ValueError(f"Missing run examples artifact file: {examples_path}")
 
@@ -804,4 +817,8 @@ def load_run_artifact(run_dir: Path) -> RunArtifact:
     except ValueError as error:
         raise ValueError(f"Persisted run artifact fails schema review: {error}") from error
 
-    return RunArtifact(run_record=run_record, example_records=tuple(example_records))
+    return RunArtifact(
+        run_record=run_record,
+        example_records=tuple(example_records),
+        run_dir=run_dir,
+    )

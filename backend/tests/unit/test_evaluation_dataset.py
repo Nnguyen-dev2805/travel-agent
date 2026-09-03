@@ -551,3 +551,29 @@ def test_load_run_config_rejects_malformed_json(tmp_path: Path) -> None:
 def test_load_run_config_rejects_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="run config"):
         load_run_config(tmp_path / "does-not-exist.json")
+
+
+def test_load_run_config_resolves_env_placeholders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o-mini-resolved")
+    config = dict(VALID_RUN_CONFIG)
+    config["generation_model"] = "${LLM_MODEL}"
+    config["judge"] = {
+        "model": "${LLM_MODEL}",
+        "prompt_id": "rag-answer-judge-v0.1",
+        "rubric_id": "d5-rag-answer-v0.1",
+        "schema_version": 1,
+        "temperature": 0.0,
+    }
+    path = write_run_config(tmp_path, config)
+    loaded = load_run_config(path)
+    assert loaded.generation_model == "gpt-4o-mini-resolved"
+    assert loaded.judge is not None
+    assert loaded.judge.model == "gpt-4o-mini-resolved"
+
+
+def test_load_run_config_rejects_unresolved_placeholder(tmp_path: Path) -> None:
+    config = dict(VALID_RUN_CONFIG)
+    config["generation_model"] = "${UNRESOLVED_PLACEHOLDER_XYZ_123}"
+    path = write_run_config(tmp_path, config)
+    with pytest.raises(ValueError, match="Unresolved placeholder"):
+        load_run_config(path)

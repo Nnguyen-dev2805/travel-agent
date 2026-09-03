@@ -9,9 +9,12 @@ external service is constructed or accessed by these loaders.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import re
 from typing import Any
 
+from backend.app.config import settings
 from backend.rag.evaluation.models import (
     DatasetManifest,
     DatasetRole,
@@ -23,6 +26,7 @@ from backend.rag.evaluation.models import (
 )
 
 DATASET_MANIFEST_NAME = "manifest.json"
+
 DATASET_EXAMPLES_NAME = "examples.jsonl"
 
 ALLOWED_RUNTIME_ADAPTERS: frozenset[str] = frozenset(
@@ -348,10 +352,42 @@ def _parse_judge_config(raw: Any) -> JudgeConfig:
     )
 
 
+_PLACEHOLDER_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
+
+
+def _resolve_placeholders(val: Any) -> Any:
+    """Recursively resolve ${VAR} placeholders from settings and environment."""
+    if isinstance(val, str):
+        matches = _PLACEHOLDER_PATTERN.findall(val)
+        if not matches:
+            return val
+        result = val
+        for var_name in matches:
+            resolved_val = os.getenv(var_name)
+            if not resolved_val and hasattr(settings, var_name):
+                resolved_val = getattr(settings, var_name)
+            if not resolved_val:
+                raise ValueError(
+                    f"Unresolved placeholder '${{{var_name}}}' in run config: "
+                    f"environment variable or setting '{var_name}' is not set."
+                )
+            result = result.replace(f"${{{var_name}}}", str(resolved_val))
+
+        return result
+    elif isinstance(val, dict):
+        return {k: _resolve_placeholders(v) for k, v in val.items()}
+    elif isinstance(val, list):
+        return [_resolve_placeholders(v) for v in val]
+    return val
+
+
 def _parse_run_config(raw: Any) -> RunConfig:
     """Parse and validate the run-config object before anything external runs."""
     if not isinstance(raw, dict):
         raise ValueError("Run config must be a JSON object.")
+
+    raw = _resolve_placeholders(raw)
+
 
     runtime_adapter = _require_str(
         raw.get("runtime_adapter"), "runtime_adapter", "Run config"

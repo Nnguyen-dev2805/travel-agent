@@ -77,28 +77,10 @@ def source_url_hit(results: List[Dict[str, Any]], expected_url: str, k: int) -> 
 class RAGEvaluator:
     """Evaluates and compares RAG Retrieval Performance between Baseline and Parent-Child strategies."""
 
-    def __init__(
-        self,
-        eval_path: Optional[Path] = None,
-        baseline_store: Optional[ChromaVectorStore] = None,
-        parent_child_store: Optional[ChromaVectorStore] = None,
-    ) -> None:
+    def __init__(self, eval_path: Optional[Path] = None) -> None:
         self.eval_path = eval_path or (DEFAULT_JSON_TESTSET if DEFAULT_JSON_TESTSET.exists() else DEFAULT_JSONL_TESTSET)
         self.embedder = VectorEmbedder(model_name="BAAI/bge-m3")
-        self._baseline_store = baseline_store
-        self._parent_child_store = parent_child_store
 
-    @property
-    def baseline_store(self) -> ChromaVectorStore:
-        if self._baseline_store is None:
-            self._baseline_store = ChromaVectorStore(collection_name="vietnam_travel_knowledge")
-        return self._baseline_store
-
-    @property
-    def parent_child_store(self) -> ChromaVectorStore:
-        if self._parent_child_store is None:
-            self._parent_child_store = ChromaVectorStore(collection_name="vietnam_travel_parent_child")
-        return self._parent_child_store
 
 
     def load_eval_queries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:

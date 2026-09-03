@@ -126,12 +126,21 @@ class EvaluationRunner:
         """
         failed_gates: list[str] = []
 
-        # Invalid evidence on any eligible example bars a favorable state.
-        if any(
-            record.get("metrics", {}).get("invalid_evidence_count", 0) > 0
-            for record in eligible_records
-        ):
-            return ResultState.INVALID, tuple(failed_gates)
+        # 1. Invalid retrieval/infrastructure evidence invalidates the run
+        for record in eligible_records:
+            rec_metrics = record.get("metrics", {})
+            rec_labels = record.get("failure_labels", [])
+            rec_errors = record.get("errors", [])
+            if (
+                rec_metrics.get("invalid_evidence_count", 0) > 0
+                or "infrastructure_failure" in rec_labels
+                or any("retrieval_error" in err for err in rec_errors)
+            ):
+                if "infrastructure_failure" in rec_labels:
+                    if "infrastructure_failure" not in failed_gates:
+                        failed_gates.append("infrastructure_failure")
+                return ResultState.INVALID, tuple(failed_gates)
+
 
         # A judged run requires judge validity on every eligible example.
         if mode is RunMode.FULL:
@@ -194,12 +203,19 @@ class EvaluationRunner:
                 ranked_evidence = []
                 ranked_ids = []
                 errors.append(f"retrieval_error: {err}")
+                failure_labels.append("infrastructure_failure")
 
             # 2. Compute retrieval metrics
             metrics = compute_retrieval_metrics(
                 example, ranked_evidence, self.config.retrieval_k_values
             )
-            if metrics.get(f"hit@{self.config.primary_k}") == 0:
+            if "infrastructure_failure" in failure_labels:
+                metrics["invalid_evidence_count"] = metrics.get("invalid_evidence_count", 0) + 1
+
+            if not ranked_evidence and example.expected_document_ids:
+                if "infrastructure_failure" not in failure_labels:
+                    failure_labels.append("retrieval_miss")
+            elif metrics.get(f"hit@{self.config.primary_k}") == 0:
                 failure_labels.append("retrieval_miss")
             if metrics.get("invalid_evidence_count", 0) > 0:
                 failure_labels.append("invalid_evidence")
@@ -226,6 +242,24 @@ class EvaluationRunner:
                         }
                         for c in generated.citations
                     ]
+
+                    # Spec check 10: Citation cannot map to retrieved evidence -> citation_mismatch
+                    if generated.citations:
+                        for c in generated.citations:
+                            matched = False
+                            for ev_item in ranked_evidence:
+                                if c.url and ev_item.url == c.url:
+                                    matched = True
+                                    break
+                                if c.title and ev_item.title == c.title:
+                                    matched = True
+                                    break
+                                if any(eid == ev_item.chunk_id for eid in c.evidence_ids):
+                                    matched = True
+                                    break
+                            if not matched:
+                                failure_labels.append("citation_mismatch")
+                                break
                 except Exception as err:
                     logger.error(f"Generation error for {example.example_id}: {err}")
                     errors.append(f"generation_error: {err}")
@@ -246,6 +280,13 @@ class EvaluationRunner:
                             failure_labels.append("judge_invalid")
                             if judge_res.error:
                                 errors.append(f"judge_error: {judge_res.error}")
+                        else:
+                            # Spec check 11: Material unsupported answer claim -> unsupported_claim
+                            if (
+                                judge_scores.get("groundedness", 5) < 3
+                                or judge_res.failure_label == "unsupported_claim"
+                            ):
+                                failure_labels.append("unsupported_claim")
                     except Exception as err:
                         logger.error(f"Judge error for {example.example_id}: {err}")
                         judge_valid = False
@@ -258,6 +299,19 @@ class EvaluationRunner:
 
             duration = round(time.perf_counter() - t0, 4)
 
+            # Record structured ranked evidence for auditability
+            structured_ranked_evidence = [
+                {
+                    "chunk_id": item.chunk_id,
+                    "document_id": item.document_id,
+                    "title": item.title,
+                    "url": item.url,
+                    "score": item.score,
+                    "text_excerpt": item.text[:200] if item.text else "",
+                }
+                for item in ranked_evidence
+            ]
+
             rec: dict[str, Any] = {
                 "example_id": example.example_id,
                 "eligible": True,
@@ -266,6 +320,7 @@ class EvaluationRunner:
                 "expected_document_ids": list(example.expected_document_ids),
                 "expected_source_urls": list(example.expected_source_urls),
                 "ranked_evidence_ids": ranked_ids,
+                "ranked_evidence": structured_ranked_evidence,
                 "context_evidence_ids": context_ids,
                 "answer": answer_text,
                 "citations": citations_list,
@@ -279,6 +334,7 @@ class EvaluationRunner:
                 rec["judge_scores"] = judge_scores
 
             example_records.append(rec)
+
 
         # 4. Aggregations
         eligible_records = [r for r in example_records if r.get("eligible")]
@@ -355,6 +411,7 @@ class EvaluationRunner:
                 1
                 for r in eligible_records
                 if r.get("metrics", {}).get("invalid_evidence_count", 0) > 0
+                or "infrastructure_failure" in r.get("failure_labels", [])
             ),
             "skipped_count": 0,
             "judge_valid_count": judge_valid_count,
@@ -389,9 +446,17 @@ class EvaluationRunner:
             "failure_counts": failure_counts,
         }
 
-
-        # 9. Optional write
+        # 9. Optional write to run subdirectory
+        target_dir = None
         if output_dir is not None:
-            write_run_artifacts(Path(output_dir), run_record, example_records)
+            base_dir = Path(output_dir)
+            target_dir = base_dir if base_dir.name == run_id else base_dir / run_id
+            target_dir.mkdir(parents=True, exist_ok=True)
+            write_run_artifacts(target_dir, run_record, example_records)
+            logger.info(f"Persisted run artifacts to {target_dir}")
 
-        return RunArtifact(run_record=run_record, example_records=tuple(example_records))
+        return RunArtifact(
+            run_record=run_record,
+            example_records=tuple(example_records),
+            run_dir=target_dir,
+        )

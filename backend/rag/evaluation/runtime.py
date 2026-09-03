@@ -63,6 +63,16 @@ class CurrentRuntimeAdapter:
         )
         self._rag_service = rag_service
 
+        if self.config.runtime_adapter == "current_runtime":
+            if abs(self.config.temperature - 0.7) > 1e-4 or self.config.max_tokens != 800:
+                raise ValueError(
+                    f"Current runtime adapter executes temperature=0.7, max_tokens=800, "
+                    f"but config declared temperature={self.config.temperature}, max_tokens={self.config.max_tokens}."
+                )
+            if self.config.generation_model:
+                settings.LLM_MODEL = self.config.generation_model
+
+
     def retrieve(self, question: str, top_k: int) -> list[RetrievalResult]:
         """Embed question, query Chroma, and map raw results to RetrievalResult."""
         query_vector = self.embedder.embed_query(question)
@@ -141,6 +151,14 @@ def preflight(
         config_obj = config
     else:
         raise ValueError("Invalid config type passed to preflight.")
+
+    if config_obj.runtime_adapter == "current_runtime":
+        if abs(config_obj.temperature - 0.7) > 1e-4 or config_obj.max_tokens != 800:
+            raise ValueError(
+                f"preflight failed: Current runtime adapter executes temperature=0.7, max_tokens=800, "
+                f"but config declared temperature={config_obj.temperature}, max_tokens={config_obj.max_tokens}."
+            )
+
 
     # 3. Embedding model check
     embedder = VectorEmbedder(model_name=config_obj.embedding_model)
