@@ -78,8 +78,10 @@ EXAMPLE_RECORDS: list[dict] = [
         "expected_document_ids": ["doc-001"],
         "expected_source_urls": ["https://vietnam.travel/doc-001"],
         "ranked_evidence_ids": ["doc-001:child:0000:00"],
+        "ranked_evidence": [],
         "context_evidence_ids": None,
         "answer": None,
+        "reference_answer": "Reference 1",
         "citations": None,
         "metrics": {"hit@5": 1, "mrr@5": 1.0, "ndcg@5": 1.0},
         "judge_valid": None,
@@ -95,8 +97,10 @@ EXAMPLE_RECORDS: list[dict] = [
         "expected_document_ids": ["doc-002"],
         "expected_source_urls": ["https://vietnam.travel/doc-002"],
         "ranked_evidence_ids": ["doc-009:child:0000:00"],
+        "ranked_evidence": [],
         "context_evidence_ids": None,
         "answer": None,
+        "reference_answer": "Reference 2",
         "citations": None,
         "metrics": {"hit@5": 0, "mrr@5": 0.0, "ndcg@5": 0.0},
         "judge_valid": None,
@@ -105,6 +109,7 @@ EXAMPLE_RECORDS: list[dict] = [
         "errors": [],
     },
 ]
+
 
 
 def test_write_run_artifacts_creates_deterministic_files(tmp_path: Path) -> None:

@@ -46,6 +46,13 @@ class RecordingVectorStoreProxy:
         return getattr(self._real_store, name)
 
 
+ALLOWED_CURRENT_RUNTIME_PROMPTS = frozenset({
+    "legacy-rag-service-inline-prompt-v1",
+    "rag-current-prompt-v0.1",
+    "current-runtime-prompt-v0.1",
+})
+
+
 class CurrentRuntimeAdapter:
     """Connects the evaluation runner to the current RAG baseline runtime."""
 
@@ -64,13 +71,28 @@ class CurrentRuntimeAdapter:
         self._rag_service = rag_service
 
         if self.config.runtime_adapter == "current_runtime":
+            if self.config.prompt_id not in ALLOWED_CURRENT_RUNTIME_PROMPTS:
+                raise ValueError(
+                    f"Current runtime adapter executes frozen prompt {sorted(ALLOWED_CURRENT_RUNTIME_PROMPTS)}, "
+                    f"but config requested '{self.config.prompt_id}'."
+                )
             if abs(self.config.temperature - 0.7) > 1e-4 or self.config.max_tokens != 800:
                 raise ValueError(
                     f"Current runtime adapter executes temperature=0.7, max_tokens=800, "
                     f"but config declared temperature={self.config.temperature}, max_tokens={self.config.max_tokens}."
                 )
-            if self.config.generation_model:
-                settings.LLM_MODEL = self.config.generation_model
+            if self.config.generation_context_top_k != 4:
+                raise ValueError(
+                    f"Current runtime adapter executes generation_context_top_k=4, "
+                    f"but config declared generation_context_top_k={self.config.generation_context_top_k}."
+                )
+            if self.config.generation_model and self.config.generation_model != settings.LLM_MODEL:
+                raise ValueError(
+                    f"Current runtime adapter executes settings.LLM_MODEL ('{settings.LLM_MODEL}'), "
+                    f"but config declared generation_model '{self.config.generation_model}'. "
+                    f"Align environment or configuration to guarantee executed identity."
+                )
+
 
 
     def retrieve(self, question: str, top_k: int) -> list[RetrievalResult]:
@@ -153,11 +175,29 @@ def preflight(
         raise ValueError("Invalid config type passed to preflight.")
 
     if config_obj.runtime_adapter == "current_runtime":
+        if config_obj.prompt_id not in ALLOWED_CURRENT_RUNTIME_PROMPTS:
+            raise ValueError(
+                f"preflight failed: Current runtime adapter executes frozen prompt "
+                f"{sorted(ALLOWED_CURRENT_RUNTIME_PROMPTS)}, but config declared '{config_obj.prompt_id}'."
+            )
         if abs(config_obj.temperature - 0.7) > 1e-4 or config_obj.max_tokens != 800:
             raise ValueError(
                 f"preflight failed: Current runtime adapter executes temperature=0.7, max_tokens=800, "
                 f"but config declared temperature={config_obj.temperature}, max_tokens={config_obj.max_tokens}."
             )
+        if config_obj.generation_context_top_k != 4:
+            raise ValueError(
+                f"preflight failed: Current runtime adapter executes generation_context_top_k=4, "
+                f"but config declared generation_context_top_k={config_obj.generation_context_top_k}."
+            )
+        if mode_normalized == "full":
+            if config_obj.generation_model and config_obj.generation_model != settings.LLM_MODEL:
+                raise ValueError(
+                    f"preflight failed: Current runtime adapter executes settings.LLM_MODEL ('{settings.LLM_MODEL}'), "
+                    f"but config declared generation_model '{config_obj.generation_model}'. "
+                    f"Align environment or configuration to guarantee executed identity."
+                )
+
 
 
     # 3. Embedding model check

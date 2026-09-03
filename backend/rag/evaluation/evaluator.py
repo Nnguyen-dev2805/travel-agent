@@ -193,9 +193,20 @@ class RAGEvaluator:
         return metrics
 
     def evaluate_benchmark(
-        self, sample_limit: Optional[int] = None, k_values: List[int] = K_VALUES
+        self,
+        sample_limit: Optional[int] = None,
+        k_values: List[int] = K_VALUES,
+        stores: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Run full evaluation benchmark measuring 7 metrics across k_values and export CSV reports."""
+        """Run evaluation benchmark across provided stores and export CSV reports.
+
+        Deprecated: Use `python -m backend.rag.evaluation.cli run` for governed evaluation.
+        """
+        if not stores:
+            raise ValueError(
+                "evaluate_benchmark is deprecated and requires explicit stores={name: store}. "
+                "For governed evaluation, use `python -m backend.rag.evaluation.cli run`."
+            )
         queries = self.load_eval_queries(limit=sample_limit)
         max_k = max(k_values)
         logger.info(f"Loaded {len(queries)} queries for benchmark evaluation (max_k={max_k}).")
@@ -209,15 +220,12 @@ class RAGEvaluator:
 
             q_embed = self.embedder.embed_query(q_text)
 
-            # 1. Baseline Search
-            b_results = self.baseline_store.search_similar(q_embed, top_k=max_k)
-            b_metrics = self.compute_query_metrics(q_item, b_results, chunk_strategy="baseline_fixed_1000ch", k_values=k_values)
-            all_query_metrics.append(b_metrics)
-
-            # 2. Parent-Child Search
-            pc_results = self.parent_child_store.search_similar(q_embed, top_k=max_k)
-            pc_metrics = self.compute_query_metrics(q_item, pc_results, chunk_strategy="semantic_parent_child", k_values=k_values)
-            all_query_metrics.append(pc_metrics)
+            for strategy_name, store in stores.items():
+                results = store.search_similar(q_embed, top_k=max_k)
+                metrics = self.compute_query_metrics(
+                    q_item, results, chunk_strategy=strategy_name, k_values=k_values
+                )
+                all_query_metrics.append(metrics)
 
         # Export CSVs and generate markdown report
         summary_data = self.export_reports(all_query_metrics, k_values=k_values)
@@ -229,15 +237,16 @@ class RAGEvaluator:
         """Aggregate metrics and export CSV breakdown reports."""
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
-        # 1. Summary By Run (Baseline vs Parent-Child)
+        strategies = sorted({r["chunk_strategy"] for r in all_query_metrics})
         summary_by_run: List[Dict[str, Any]] = []
-        for strategy in ["baseline_fixed_1000ch", "semantic_parent_child"]:
+        for strategy in strategies:
             rows = [r for r in all_query_metrics if r["chunk_strategy"] == strategy]
             q_count = len(rows) if rows else 1
             record: Dict[str, Any] = {"chunk_strategy": strategy, "query_count": q_count}
             for k in k_values:
                 for metric in ("hit", "mrr", "ndcg", "precision", "relevant_chunks", "unique_docs", "source_url_hit"):
                     m_key = f"{metric}@{k}"
+
                     vals = [r[m_key] for r in rows if m_key in r]
                     record[m_key] = round(mean(vals), 4) if vals else 0.0
             summary_by_run.append(record)
@@ -373,22 +382,14 @@ class RAGEvaluator:
         logger.info(f"Benchmark markdown report generated at {REPORT_MARKDOWN_PATH}")
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse command-line options."""
-    parser = argparse.ArgumentParser(description="Automated RAG Evaluation Benchmark with Full Metrics & CSV Export.")
-    parser.add_argument("--limit", type=int, default=None, help="Limit number of queries to evaluate.")
-    parser.add_argument("--dataset", type=str, default=None, help="Path to evaluation dataset.")
-    return parser.parse_args()
+def main(argv: Optional[List[str]] = None) -> int:
+    """CLI Main Entry Point delegating to backend.rag.evaluation.cli."""
+    logger.warning(
+        "backend.rag.evaluation.evaluator is deprecated; routing to backend.rag.evaluation.cli."
+    )
+    from backend.rag.evaluation.cli import main as cli_main
 
-
-def main() -> int:
-    """CLI Main Entry Point."""
-    args = parse_args()
-    eval_path = Path(args.dataset) if args.dataset else None
-    evaluator = RAGEvaluator(eval_path=eval_path)
-    res = evaluator.evaluate_benchmark(sample_limit=args.limit)
-    print(json.dumps(res, indent=2, ensure_ascii=False))
-    return 0
+    return cli_main(argv)
 
 
 if __name__ == "__main__":

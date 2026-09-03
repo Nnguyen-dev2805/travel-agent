@@ -85,8 +85,10 @@ REQUIRED_EXAMPLE_RECORD_FIELDS: tuple[str, ...] = (
     "expected_document_ids",
     "expected_source_urls",
     "ranked_evidence_ids",
+    "ranked_evidence",
     "context_evidence_ids",
     "answer",
+    "reference_answer",
     "citations",
     "metrics",
     "judge_valid",
@@ -94,6 +96,7 @@ REQUIRED_EXAMPLE_RECORD_FIELDS: tuple[str, ...] = (
     "timing_seconds",
     "errors",
 )
+
 _SECRET_MARKER_TOKENS = ("ghp_", "github_pat_", "sk-", "Bearer ")
 
 
@@ -584,7 +587,21 @@ def _assert_example_record_schema(record: Mapping[str, Any]) -> None:
             invalid_evidence_count,
             f"example[{record.get('example_id', '?')}].metrics.invalid_evidence_count",
         )
+    ranked_evidence = record.get("ranked_evidence")
+
+    if not isinstance(ranked_evidence, (list, tuple)):
+        raise ValueError(
+            f"Example record '{record.get('example_id', '?')}' field "
+            "'ranked_evidence' must be a list."
+        )
+    reference_answer = record.get("reference_answer")
+    if reference_answer is not None and not isinstance(reference_answer, str):
+        raise ValueError(
+            f"Example record '{record.get('example_id', '?')}' field "
+            "'reference_answer' must be a string or null."
+        )
     _assert_metric_mapping(record["metrics"], per_example=True)
+
 
 
 def _assert_run_evidence_consistency(

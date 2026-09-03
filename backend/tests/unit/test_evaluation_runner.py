@@ -412,9 +412,76 @@ def test_runner_output_dir_creates_run_id_subdirectory(
     # Second run creates its own subdirectory and does not overwrite run1
     artifact2 = runner.run(mode=RunMode.RETRIEVAL, output_dir=runs_dir)
     run2_dir = runs_dir / artifact2.run_record["run_id"]
+    assert artifact1.run_record["run_id"] != artifact2.run_record["run_id"]
+    assert run1_dir != run2_dir
     assert run2_dir.is_dir()
     assert (run2_dir / "run.json").exists()
     assert (run1_dir / "run.json").exists()
+
+
+def test_runner_refuses_to_overwrite_existing_run_directory(
+    sample_dataset, sample_run_config, tmp_path
+):
+    """When target_dir already contains run.json, runner must raise FileExistsError."""
+    hits = {ex.question: ex.expected_document_ids[0] for ex in sample_dataset.examples}
+    runtime = FakeRuntime(hit_docs=hits)
+    runner = EvaluationRunner(dataset=sample_dataset, config=sample_run_config, runtime=runtime)
+
+    target_dir = tmp_path / "explicit-run-dir"
+    target_dir.mkdir(parents=True)
+    (target_dir / "run.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="already exists. Overwrite is barred."):
+        runner.run(mode=RunMode.RETRIEVAL, output_dir=target_dir)
+
+
+def test_runner_citation_matching_uses_context_evidence(
+    sample_dataset, sample_run_config
+):
+    """Citation mapping directly to generation context_evidence must NOT emit citation_mismatch."""
+    from backend.rag.contracts import CitationEvidence, GeneratedAnswer, RetrievalResult
+
+    ranked_item = RetrievalResult(
+        chunk_id="chunk-retrieval",
+        document_id="doc-retrieval",
+        title="Retrieval Title",
+        url="https://vietnam.travel/retrieval",
+        score=0.9,
+        text="text",
+    )
+    context_item = RetrievalResult(
+        chunk_id="chunk-context",
+        document_id="doc-context",
+        title="Context Title",
+        url="https://vietnam.travel/context",
+        score=0.85,
+        text="text",
+    )
+
+    class ContextOnlyRuntime:
+        def retrieve(self, question: str, top_k: int):
+            return [ranked_item]
+
+        def generate(self, question: str, top_k: int):
+            citations = (
+                CitationEvidence(
+                    title="Context Title",
+                    url="https://vietnam.travel/context",
+                    evidence_ids=("chunk-context",),
+                ),
+            )
+            ans = GeneratedAnswer(reply="Answer", model="gpt-4o-mini", citations=citations)
+            return ans, (context_item,)
+
+    runner = EvaluationRunner(
+        dataset=sample_dataset,
+        config=sample_run_config,
+        runtime=ContextOnlyRuntime(),
+        judge_adapter=None,
+    )
+    artifact = runner.run(mode=RunMode.FULL)
+    rec = artifact.example_records[0]
+    assert "citation_mismatch" not in rec["failure_labels"]
 
 
 def test_runner_records_structured_evidence_and_failure_taxonomy(
@@ -482,7 +549,7 @@ def test_runner_records_structured_evidence_and_failure_taxonomy(
     assert "citation_mismatch" in rec["failure_labels"]
     assert "unsupported_claim" in rec["failure_labels"]
 
-    # Check structured evidence persistence
+    # Check structured evidence persistence and reference_answer
     assert "ranked_evidence" in rec
     assert len(rec["ranked_evidence"]) == 1
     ev = rec["ranked_evidence"][0]
@@ -492,3 +559,25 @@ def test_runner_records_structured_evidence_and_failure_taxonomy(
     assert ev["url"] == "https://vietnam.travel/doc-001"
     assert ev["score"] == 0.95
     assert "text_excerpt" in ev
+    assert "reference_answer" in rec
+    assert rec["reference_answer"] is not None
+
+
+def test_current_runtime_adapter_rejects_unsupported_prompt_id(sample_run_config):
+    """CurrentRuntimeAdapter must reject arbitrary prompt IDs that it cannot execute."""
+    from dataclasses import replace
+    from backend.rag.evaluation.runtime import CurrentRuntimeAdapter
+
+    bad_config = replace(sample_run_config, prompt_id="ARBITRARY_PROMPT_ID_THAT_IS_NOT_EXECUTED")
+    with pytest.raises(ValueError, match="executes frozen prompt"):
+        CurrentRuntimeAdapter(config=bad_config, embedder=object(), vector_store=object())
+
+
+def test_current_runtime_adapter_rejects_mismatched_generation_model(sample_run_config):
+    """CurrentRuntimeAdapter must reject generation_model that differs from settings.LLM_MODEL."""
+    from dataclasses import replace
+    from backend.rag.evaluation.runtime import CurrentRuntimeAdapter
+
+    bad_config = replace(sample_run_config, generation_model="different-unexecuted-model")
+    with pytest.raises(ValueError, match="executes settings.LLM_MODEL"):
+        CurrentRuntimeAdapter(config=bad_config, embedder=object(), vector_store=object())

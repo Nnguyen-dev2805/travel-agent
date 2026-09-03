@@ -70,9 +70,10 @@ def _get_git_info() -> tuple[str, bool, str]:
         )
         dirty = bool(status)
     except Exception:
-        dirty = False
+        dirty = True
 
     short_sha = rev[:7] if rev != "unknown" else "0000000"
+
     return rev, dirty, short_sha
 
 
@@ -183,8 +184,9 @@ class EvaluationRunner:
         started_at = datetime.now(timezone.utc).isoformat()
 
         rev, dirty, short_sha = _get_git_info()
-        ts_compact = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        ts_compact = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         run_id = f"rag-{self.config.config_id}-{ts_compact}-{short_sha}"
+
 
         max_k = max(self.config.retrieval_k_values)
         example_records: list[dict[str, Any]] = []
@@ -244,10 +246,12 @@ class EvaluationRunner:
                     ]
 
                     # Spec check 10: Citation cannot map to retrieved evidence -> citation_mismatch
+                    # Both context_evidence (used by generation) and ranked_evidence are valid targets
+                    available_evidence = list(context_evidence) + list(ranked_evidence)
                     if generated.citations:
                         for c in generated.citations:
                             matched = False
-                            for ev_item in ranked_evidence:
+                            for ev_item in available_evidence:
                                 if c.url and ev_item.url == c.url:
                                     matched = True
                                     break
@@ -260,6 +264,7 @@ class EvaluationRunner:
                             if not matched:
                                 failure_labels.append("citation_mismatch")
                                 break
+
                 except Exception as err:
                     logger.error(f"Generation error for {example.example_id}: {err}")
                     errors.append(f"generation_error: {err}")
@@ -323,7 +328,9 @@ class EvaluationRunner:
                 "ranked_evidence": structured_ranked_evidence,
                 "context_evidence_ids": context_ids,
                 "answer": answer_text,
+                "reference_answer": example.reference_answer,
                 "citations": citations_list,
+
                 "metrics": metrics,
                 "judge_valid": judge_valid,
                 "failure_labels": sorted(set(failure_labels)),
@@ -450,10 +457,20 @@ class EvaluationRunner:
         target_dir = None
         if output_dir is not None:
             base_dir = Path(output_dir)
+            if (base_dir / "run.json").exists():
+                raise FileExistsError(
+                    f"Run artifact directory '{base_dir}' already exists. Overwrite is barred."
+                )
             target_dir = base_dir if base_dir.name == run_id else base_dir / run_id
+            if (target_dir / "run.json").exists():
+                raise FileExistsError(
+                    f"Run artifact directory '{target_dir}' already exists. Overwrite is barred."
+                )
             target_dir.mkdir(parents=True, exist_ok=True)
             write_run_artifacts(target_dir, run_record, example_records)
             logger.info(f"Persisted run artifacts to {target_dir}")
+
+
 
         return RunArtifact(
             run_record=run_record,

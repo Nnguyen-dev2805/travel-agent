@@ -77,3 +77,16 @@ def test_evaluator_legacy_has_no_hardcoded_baseline_collections():
     inst = RAGEvaluator()
     assert not hasattr(inst, "baseline_store")
     assert not hasattr(inst, "parent_child_store")
+
+
+def test_evaluator_evaluate_benchmark_requires_stores():
+    inst = RAGEvaluator()
+    with pytest.raises(ValueError, match="evaluate_benchmark is deprecated and requires explicit stores"):
+        inst.evaluate_benchmark()
+
+
+def test_evaluator_main_delegates_to_cli():
+    from backend.rag.evaluation import evaluator
+    with pytest.raises(SystemExit) as exc:
+        evaluator.main(["--help"])
+    assert exc.value.code == 0
