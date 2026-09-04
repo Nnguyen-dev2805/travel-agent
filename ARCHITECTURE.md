@@ -29,9 +29,12 @@ Use these Package 3 architecture documents for deeper review:
 | Component | Current responsibility | Evidence |
 | --- | --- | --- |
 | React/Vite client | Sends a chat `message` to the backend API and renders the returned response | `frontend/src/services/api.js`, `frontend/package.json` |
-| FastAPI application | Mounts `/health` and `/api/v1/chat`, configures local CORS, and attempts RAG pre-warm during startup | `backend/app/main.py` |
+| FastAPI application | Mounts `/health`, `/api/v1/chat`, and `/api/v1/workspaces`, configures local CORS, and attempts RAG pre-warm during startup | `backend/app/main.py` |
 | Health route | Returns service health metadata for local inspection | `backend/app/api/health.py` |
 | Chat route | Validates one stripped message, logs a message prefix, calls the process-global RAG service, and returns reply/model/citations | `backend/app/api/chat.py`, `backend/app/schemas/chat.py` |
+| Workspace routes | Create, retrieve, and list local trip workspace records behind the workspace service; construct no RAG, embedding, or model-provider dependency | `backend/app/api/workspaces.py`, `backend/app/schemas/workspaces.py` |
+| Workspace module | Owns `TripWorkspace` contracts, validation, identity generation, timestamps, and the storage interface | `backend/workspaces/models.py`, `backend/workspaces/service.py`, `backend/workspaces/repository.py` |
+| Local SQLite workspace store | Initializes schema version 1 and persists workspace records at `WORKSPACE_DB_PATH`; the only module aware of SQLite | `backend/workspaces/sqlite_repository.py` |
 | RAG generation service | Embeds the user message, retrieves Chroma context, builds the model prompt, calls the configured external model endpoint, and formats citations | `backend/rag/generation/rag_service.py` |
 | Vector embedder | Lazily loads `BAAI/bge-m3` when sentence-transformers is available, with a deterministic fallback when it is not installed | `backend/rag/embedding/embedder.py` |
 | Chroma vector store | Creates or opens persistent local Chroma collections under `data/chromadb` by default | `backend/rag/retrieval/vector_store.py` |
@@ -89,13 +92,39 @@ flowchart LR
 This flow may read and write local data, use model cache, and require network
 access if the embedding model is not already available.
 
+## Local Workspace Flow
+
+Milestone `R3` adds a backend-only trip workspace path beside chat.
+`TripWorkspace` is the primary product container per ADR 0002, and local SQLite is
+an adapter behind the repository boundary per ADR 0003.
+
+```mermaid
+flowchart LR
+    Caller[Local caller] --> Routes[FastAPI /api/v1/workspaces]
+    Routes --> Service[WorkspaceService]
+    Service --> Interface[WorkspaceRepository interface]
+    Interface --> Adapter[SQLiteWorkspaceRepository]
+    Adapter --> DB[(WORKSPACE_DB_PATH)]
+```
+
+Route handlers hold no SQL, table DDL, path creation, or connection management.
+The service owns validation, identity generation, and timestamps. Only the
+adapter imports `sqlite3`.
+
+This path is independent of RAG: workspace routes construct no embedder, Chroma
+collection, or model-provider client, and `backend/rag` imports no workspace
+module. It is unauthenticated local development behavior and must not be exposed
+publicly.
+
 ## Trust Boundaries
 
 | Boundary | Current implication |
 | --- | --- |
 | Browser to local API | Local browser requests cross into the FastAPI process through permissive local CORS configuration that includes `*` |
+| Caller to workspace routes | Workspace routes are unauthenticated. `owner_user_id` is a caller-supplied local development scope label, not authentication, authorization, or tenant isolation, so these routes must not be exposed publicly |
 | Local process to model provider | User message and retrieved travel context leave the local process for the configured external model endpoint |
 | Local files, model cache, and vector store | Data, Chroma state, and model cache are local development assets, not isolated production stores |
+| Local workspace database | The SQLite file at `WORKSPACE_DB_PATH` holds user-entered trip content as local development state, with no production retention, backup, restore, or deletion contract |
 | Retrieved travel content to prompt | Retrieved text is untrusted data and should not be treated as an instruction source |
 | Environment to backend settings | Credential names are read from environment; real secret values must stay out of logs and docs |
 
@@ -103,10 +132,19 @@ access if the embedding model is not already available.
 
 - The public chat request contract contains one required `message` string.
 - The chat response contract contains `reply`, `model`, and `citations`.
-- The backend mounts chat routes under `/api/v1` and health at `/health`.
+- The backend mounts chat and workspace routes under `/api/v1` and health at
+  `/health`.
+- Workspace routes are additive; the chat route performs no workspace lookup and
+  accepts no `workspace_id`.
+- Workspace identity is server-generated and prefixed `tw_`.
+- `R3` creates workspace records with `retention_state` `active` only and
+  implements no update, archive, or deletion route.
+- SQLite access is confined to `backend/workspaces/sqlite_repository.py`.
+- RAG and evaluation modules do not import workspace modules.
 - The RAG service is process-global after first construction.
 - Chroma uses persistent local storage under `data/chromadb` by default.
-- Health readiness is narrower than chat readiness.
+- Health readiness is narrower than chat readiness, and it does not signal
+  workspace storage readiness.
 - Startup attempts to pre-warm the RAG service and converts pre-warm failures
   to warnings.
 
@@ -115,7 +153,14 @@ access if the embedding model is not already available.
 - No user, trip, conversation, or memory identifier exists in the bounded chat
   request contract.
 - No implemented agent memory exists yet.
-- Trip projects and trip workspaces are not current components.
+- Trip workspace records exist as a local `R3` backend component, but there is
+  no authenticated user, workspace-aware chat, conversation persistence,
+  itinerary state, planner behavior, workspace UI, or workspace lifecycle
+  transition.
+- Workspace routes are unauthenticated and `owner_user_id` is a local scope
+  label rather than an authorization control.
+- Local workspace SQLite storage settles no production database, migration,
+  backup, restore, concurrency, retention, or deletion policy.
 - There is no current multi-service data platform.
 - Local CORS is permissive.
 - The chat path logs a prefix of the user message.
