@@ -15,5 +15,13 @@ class Settings(BaseModel):
     GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
     GITHUB_MODELS_URL: str = "https://models.inference.ai.azure.com"
+    # R3 trip workspace local storage. SQLite is a local development adapter per
+    # ADR 0003; it is not production storage readiness.
+    WORKSPACE_DB_PATH: Path = Path(
+        os.getenv(
+            "WORKSPACE_DB_PATH",
+            str(ROOT_DIR / "data" / "workspaces" / "travel_agent_workspaces.sqlite3"),
+        )
+    )
 
 settings = Settings()

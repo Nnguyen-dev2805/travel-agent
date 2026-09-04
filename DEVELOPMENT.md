@@ -33,6 +33,7 @@ local untracked `.env` only when a local workflow needs environment values.
 | `GITHUB_TOKEN` | Backend settings and external model client | Stage B external generation | Yes | Placeholder only; do not commit real values |
 | `LLM_MODEL` | Backend settings | Selecting the external model | No secret by itself | Defaults to `gpt-4o-mini` |
 | `VITE_API_URL` | Frontend API client and Docker Compose frontend service | Browser-to-backend API origin | No secret by itself | Defaults to `http://localhost:8000` |
+| `WORKSPACE_DB_PATH` | Backend settings and the local workspace SQLite adapter | Local trip workspace routes | No secret by itself | Defaults to `data/workspaces/travel_agent_workspaces.sqlite3`; local development state only |
 
 Do not print, paste, or commit real credential values in logs, examples,
 issues, screenshots, terminal output, or documentation.
@@ -134,6 +135,61 @@ The current public chat request body contains only:
 There is no implemented user, trip, conversation, or memory identifier in this
 bounded request contract.
 
+### Local Trip Workspace Routes
+
+Milestone `R3` adds three backend-only routes for creating and inspecting local
+trip workspace records. They are mounted beside chat under `/api/v1` and do not
+change the chat request or response contract.
+
+| Method and path | Purpose |
+| --- | --- |
+| `POST /api/v1/workspaces` | Create one workspace and return `201` with the stored record |
+| `GET /api/v1/workspaces/{workspace_id}` | Return one workspace, or `404` when absent |
+| `GET /api/v1/workspaces?owner_user_id=<value>` | Return `{"workspaces": [...]}` for one owner scope label, newest first |
+
+These routes need no credential, embedding model, Chroma data, or network access.
+They are independent of Stage B readiness.
+
+Create a workspace locally:
+
+```bash
+curl --fail --silent --show-error \
+  --request POST http://localhost:8000/api/v1/workspaces \
+  --header 'Content-Type: application/json' \
+  --data '{"owner_user_id":"local-user","title":"Da Nang family trip","destination_scope":"Da Nang and Hoi An","date_window":{"start_date":"2026-12-20","end_date":"2026-12-25"}}'
+```
+
+List workspaces for one owner scope label:
+
+```bash
+curl --fail --silent --show-error \
+  'http://localhost:8000/api/v1/workspaces?owner_user_id=local-user'
+```
+
+Field rules: `owner_user_id` and `title` are required and trimmed; `title` is at
+most 120 characters; `destination_scope` is optional and at most 160 characters;
+`date_window` bounds are optional but `end_date` must not precede `start_date`;
+`planning_status` is one of `idea`, `planning`, `booked`, `active`, `completed`,
+`cancelled`, `archived` and defaults to `idea`. `workspace_id`, `retention_state`,
+`created_at`, and `updated_at` are server-owned. Invalid input returns `422` and
+writes no record.
+
+Two limitations are deliberate and must not be described otherwise:
+
+1. **`owner_user_id` is a local development scope label.** It is not
+   authentication, authorization, a verified principal, or tenant isolation.
+   Listing filters deterministically by that label and nothing more. Do not
+   expose these routes publicly.
+2. **`WORKSPACE_DB_PATH` is local development state.** The SQLite file is a local
+   `R3` adapter per ADR 0003. It does not establish a production database,
+   migration framework, backup, restore, concurrency, retention, or deletion
+   contract. `R3` implements no workspace update, archive, or deletion route.
+
+The adapter creates the parent directory and schema version 1 on first use. If an
+existing database reports a different schema version, the adapter fails closed
+with a controlled error instead of migrating. Tests always use temporary database
+paths and never touch the default developer database.
+
 ## Command Contract
 
 | Category | Working directory | Command | Claim | Writes | Network | Status |
@@ -147,6 +203,7 @@ bounded request contract.
 | Compose config | repository root | `docker compose config` | Compose file is syntactically valid | No expected source writes | No expected external call | verified-pass |
 | Stage A smoke | repository root | `docker compose up --build` plus `curl --fail --silent --show-error http://localhost:8000/health` | Dev stack starts and health responds | Docker state, mounted app/data paths, possible Chroma state | Possible during image build or dependency install | blocked by missing Docker daemon/socket in current environment |
 | Stage B chat readiness | repository root | opt-in chat request to `/api/v1/chat` | Chat path can reach retrieval and model provider | Possible logs/cache/data state | Yes | Opt-in, not default CI |
+| Local workspace routes | repository root | `curl` requests to `/api/v1/workspaces` while the backend runs | Workspace records can be created and inspected locally | Local SQLite file at `WORKSPACE_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
 | RAG and memory evaluation | repository root | later approved evaluation command | Approved metric-specific quality claim | Evaluation outputs | Depends on later plan | Future milestone |
 
 ## Opt-in Data and Model Operations
@@ -169,6 +226,8 @@ the approved task that owns their inputs, side effects, and evidence.
 | First chat is slow | Embedding model or cache access may be occurring | Confirm whether model download/cache use is acceptable |
 | CI is green | CI commands completed, not proof of RAG quality | Read the exact workflow steps and exit statuses |
 | Docker fails in a sandbox | Docker socket or localhost access may be blocked by the environment | Retry only with approved host access or record the limitation |
+| Workspace route returns `500` | Local workspace storage could not be opened, initialized, or written | Check that `WORKSPACE_DB_PATH` is writable and that its schema version matches the running build |
+| Workspace list returns an empty array | No record exists for that exact owner scope label | Confirm the `owner_user_id` value; listing filters by exact label after trimming |
 
 When normal setup has already failed and the problem needs diagnosis or
 recovery, use the
