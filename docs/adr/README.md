@@ -141,3 +141,5 @@ evidence.
 | 0001 | Separate Online RAG Execution from Config-driven Evaluation | Accepted | 2026-09-01 | [ADR 0001](./0001-separate-online-rag-execution-from-config-driven-evaluation.md) |
 | 0002 | Trip Workspace as Primary Product Container | Accepted | 2026-09-03 | [ADR 0002](./0002-trip-workspace-as-primary-product-container.md) |
 | 0003 | Local SQLite Workspace Storage Boundary for R3 | Accepted | 2026-09-03 | [ADR 0003](./0003-local-sqlite-workspace-storage-boundary-for-r3.md) |
+| 0004 | Shared Local Application Store and Per-module Schema Registry | Accepted | 2026-09-04 | [ADR 0004](./0004-shared-local-application-store-and-per-module-schema-registry.md) |
+| 0005 | Conversation Orchestration Seam and Optional Chat Conversation Binding | Accepted | 2026-09-04 | [ADR 0005](./0005-conversation-orchestration-seam-and-optional-chat-binding.md) |

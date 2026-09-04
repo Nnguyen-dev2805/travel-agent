@@ -30,7 +30,7 @@ version 0.1 (Approved).
 
 | Field | Value |
 | --- | --- |
-| Status | In Progress |
+| Status | Completed |
 | Plan version | 0.2 |
 | Date | 2026-09-03 |
 | Amended | 2026-09-03; see [Amendment Record](#amendment-record) |
@@ -950,24 +950,40 @@ Four review notes:
    separating it would require history rewriting, which the repository owner has not
    requested.
 
+### Delivery record
+
+The repository owner accepted the R3 change set and merged branch
+`r3-trip-workspace` into `feature/agent-memory` on 2026-09-04. Delivery history:
+
+```text
+2f632e2  Merge branch 'r3-trip-workspace' into feature/agent-memory
+5477e6d  feat(memory): done R3 for WorkSpace
+```
+
+`backend/workspaces/`, `backend/app/api/workspaces.py`,
+`backend/app/schemas/workspaces.py`, and the four R3 test modules are tracked
+source on the branch. Post-merge branch verification reports `447 passed`, which
+matches the merged-state probe recorded above. The `R3` roadmap row is
+`Delivered`.
+
+The first owner decision listed below was resolved by this merge. The second
+remains open and is out of R3 scope.
+
 ### Remaining gates
 
-Repository-owner change-set review has not occurred for the R3 source change set.
-No agent staged, committed, pushed, or opened a pull request for it; the R3 source
-files remain uncommitted in `.worktrees/r3-workspace`. The plan moves to
-`Completed` only after the owner accepts the change set.
+R3 implementation, review, verification, owner acceptance, and Git delivery are
+complete. No agent performed the merge; the repository owner did.
 
-Two decisions remain with the repository owner:
+One item remains open, and it belongs to `R0`, `R1`, and `R2` rather than to R3:
+stale documentation debt found while verifying R3 and deliberately left untouched.
+`ARCHITECTURE.md` and `docs/architecture/current-state.md` still assert that CI
+masks test failures, which `.github/workflows/ci.yml` no longer does;
+`docs/architecture/current-state.md` still describes `.env.example` as empty; and
+the `ARCHITECTURE.md` and `current-state.md` component tables omit the
+`backend/rag/evaluation` subsystem, `backend/rag/contracts.py`, and
+`backend/rag/retrieval/adapters.py`, and now also the modules commit `85ee61c`
+added. Closing this requires its own Level 1 change spec.
 
-1. How the R3 worktree reaches `feature/agent-memory`, given that the worktree base
-   is `6076d9e` and the branch head is `71d6cad`. Merged-state evidence above shows
-   the combination is green, but the R3 branch itself has not been rebased or merged.
-2. Whether the stale documentation debt found outside R3 scope is handled in its own
-   change: `ARCHITECTURE.md` and `docs/architecture/current-state.md` still assert
-   that CI masks test failures, which `.github/workflows/ci.yml` no longer does;
-   `docs/architecture/current-state.md` still describes `.env.example` as empty;
-   `docs/roadmap/master-roadmap.md` still names `D4` as the active documentation
-   package; and the `ARCHITECTURE.md` and `current-state.md` component tables omit
-   the `backend/rag/evaluation` subsystem, `backend/rag/contracts.py`, and
-   `backend/rag/retrieval/adapters.py`. These belong to `R0`, `R1`, and `R2`, not to
-   R3, so they were deliberately left untouched.
+The roadmap item in that list was resolved on 2026-09-04: `docs/roadmap/master-roadmap.md`
+no longer names `D4` as the active documentation package, corrected as part of the
+`R4` plan approval conditions.

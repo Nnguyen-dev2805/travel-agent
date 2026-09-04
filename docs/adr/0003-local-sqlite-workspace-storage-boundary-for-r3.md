@@ -8,7 +8,7 @@
 | Scope | R3 local workspace persistence technology, module boundary, and production limitation |
 | Governing spec | [Trip Workspace Foundation Design](../specs/2026-09-03-trip-workspace-foundation-design.md), version 0.1 (Approved) |
 | Superseded ADR | None |
-| Superseded by | None |
+| Superseded by | None. [ADR 0004](./0004-shared-local-application-store-and-per-module-schema-registry.md) narrows two R3-scoped mechanics of this record without superseding it: the database file is now shared across modules rather than workspace-specific, and schema version is tracked in a `schema_versions` registry table rather than in `PRAGMA user_version`. Rules 1, 2, 3, 5, and 6 below continue to apply verbatim, and rule 4 is preserved in substance and extended to a per-module registry |
 
 ## Context
 

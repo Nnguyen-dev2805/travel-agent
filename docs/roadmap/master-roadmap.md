@@ -21,21 +21,22 @@ prototype with a React/Vite frontend, FastAPI backend, Chroma travel-knowledge
 retrieval, and an external model call path. The implemented chat contract is
 one `message` in and `reply`, `model`, and `citations` out.
 
-Trip workspaces are no longer purely conceptual. Milestone `R3` implements a
+Trip workspaces are no longer conceptual. Milestone `R3` implements a
 backend-only `TripWorkspace` container with three `/api/v1/workspaces` routes and
-local SQLite storage behind a repository interface. That work lives in the linked
-worktree `r3-trip-workspace` and awaits repository-owner change-set review, so it
-is not part of a delivered branch yet. It adds no authentication and no
-workspace-aware chat.
+local SQLite storage behind a repository interface. The repository owner accepted
+that change set and merged it into `feature/agent-memory` at `2f632e2` on
+2026-09-04. It adds no authentication and no workspace-aware chat.
 
-User identity, conversation persistence, layered memory, planner state,
-evaluation traces, production security policy, operational runbooks, license
-text, and open-source templates are planned direction rather than current
-capability.
+Conversation persistence is the active runtime milestone. `R4` has an approved
+specification, two accepted ADRs, and an approved implementation plan, but no
+source has been written yet.
 
-Current documentation packages D0 through D3 have been completed in the working
-tree and accepted by the repository owner before Git delivery. D4 is the active
-documentation package.
+User identity, layered memory, planner state, evaluation traces, production
+security policy, operational runbooks, license text, and open-source templates
+are planned direction rather than current capability.
+
+Documentation packages `D0` through `D7` are complete and accepted. Documentation
+work is no longer the active package; runtime milestones are.
 
 ## Roadmap Principles
 
@@ -53,6 +54,7 @@ documentation package.
 
 | Status | Meaning |
 | --- | --- |
+| Delivered | Implemented, verified, accepted by the repository owner, and merged into the active development branch |
 | Accepted in working tree | Implemented, verified, and accepted by the repository owner, but not necessarily delivered through Git |
 | In progress | Approved for implementation and actively being changed |
 | Ready for handoff | Approved for implementation and waiting for an assigned implementation worker |
@@ -75,8 +77,8 @@ documentation package.
 | `R0` | Foundation Cleanup | Accepted in working tree | `D4` | Tooling fixes, CI honesty, env examples, dependency hygiene | Owner accepted R0 change set | R0 spec, plan, verification evidence, and owner acceptance |
 | `R1` | RAG Repair and Baseline | Accepted in working tree | `R0`, `D5` | Retrieval baseline, dataset policy, and answer-quality baseline | RAG quality is measurable against Package 5 gates | [R1/R2 spec v0.1](../specs/2026-09-01-rag-repair-and-evaluation-harness-design.md), [ADR 0001](../adr/0001-separate-online-rag-execution-from-config-driven-evaluation.md), [implementation plan v0.1](../plans/2026-09-01-rag-repair-and-evaluation-harness-implementation.md); repository owner accepted R1/R2 change set in conversation on 2026-09-03; [Task 7 candidate comparison](../reports/rag/rag-candidate-v0.1-comparison.md) (2026-09-04): D5 state=PASS, deltas 0.0; [baseline report](../reports/rag/rag-baseline-v0.1.md); canonical runs `rag-rag-current-runtime-v0.1-20260903T111946Z-6076d9e` / `rag-rag-structured-candidate-v0.1-20260904T011315Z-359a2ab`; R1/R2 plan completed 2026-09-04 |
 | `R2` | Evaluation Harness | Accepted in working tree | `D5`, `R0` | Repeatable local evaluation runner and traceable result format | Evaluation output can compare two runs | [R1/R2 spec v0.1](../specs/2026-09-01-rag-repair-and-evaluation-harness-design.md), [ADR 0001](../adr/0001-separate-online-rag-execution-from-config-driven-evaluation.md), [implementation plan v0.1](../plans/2026-09-01-rag-repair-and-evaluation-harness-implementation.md); repository owner accepted R1/R2 change set in conversation on 2026-09-03; [Task 7 candidate comparison](../reports/rag/rag-candidate-v0.1-comparison.md) (2026-09-04): D5 state=PASS, deltas 0.0; [baseline report](../reports/rag/rag-baseline-v0.1.md); canonical runs `rag-rag-current-runtime-v0.1-20260903T111946Z-6076d9e` / `rag-rag-structured-candidate-v0.1-20260904T011315Z-359a2ab`; R1/R2 plan completed 2026-09-04 |
-| `R3` | Trip Workspace Foundation | In progress | `D3`, [ADR 0002](../adr/0002-trip-workspace-as-primary-product-container.md), [ADR 0003](../adr/0003-local-sqlite-workspace-storage-boundary-for-r3.md), `R0` | Workspace contracts, storage boundary, and minimal routes | Workspace records can be created and inspected behind approved interfaces | [R3 spec v0.1](../specs/2026-09-03-trip-workspace-foundation-design.md), [implementation plan v0.2](../plans/2026-09-03-trip-workspace-foundation-implementation.md); repository owner approved plan v0.2 on 2026-09-03; all six tasks complete in linked worktree `r3-trip-workspace` with `427 passed` on base `6076d9e` and boundary checks clean; merged-state probe against branch head `71d6cad` reports `447 passed`, a clean `DEVELOPMENT.md` auto-merge, and clean boundary checks; awaiting repository-owner change-set review before Git delivery |
-| `R4` | Conversation Persistence | Blocked by gate | `R3` | Conversation and message storage behind an adapter | Messages persist with retention and privacy boundaries named | Integration tests and storage rollback evidence |
+| `R3` | Trip Workspace Foundation | Delivered | `D3`, [ADR 0002](../adr/0002-trip-workspace-as-primary-product-container.md), [ADR 0003](../adr/0003-local-sqlite-workspace-storage-boundary-for-r3.md), `R0` | Workspace contracts, storage boundary, and minimal routes | Workspace records can be created and inspected behind approved interfaces | [R3 spec v0.1](../specs/2026-09-03-trip-workspace-foundation-design.md), [implementation plan v0.2](../plans/2026-09-03-trip-workspace-foundation-implementation.md); repository owner approved plan v0.2 on 2026-09-03; all six tasks complete with `427 passed` on base `6076d9e` and boundary checks clean; repository owner accepted the change set and merged `r3-trip-workspace` into `feature/agent-memory` at `2f632e2` on 2026-09-04; post-merge branch verification reports `447 passed` with clean boundary checks |
+| `R4` | Conversation Persistence | In progress | `R3`, [ADR 0004](../adr/0004-shared-local-application-store-and-per-module-schema-registry.md), [ADR 0005](../adr/0005-conversation-orchestration-seam-and-optional-chat-binding.md) | Conversation and message storage behind an adapter, shared application store with per-module schema versions, orchestration seam, and optional chat conversation binding | Messages persist with retention and privacy boundaries named | [R4 spec v0.1](../specs/2026-09-04-conversation-persistence-design.md) approved 2026-09-04; [ADR 0004](../adr/0004-shared-local-application-store-and-per-module-schema-registry.md) and [ADR 0005](../adr/0005-conversation-orchestration-seam-and-optional-chat-binding.md) accepted 2026-09-04; [implementation plan v0.1](../plans/2026-09-04-conversation-persistence-implementation.md) approved 2026-09-04 on base `2f632e2` with baseline `447 passed`; no source written yet; integration tests and storage rollback evidence pending |
 | `R5` | Shadow Memory Extraction | Blocked by gate | `R2`, `R4`, memory ADR | Memory candidates extracted but not used in answers | Candidate precision, sensitivity, and scope quality are measured | Shadow evaluation report and rejection examples |
 | `R6` | Memory Retrieval | Blocked by gate | `R5` | Feature-gated memory retrieval into context bundles | Personalization improves without privacy or grounding regressions | A/B evaluation and trace review |
 | `R7` | Trip Planner State | Blocked by gate | `R3`, `R4`, `R2` | Itinerary versions, trip decisions, and planner operations | Planner writes are explicit, reversible, and evaluated | Planner tests and trace samples |
@@ -110,7 +112,7 @@ documentation package.
 | `D1` | Establish agent and contribution workflows | Use before any repository change |
 | `D2` | Establish project entry points | Keep concise and update only when entry behavior changes |
 | `D3` | Establish architecture baseline | Use before runtime architecture work |
-| `D4` | Establish roadmap and learning path | Complete this package, then use it for package selection |
+| `D4` | Establish roadmap and learning path | Use it for milestone selection; keep milestone status synchronized with delivered Git state |
 | `D5` | Establish RAG and memory evaluation protocols | Preserve as accepted evaluation contract for later runtime work |
 | `D6` | Establish security and operational guidance | Preserve as accepted security and operations contract for later runtime work |
 | `D7` | Establish GitHub and open-source readiness | Preserve as accepted open-source intake and legal-doc baseline |
