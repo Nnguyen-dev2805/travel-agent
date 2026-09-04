@@ -22,7 +22,7 @@ test layout.
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | In Progress |
 | Plan version | 0.1 |
 | Date | 2026-09-04 |
 | Approved specification | [Shadow Memory Extraction Design](../specs/2026-09-04-shadow-memory-extraction-design.md), version 0.1 (Approved 2026-09-04) |
@@ -111,7 +111,7 @@ test layout.
 - Consumes: owner approval for R5 spec, ADR 0006, and this plan
 - Produces: recorded execution base and baseline evidence
 
-- [ ] **Step 1: Confirm governance gates**
+- [x] **Step 1: Confirm governance gates**
 
 Confirm:
 
@@ -122,23 +122,33 @@ Confirm:
 
 Stop if any gate is missing.
 
-- [ ] **Step 2: Record baseline tests**
+- [x] **Step 2: Record baseline tests**
 
 Run: `./.venv/bin/python -m pytest backend/tests -q`
 
 Expected: existing suite passes. Record exact count and duration in this plan.
 
-- [ ] **Step 3: Mark execution start**
+Baseline (worktree `r5-shadow-memory` @ `d659b8d`, primary `.venv` by absolute
+path, `data/processed` symlinked per Global Constraint 11): `708 passed,
+1 warning in 21.18s`. Initial run showed `707 passed, 1 failed`
+(`test_loader_real_dataset` missing Git-ignored dataset); resolved by the
+approved `data/processed` symlink, which leaves `git status` clean.
+
+- [x] **Step 3: Mark execution start**
 
 Update this plan status to `In Progress`, update the plan index to
 `In Progress`, and update roadmap `R5` from `Ready for handoff` to
 `In progress` once implementation actually starts.
 
-- [ ] **Step 4: Review checkpoint**
+- [x] **Step 4: Review checkpoint**
 
 Review: status output and baseline evidence.
 
 Expected: no source file has changed before the gate and baseline are recorded.
+
+Checkpoint: only this plan, `docs/plans/README.md`, and
+`docs/roadmap/master-roadmap.md` changed (the Task 1 file scope); no
+`backend/` source changed before baseline.
 
 ## Task 2: Memory Contracts
 
@@ -165,7 +175,7 @@ Expected: no source file has changed before the gate and baseline are recorded.
   - `generate_memory_run_id()`
   - `generate_memory_candidate_id()`
 
-- [ ] **Step 1: Write failing model tests**
+- [x] **Step 1: Write failing model tests**
 
 Cover identifier prefixes `mer_` and `mc_`, UTC timestamp enforcement, text
 normalization, floating-point confidence range `[0.0, 1.0]`, governed enums, run
@@ -173,27 +183,32 @@ counter invariants including `invalid_count`, 500-character candidate text
 limit, 240-character evidence summary limit, and rejection of blank required
 identifiers.
 
-- [ ] **Step 2: Run model tests for RED**
+- [x] **Step 2: Run model tests for RED**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_models.py -q`
 
 Expected: tests fail because `backend.memory.models` does not exist.
 
-- [ ] **Step 3: Implement models**
+- [x] **Step 3: Implement models**
 
 Implement frozen dataclasses and enums only. Do not import conversation,
 workspace, RAG, FastAPI, or SQLite from `models.py`.
 
-- [ ] **Step 4: Run model tests for GREEN**
+- [x] **Step 4: Run model tests for GREEN**
+
+GREEN: `30 passed` (`backend/tests/unit/test_memory_models.py`).
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_models.py -q`
 
 Expected: all model tests pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: model vocabulary exactly matches the spec and no raw-content logging is
 introduced.
+
+Checkpoint: vocabularies match the spec tables byte-for-byte; `models.py`
+imports stdlib only (static import test); no logging module imported.
 
 ## Task 3: Policy and Deterministic Extraction
 
@@ -212,7 +227,7 @@ introduced.
   - `RuleBasedMemoryExtractor`
   - `MemoryPolicy.evaluate(draft: MemoryCandidateDraft) -> MemoryCandidateDraft`
 
-- [ ] **Step 1: Write failing extractor tests**
+- [x] **Step 1: Write failing extractor tests**
 
 Use synthetic user messages with `trace_visibility = included` that cover
 durable preference, trip constraint, explicit correction, no-memory signal, and
@@ -221,34 +236,43 @@ secret-like content. Assert candidate drafts preserve `source_message_id`,
 chat-bound message with default `trace_visibility = excluded` produces no
 accepted candidate.
 
-- [ ] **Step 2: Write failing policy tests**
+- [x] **Step 2: Write failing policy tests**
 
 Cover `supported_preference`, `supported_constraint`, `explicit_correction`,
 `ambiguous`, `transient`, `wrong_scope`, `low_confidence`, `sensitive`,
 `secret_like`, `unsupported`, `system_generated`, and `trace_excluded`. Do not
 invent a `system_event` category vocabulary.
 
-- [ ] **Step 3: Run policy/extractor tests for RED**
+- [x] **Step 3: Run policy/extractor tests for RED**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_extraction.py backend/tests/unit/test_memory_policy.py -q`
 
 Expected: tests fail because modules do not exist.
 
-- [ ] **Step 4: Implement deterministic extractor and policy**
+- [x] **Step 4: Implement deterministic extractor and policy**
 
 Implement a deliberately simple, deterministic extractor for governed fixture
 phrases. Keep model-backed extraction out of scope.
 
-- [ ] **Step 5: Run policy/extractor tests for GREEN**
+- [x] **Step 5: Run policy/extractor tests for GREEN**
+
+GREEN: `62 passed` (models 30 + extraction/policy 32).
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_extraction.py backend/tests/unit/test_memory_policy.py -q`
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: extractor and policy are separate, and policy can reject or mark
 `needs_user_action` without relying on model calls.
+
+Checkpoint: `extraction.py` never assigns `status`/`reason` (tested);
+`policy.py` is a pure function over the draft (stdlib `dataclasses` only,
+no logging import); one justified Task 2 amendment — `MemoryCandidateDraft`
+gained `role`/`source`/`trace_visibility` text copies because
+`evaluate(draft)` must enforce `trace_excluded`/`system_generated` from the
+draft alone per the approved reason vocabulary.
 
 ## Task 4: Memory Repository and SQLite Adapter
 
