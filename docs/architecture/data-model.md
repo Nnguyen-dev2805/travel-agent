@@ -35,8 +35,11 @@ The current implemented chat response contains:
 }
 ```
 
-No implemented request or response field currently carries user, trip
-workspace, conversation, memory, planner, or evaluation trace identifiers.
+No implemented request or response field carries user, trip workspace, memory,
+planner, or evaluation trace identifiers. Since `R4` the chat request accepts one
+optional additive `conversation_id`, and the response then carries an additive
+`conversation` object reporting the persistence outcome; see
+[Implemented Message Fields (R4)](#implemented-message-fields-r4).
 
 ## Target Entity Overview
 
@@ -140,15 +143,16 @@ exists at runtime, with these implemented constraints:
 | `created_at`, `updated_at` | Server-generated timezone-aware UTC timestamps |
 
 The `User` entity is not implemented, so `owner_user_id` currently references no
-stored user record. Conversations, itinerary versions, trip decisions, memory
-records, context bundles, and evaluation traces are not implemented and do not yet
-reference `workspace_id`. `R3` implements creation and inspection only; update,
-archive, deletion, and tombstoning require a later approved design because they
-affect privacy, retention, and recovery semantics.
+stored user record. Itinerary versions, trip decisions, memory records, context
+bundles, and evaluation traces are not implemented and do not yet reference
+`workspace_id`; since `R4`, conversations do. `R3` implements creation and
+inspection only; update, archive, deletion, and tombstoning require a later
+approved design because they affect privacy, retention, and recovery semantics.
 
 Physical storage for `R3` is a local SQLite file behind a repository interface per
-ADR 0003. That remains a local development adapter, not the production storage
-decision deferred in [Deferred Physical Storage Decisions](#deferred-physical-storage-decisions).
+ADR 0003, promoted by ADR 0004 into one shared local application store with
+per-module schema versions. That remains a local development adapter, not the
+production storage decision deferred in [Deferred Physical Storage Decisions](#deferred-physical-storage-decisions).
 
 ## Conversation and Message Records
 
@@ -164,6 +168,28 @@ Conceptual fields:
 | `summary` | Rolling faithful summary for local continuity |
 | `created_at` | Creation timestamp |
 | `updated_at` | Last update timestamp |
+
+#### Implemented Conversation Fields (R4)
+
+Milestone `R4` implements this entity as a local backend record, with one
+deliberate exception: `summary` has **no column and no producer**. Populating it
+requires a model call, and the target architecture assigns conversation summary to
+the memory layer, so it is deferred with the rest of memory work.
+
+| Field | Implemented rule |
+| --- | --- |
+| `conversation_id` | Server-generated opaque string prefixed `cv_`; never accepted from caller input; a duplicate generated value is retried once, then fails closed |
+| `workspace_id` | Required, trimmed, non-empty, and verified to reference an existing workspace at creation time |
+| `title` | Optional, trimmed when present, at most 120 characters; blank normalizes to absent |
+| `retention_state` | Vocabulary is `active`, `summarized`, `archived`, `deletion_requested`, `deleted`; `R4` creates `active` records only and implements no transition |
+| `created_at`, `updated_at` | Server-generated timezone-aware UTC timestamps; `updated_at` advances when a message is appended, in the same transaction as the insert |
+| `summary` | Not implemented. No column, no producer, no route exposure |
+
+A conversation carries no owner field. Scope is inherited from the parent
+workspace, so `R4` introduces no second, weaker identity surface. List reads
+exclude `deleted` records, which has no effect in `R4` because nothing reaches
+that state, and exists so a later deletion milestone cannot leak removed records
+through an unchanged list route.
 
 ### Message
 
@@ -181,6 +207,46 @@ Conceptual fields:
 
 Message content may be sensitive. Later implementation must define redaction
 and retention behavior before production privacy claims are made.
+
+#### Implemented Message Fields (R4)
+
+Milestone `R4` implements every conceptual field above, and adds one implemented
+field the conceptual table did not name: `sequence`.
+
+| Field | Implemented rule |
+| --- | --- |
+| `message_id` | Server-generated opaque string prefixed `ms_`; never accepted from caller input; a duplicate generated value is retried once, then fails closed |
+| `conversation_id` | Required, trimmed, non-empty, and verified to reference an existing conversation |
+| `sequence` | Server-assigned integer, monotonic within one conversation, starting at `1`, unique per conversation. Allocated by the adapter inside one `BEGIN IMMEDIATE` transaction and never supplied by a caller |
+| `role` | `user`, `assistant`, `tool`, `system_event`. The public append route accepts only `user` and `system_event`; `assistant` and `tool` are writable only through the orchestrator |
+| `content` | Required, trimmed, non-empty. **No maximum length**, a deliberate departure from the R3 bounded-text rule, because the chat route already accepts an unbounded `message` |
+| `source` | `ui`, `tool`, `model`, `system`, `import`; defaults to `ui`, and the orchestrator writes `model` for assistant turns |
+| `trace_visibility` | `excluded`, `included`; defaults to `excluded`, so no stored message becomes evaluation input without an explicit decision |
+| `created_at` | Server-generated timezone-aware UTC timestamp |
+
+Two properties are load-bearing for later milestones:
+
+1. **Order is a stored fact.** `sequence` is a persisted integer rather than an
+   inferred timestamp comparison, because `R5` memory provenance, `R7` planner
+   decisions, and evaluation traces depend on turn order being unambiguous.
+2. **Messages carry no independent retention state.** A message follows the
+   lifecycle of its parent conversation, so a future deletion milestone expresses
+   intent exactly once and cannot leave orphaned message state behind.
+
+Message rows are immutable after insert: `R4` implements no message update, edit,
+archive, deletion, tombstoning, redaction, sharing, import, export, or full-text
+search. Content is stored, never logged, and never returned in an error body.
+
+Every other entity and relationship in this document remains conceptual. Memory
+records, memory candidates, itinerary versions, trip decisions, context bundles,
+and evaluation traces are not implemented, so their references to
+`conversation_id` and `message_id` have a stable target for the first time but no
+stored consumer yet.
+
+Physical storage for `R4` is the same shared local SQLite file as `R3`, with
+`('conversations', 1)` recorded in the per-module `schema_versions` registry per
+ADR 0004. That remains a local development adapter, not the production storage
+decision deferred in [Deferred Physical Storage Decisions](#deferred-physical-storage-decisions).
 
 ## Trip Planning Records
 

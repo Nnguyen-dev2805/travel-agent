@@ -35,21 +35,22 @@ _STORAGE_ERROR_DETAIL = "Workspace storage is unavailable."
 
 
 def get_workspace_service() -> WorkspaceService:
-    """Construct the workspace service over the configured local SQLite store.
+    """Construct the workspace service over the shared local application store.
 
-    This is the only place that resolves `settings.WORKSPACE_DB_PATH`. Tests
-    override this dependency with a temporary database path.
+    This is one of the two places that resolve `settings.APP_DB_PATH`; the other
+    is the conversation dependency. Tests override this dependency with a
+    temporary database path.
 
     Storage construction can fail before any route body runs, for example when
-    the configured database reports an incompatible schema version or its
-    directory is not writable. Converting that failure here keeps the caller's
-    response a controlled `500` instead of an unhandled server error.
+    the configured database records an incompatible workspace schema version or
+    its directory is not writable. Converting that failure here keeps the
+    caller's response a controlled `500` instead of an unhandled server error.
 
     Raises:
         HTTPException: Storage could not be opened or initialized.
     """
     try:
-        repository = SQLiteWorkspaceRepository(db_path=settings.WORKSPACE_DB_PATH)
+        repository = SQLiteWorkspaceRepository(db_path=settings.APP_DB_PATH)
     except WorkspaceRepositoryError as error:
         logger.error(
             "workspace.storage unavailable failure_class=%s", type(error).__name__

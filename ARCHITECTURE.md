@@ -29,12 +29,16 @@ Use these Package 3 architecture documents for deeper review:
 | Component | Current responsibility | Evidence |
 | --- | --- | --- |
 | React/Vite client | Sends a chat `message` to the backend API and renders the returned response | `frontend/src/services/api.js`, `frontend/package.json` |
-| FastAPI application | Mounts `/health`, `/api/v1/chat`, and `/api/v1/workspaces`, configures local CORS, and attempts RAG pre-warm during startup | `backend/app/main.py` |
+| FastAPI application | Mounts `/health`, `/api/v1/chat`, `/api/v1/workspaces`, and the `/api/v1` conversation routes, configures local CORS, and attempts RAG pre-warm during startup | `backend/app/main.py` |
 | Health route | Returns service health metadata for local inspection | `backend/app/api/health.py` |
-| Chat route | Validates one stripped message, logs a message prefix, calls the process-global RAG service, and returns reply/model/citations | `backend/app/api/chat.py`, `backend/app/schemas/chat.py` |
+| Chat route | Validates one stripped message, logs a message prefix, delegates one turn to the conversation orchestrator, and returns reply/model/citations plus an optional `conversation` object | `backend/app/api/chat.py`, `backend/app/schemas/chat.py` |
 | Workspace routes | Create, retrieve, and list local trip workspace records behind the workspace service; construct no RAG, embedding, or model-provider dependency | `backend/app/api/workspaces.py`, `backend/app/schemas/workspaces.py` |
+| Conversation routes | Create and inspect conversations and append and read messages behind the conversation service; enforce the public role restriction; construct no RAG, embedding, or model-provider dependency | `backend/app/api/conversations.py`, `backend/app/schemas/conversations.py` |
 | Workspace module | Owns `TripWorkspace` contracts, validation, identity generation, timestamps, and the storage interface | `backend/workspaces/models.py`, `backend/workspaces/service.py`, `backend/workspaces/repository.py` |
-| Local SQLite workspace store | Initializes schema version 1 and persists workspace records at `WORKSPACE_DB_PATH`; the only module aware of SQLite | `backend/workspaces/sqlite_repository.py` |
+| Conversation module | Owns `Conversation` and `Message` contracts, the governed role, source, trace-visibility and retention vocabularies, validation, identity generation, timestamps, cursor resolution, and the storage interface | `backend/conversations/models.py`, `backend/conversations/service.py`, `backend/conversations/repository.py` |
+| Conversation orchestrator | Coordinates conversation persistence with RAG generation for one chat turn and reports the persistence outcome truthfully | `backend/orchestration/conversation_orchestrator.py` |
+| Shared schema registry | Owns the `PRAGMA user_version` store marker and the `schema_versions` table, registers or verifies one module's schema version, and fails closed on unknown ownership or an unsupported version | `backend/storage/schema_registry.py` |
+| Shared local application store | One local SQLite file at `APP_DB_PATH` holding trip workspace, conversation, and message records with per-module schema versions | `backend/workspaces/sqlite_repository.py`, `backend/conversations/sqlite_repository.py` |
 | RAG generation service | Embeds the user message, retrieves Chroma context, builds the model prompt, calls the configured external model endpoint, and formats citations | `backend/rag/generation/rag_service.py` |
 | Vector embedder | Lazily loads `BAAI/bge-m3` when sentence-transformers is available, with a deterministic fallback when it is not installed | `backend/rag/embedding/embedder.py` |
 | Chroma vector store | Creates or opens persistent local Chroma collections under `data/chromadb` by default | `backend/rag/retrieval/vector_store.py` |
@@ -48,6 +52,7 @@ Use these Package 3 architecture documents for deeper review:
 sequenceDiagram
     participant Browser as React/Vite browser
     participant API as FastAPI /api/v1/chat
+    participant Orch as ConversationOrchestrator
     participant RAG as RAGService
     participant Embedder as VectorEmbedder
     participant Chroma as Local Chroma
@@ -55,22 +60,28 @@ sequenceDiagram
 
     Browser->>API: POST message
     API->>API: strip message and log prefix
-    API->>RAG: generate_answer(message, top_k=4)
+    API->>Orch: handle_turn(message, conversation_id=None)
+    Orch->>RAG: generate_answer(message, top_k=4)
     RAG->>Embedder: embed_query(message)
     Embedder-->>RAG: query vector
     RAG->>Chroma: search_similar(vector, top_k)
     Chroma-->>RAG: retrieved travel context and metadata
     RAG->>Model: system prompt with retrieved context + user message
     Model-->>RAG: generated answer
-    RAG-->>API: reply, model, citations
+    RAG-->>Orch: reply, model, citations
+    Orch-->>API: TurnOutcome without persistence
     API-->>Browser: ChatResponse
 ```
 
 The browser posts to `${VITE_API_URL}/api/v1/chat`, defaulting to
 `http://localhost:8000`. The backend strips the incoming message and rejects an
-empty value. The current route requests up to four retrieval results, then the
-RAG service sends both the user message and retrieved travel context to the
-configured external model endpoint.
+empty value. The route requests up to four retrieval results, then the RAG service
+sends both the user message and retrieved travel context to the configured
+external model endpoint.
+
+This is the unbound path, which is what the browser still sends. It performs no
+persistence and resolves no conversation storage. The bound variant is shown in
+[Local Conversation Flow](#local-conversation-flow).
 
 ## Offline Data Flow
 
@@ -104,17 +115,64 @@ flowchart LR
     Routes --> Service[WorkspaceService]
     Service --> Interface[WorkspaceRepository interface]
     Interface --> Adapter[SQLiteWorkspaceRepository]
-    Adapter --> DB[(WORKSPACE_DB_PATH)]
+    Adapter --> Registry[Shared schema registry]
+    Registry --> DB[(APP_DB_PATH)]
 ```
 
 Route handlers hold no SQL, table DDL, path creation, or connection management.
 The service owns validation, identity generation, and timestamps. Only the
-adapter imports `sqlite3`.
+adapter and the shared schema registry import `sqlite3`.
 
 This path is independent of RAG: workspace routes construct no embedder, Chroma
 collection, or model-provider client, and `backend/rag` imports no workspace
 module. It is unauthenticated local development behavior and must not be exposed
 publicly.
+
+## Local Conversation Flow
+
+Milestone `R4` adds conversation and message persistence beside workspaces, and
+introduces the `Conversation Orchestrator` seam that the target architecture
+already named. One shared local SQLite file holds every relational product record
+with per-module schema versions per ADR 0004.
+
+```mermaid
+flowchart LR
+    Caller[Local caller] --> Routes[FastAPI conversation routes]
+    Routes --> Service[ConversationService]
+    Service --> Interface[ConversationRepository interface]
+    Service --> WSInterface[WorkspaceRepository interface]
+    Interface --> Adapter[SQLiteConversationRepository]
+    Adapter --> Registry[Shared schema registry]
+    Registry --> DB[(APP_DB_PATH)]
+```
+
+A chat turn that opts in follows a second path, in which coordination lives in the
+orchestrator rather than in the route or in the RAG module per ADR 0005:
+
+```mermaid
+sequenceDiagram
+    participant API as FastAPI /api/v1/chat
+    participant Orch as ConversationOrchestrator
+    participant Conv as ConversationService
+    participant RAG as RAGService
+
+    API->>Orch: handle_turn(message, conversation_id)
+    Orch->>Conv: append user turn
+    Conv-->>Orch: user message with sequence
+    Orch->>RAG: generate_answer(message, top_k=4)
+    RAG-->>Orch: reply, model, citations
+    Orch->>Conv: append assistant turn
+    Conv-->>Orch: assistant message with sequence
+    Orch-->>API: TurnOutcome with persistence result
+```
+
+The user turn is persisted before generation, so a caller is never charged for an
+unrecorded turn. An assistant-turn write failure returns the reply with
+`persisted` `false` rather than hiding the gap. An unbound turn resolves no
+conversation service at all, which is what keeps the pre-`R4` chat contract and
+its failure modes unchanged.
+
+Message `content` is stored, never logged, and never deleted by `R4`.
 
 ## Trust Boundaries
 
@@ -122,48 +180,81 @@ publicly.
 | --- | --- |
 | Browser to local API | Local browser requests cross into the FastAPI process through permissive local CORS configuration that includes `*` |
 | Caller to workspace routes | Workspace routes are unauthenticated. `owner_user_id` is a caller-supplied local development scope label, not authentication, authorization, or tenant isolation, so these routes must not be exposed publicly |
+| Caller to conversation routes | Conversation routes are unauthenticated. Conversations inherit scope from their parent workspace and carry no owner field, so `R4` claims no cross-user or cross-workspace isolation beyond deterministic repository filtering. The public append route accepts only `user` and `system_event`, so a caller cannot forge an assistant turn. These routes must not be exposed publicly |
 | Local process to model provider | User message and retrieved travel context leave the local process for the configured external model endpoint |
 | Local files, model cache, and vector store | Data, Chroma state, and model cache are local development assets, not isolated production stores |
-| Local workspace database | The SQLite file at `WORKSPACE_DB_PATH` holds user-entered trip content as local development state, with no production retention, backup, restore, or deletion contract |
+| Local application database | The SQLite file at `APP_DB_PATH` holds user-entered trip content and full message content as local development state, with no production retention, backup, restore, or deletion contract |
 | Retrieved travel content to prompt | Retrieved text is untrusted data and should not be treated as an instruction source |
 | Environment to backend settings | Credential names are read from environment; real secret values must stay out of logs and docs |
 
 ## Current Invariants
 
-- The public chat request contract contains one required `message` string.
-- The chat response contract contains `reply`, `model`, and `citations`.
-- The backend mounts chat and workspace routes under `/api/v1` and health at
-  `/health`.
+- The public chat request contract requires one `message` string and accepts one
+  optional additive `conversation_id`.
+- The chat response contract contains `reply`, `model`, and `citations`, plus a
+  `conversation` object that is absent, not null, unless the caller opted in.
+- The backend mounts chat, workspace, and conversation routes under `/api/v1` and
+  health at `/health`.
 - Workspace routes are additive; the chat route performs no workspace lookup and
   accepts no `workspace_id`.
-- Workspace identity is server-generated and prefixed `tw_`.
+- Workspace identity is server-generated and prefixed `tw_`; conversation identity
+  is prefixed `cv_` and message identity `ms_`.
+- Message order within a conversation is a stored `sequence` integer starting at
+  `1`, unique per conversation, assigned by the adapter inside the write
+  transaction and never supplied by a caller.
+- Appending a message advances its parent conversation's `updated_at` in the same
+  transaction.
 - `R3` creates workspace records with `retention_state` `active` only and
-  implements no update, archive, or deletion route.
-- SQLite access is confined to `backend/workspaces/sqlite_repository.py`.
-- RAG and evaluation modules do not import workspace modules.
+  implements no update, archive, or deletion route. `R4` creates conversations
+  `active` only, implements no retention transition, and implements no deletion
+  path for either record.
+- Assistant and tool turns are writable only through the orchestrator.
+- SQLite access is confined to `backend/storage/schema_registry.py`,
+  `backend/workspaces/sqlite_repository.py`, and
+  `backend/conversations/sqlite_repository.py`. `PRAGMA user_version` is confined
+  to the schema registry.
+- Schema versions are recorded per module in `schema_versions`, so two modules
+  coexist in one database file without version contention.
+- RAG and evaluation modules do not import workspace, conversation, or
+  orchestration modules, and `backend/workspaces` does not import conversation or
+  orchestration modules.
 - The RAG service is process-global after first construction.
-- Chroma uses persistent local storage under `data/chromadb` by default.
+- Chroma uses persistent local storage under `data/chromadb` by default, and no
+  conversation or message record is written to any vector database.
 - Health readiness is narrower than chat readiness, and it does not signal
-  workspace storage readiness.
+  workspace or conversation storage readiness.
 - Startup attempts to pre-warm the RAG service and converts pre-warm failures
   to warnings.
 
 ## Known Gaps
 
-- No user, trip, conversation, or memory identifier exists in the bounded chat
-  request contract.
+- No user, trip, or memory identifier exists in the bounded chat request
+  contract. `conversation_id` is the only implemented identifier, and it is
+  optional.
 - No implemented agent memory exists yet.
-- Trip workspace records exist as a local `R3` backend component, but there is
-  no authenticated user, workspace-aware chat, conversation persistence,
-  itinerary state, planner behavior, workspace UI, or workspace lifecycle
-  transition.
-- Workspace routes are unauthenticated and `owner_user_id` is a local scope
-  label rather than an authorization control.
-- Local workspace SQLite storage settles no production database, migration,
-  backup, restore, concurrency, retention, or deletion policy.
+- Trip workspace and conversation records exist as local backend components, but
+  there is no authenticated user, workspace-aware chat, itinerary state, planner
+  behavior, workspace or conversation UI, or workspace lifecycle transition.
+- **The frontend is unchanged, so real browser traffic is not persisted.** `R4`
+  delivers the capability to persist a turn; the browser still holds its visible
+  transcript in volatile React state. Frontend work was explicitly deferred.
+- **No conversation summarization exists.** `summary` has no column and no
+  producer; it is deferred with the rest of memory work.
+- **No deletion semantics exist for any record.** The retention vocabulary admits
+  `summarized`, `archived`, `deletion_requested`, and `deleted`, but no producer
+  moves a record into any of them, and hard deletion versus tombstoning is an
+  open security-hardening decision.
+- No request body size limit exists, and message `content` is deliberately
+  unbounded, so request size limiting remains an API-boundary gap.
+- Workspace and conversation routes are unauthenticated, and `owner_user_id` is a
+  local scope label rather than an authorization control.
+- Local SQLite storage settles no production database, migration, backup,
+  restore, concurrency, retention, or deletion policy, and offers no concurrency
+  safety beyond a single local process.
 - There is no current multi-service data platform.
 - Local CORS is permissive.
-- The chat path logs a prefix of the user message.
+- The chat path logs a prefix of the user message. `R4` neither extends nor
+  removes that behavior; removing it is owned by a security-hardening milestone.
 - Current CI masks backend and frontend test failures, so green CI is not proof
   of passing tests.
 - Production security, privacy guarantees, data deletion, authorization,

@@ -2,10 +2,10 @@
 
 Most tests override the workspace service dependency with an isolated temporary
 SQLite database, so they never read or write the developer database at
-`WORKSPACE_DB_PATH`.
+`APP_DB_PATH`.
 
 The storage-failure tests deliberately do NOT override that dependency. They
-point `settings.WORKSPACE_DB_PATH` at a temporary broken database so the real
+point `settings.APP_DB_PATH` at a temporary broken database so the real
 dependency-construction path runs, which is the only way to observe how an
 infrastructure failure surfaces to the caller.
 
@@ -70,12 +70,17 @@ def broken_storage_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     This fixture intentionally leaves `get_workspace_service` in place so the
     genuine construction path executes and its failure mode is observable.
+
+    The seeded database carries a `PRAGMA user_version` value that the ADR 0004
+    schema registry does not recognize as its own store marker, so the shared
+    store refuses the file and the workspace adapter translates that refusal
+    into `WorkspaceStorageError`.
     """
     db_path = tmp_path / "incompatible.sqlite3"
     with sqlite3.connect(db_path) as connection:
         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
 
-    monkeypatch.setattr(config.settings, "WORKSPACE_DB_PATH", db_path, raising=False)
+    monkeypatch.setattr(config.settings, "APP_DB_PATH", db_path, raising=False)
     app.dependency_overrides.pop(get_workspace_service, None)
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client

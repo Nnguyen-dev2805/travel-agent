@@ -28,13 +28,15 @@ layout, Markdown documentation.
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | Completed |
 | Plan version | 0.1 |
 | Date | 2026-09-04 |
 | Approved specification | [Conversation Persistence Design](../specs/2026-09-04-conversation-persistence-design.md), version 0.1 (Approved 2026-09-04) |
 | Governing ADRs | [ADR 0004](../adr/0004-shared-local-application-store-and-per-module-schema-registry.md) (Accepted), [ADR 0005](../adr/0005-conversation-orchestration-seam-and-optional-chat-binding.md) (Accepted) |
 | Plan approval | Repository owner approved implementation plan version 0.1 in conversation on 2026-09-04, conditional on synchronizing the `R3` and `R4` roadmap status and adding the symlink guard; both conditions were satisfied before this status changed |
-| Execution base | `feature/agent-memory` at `2f632e2`, baseline `447 passed` |
+| Change-set acceptance | Repository owner reviewed the change set on 2026-09-04, returned three `P1` findings and one `P2`, and accepted the change set after the `P1` fixes were re-verified. Git delivery remains a repository-owner action |
+| Execution base | `feature/agent-memory` at `cb900e4`, the documentation-only commit that recorded this plan, ADR 0004, ADR 0005, and the approved spec on top of the R3 merge `2f632e2`. Baseline re-measured on `cb900e4` as `447 passed`, matching the recorded `2f632e2` baseline, so Global Constraint 2 is satisfied |
+| Execution environment | Primary working tree on branch `feature/agent-memory`, selected because the tree was clean, the plan permits either environment, and no symlink is required when `.venv` and `data/processed` are both real paths |
 | Execution owner | Coordinating agent |
 | Decision owner | Repository owner |
 | Scope | Runtime milestone R4 - shared schema registry, conversation module, orchestration seam, optional chat binding, five conversation routes, tests, and documentation |
@@ -204,7 +206,8 @@ Registry initialization reads `PRAGMA user_version` and behaves as follows:
 | `backend/app/api/conversations.py` | Five routes, dependency construction, the public role restriction, controlled HTTP errors, content-free logging | API schemas, conversation service, SQLite adapter |
 | `backend/app/schemas/chat.py` | Add optional `conversation_id` to the request and the optional `conversation` object to the response | Existing chat schemas, approved contract |
 | `backend/app/api/chat.py` | Delegate one turn to the orchestrator and map its outcome to HTTP | Chat schemas, conversation orchestrator |
-| `backend/app/main.py` | Mount the conversation router under `settings.API_V1_STR` beside chat and workspaces | Existing route registration pattern |
+| `backend/app/main.py` | Mount the conversation router under `settings.API_V1_STR` beside chat and workspaces, and register the content-free validation error handler | Existing route registration pattern |
+| `backend/app/errors.py` | Redact caller-submitted values from request-schema rejections so no error body carries message content or a conversation title. Added during review fixes; see [Post-review amendments](#post-review-amendments) | Global Constraint 14, Acceptance Criterion 19 |
 | `backend/app/config.py` | Add `APP_DB_PATH` with a local default and accept `WORKSPACE_DB_PATH` as a deprecated alias | ADR 0004, existing settings pattern |
 | `backend/workspaces/sqlite_repository.py` | Move version bookkeeping from `PRAGMA user_version` to the shared registry | Shared schema registry, ADR 0004 |
 | `backend/app/api/workspaces.py` | Resolve the renamed setting at the existing single construction site | `backend/app/config.py` |
@@ -239,7 +242,7 @@ Registry initialization reads `PRAGMA user_version` and behaves as follows:
 - Produces: plan status transition to `In Progress` and a confirmed execution
   base with a recorded baseline test count
 
-- [ ] **Step 1: Verify approval gates**
+- [x] **Step 1: Verify approval gates**
 
 Confirm that the spec header states `Approved` at version 0.1, that both ADRs
 state `Accepted`, and that this plan has been approved by the repository owner.
@@ -248,21 +251,21 @@ exists as tracked source.
 
 If any gate is missing, stop before editing and report which one.
 
-- [ ] **Step 2: Record the baseline**
+- [x] **Step 2: Record the baseline**
 
 Run: `./.venv/bin/python -m pytest backend/tests -q`
 
 Expected: `447 passed`. Record the exact number and duration. If the number
 differs, stop and report rather than editing the plan to match.
 
-- [ ] **Step 3: Mark execution start**
+- [x] **Step 3: Mark execution start**
 
 Move this plan and its `docs/plans/README.md` index row from `Approved` to
 `In Progress`. Update only the `R4` row in `docs/roadmap/master-roadmap.md`,
 changing its status from `Blocked by gate` to `In progress` and naming the spec
 and both ADRs. Do not touch any other roadmap row.
 
-- [ ] **Step 4: Run verification**
+- [x] **Step 4: Run verification**
 
 Run: `git status --short --untracked-files=all`
 
@@ -273,7 +276,7 @@ If a linked worktree was created for R4 and `data/processed` was symlinked,
 confirm here that the symlink does not appear in this output. If it appears, stop
 and report: the ignore rule is not covering it and the symlink is unsafe to keep.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: plan status, plan index status, roadmap `R4` row, recorded baseline, Git
 status, and symlink invisibility when a worktree is used.
@@ -307,7 +310,7 @@ unrelated work is at risk.
     `data/app/travel_agent.sqlite3`, with `WORKSPACE_DB_PATH` honored as a
     deprecated alias when `APP_DB_PATH` is unset
 
-- [ ] **Step 1: Write registry tests first**
+- [x] **Step 1: Write registry tests first**
 
 In `backend/tests/unit/test_schema_registry.py`, using `tmp_path` databases only,
 assert that:
@@ -345,7 +348,7 @@ Run: `./.venv/bin/python -m pytest backend/tests/unit/test_schema_registry.py`
 
 Expected: tests fail because `backend.storage.schema_registry` does not exist.
 
-- [ ] **Step 2: Implement the registry**
+- [x] **Step 2: Implement the registry**
 
 Implement `backend/storage/schema_registry.py` with the smallest code that passes.
 Use parameterized SQL and context-managed connections. Keep the module free of
@@ -361,7 +364,7 @@ CREATE TABLE IF NOT EXISTS schema_versions (
 )
 ```
 
-- [ ] **Step 3: Rewrite the three workspace version tests**
+- [x] **Step 3: Rewrite the three workspace version tests**
 
 In `backend/tests/unit/test_sqlite_workspace_repository.py`, rewrite
 `test_initialization_records_schema_version`,
@@ -380,7 +383,7 @@ Run: `./.venv/bin/python -m pytest backend/tests/unit/test_sqlite_workspace_repo
 Expected: the three rewritten tests fail because the adapter still uses the
 pragma; the remaining tests still pass.
 
-- [ ] **Step 4: Move the workspace adapter onto the registry**
+- [x] **Step 4: Move the workspace adapter onto the registry**
 
 Change `_initialize_schema` in `backend/workspaces/sqlite_repository.py` to open
 the database through the registry and register `('workspaces', 1)` with a create
@@ -390,7 +393,7 @@ callback holding the existing `CREATE TABLE` and `CREATE INDEX` statements. Keep
 does not change. Do not change the workspace table definition, the queries, the
 ordering, or the `TripWorkspace` mapping.
 
-- [ ] **Step 5: Add the setting and the deprecated alias**
+- [x] **Step 5: Add the setting and the deprecated alias**
 
 In `backend/app/config.py`, add `APP_DB_PATH` defaulting to
 `ROOT_DIR / "data" / "app" / "travel_agent.sqlite3"`. When the `APP_DB_PATH`
@@ -399,7 +402,7 @@ and log exactly one deprecation warning naming the variable without its value.
 Update the single construction site in `backend/app/api/workspaces.py` to resolve
 `settings.APP_DB_PATH`. Do not change RAG or model-provider settings.
 
-- [ ] **Step 6: Run verification**
+- [x] **Step 6: Run verification**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_schema_registry.py backend/tests/unit/test_sqlite_workspace_repository.py backend/tests/integration/test_workspace_api.py`
 
@@ -408,7 +411,7 @@ Run: `./.venv/bin/python -m compileall backend/storage backend/workspaces backen
 Expected: all pass, including the untouched R3 workspace coverage and the R3
 route integration tests.
 
-- [ ] **Step 7: Review checkpoint**
+- [x] **Step 7: Review checkpoint**
 
 Review: registry interface, sentinel handling, the three rewritten tests, the
 workspace adapter diff, the error translation boundary, and the alias behavior.
@@ -455,7 +458,7 @@ intent, and storage rollback evidence exists as a named test.
   - `ConversationRepositoryError`, `ConversationAlreadyExistsError`,
     `MessageSequenceConflictError`, `ConversationStorageError`
 
-- [ ] **Step 1: Write contract tests first**
+- [x] **Step 1: Write contract tests first**
 
 In `backend/tests/unit/test_conversation_models.py`, assert that:
 
@@ -491,7 +494,7 @@ Run: `./.venv/bin/python -m pytest backend/tests/unit/test_conversation_models.p
 Expected: tests fail with `ModuleNotFoundError: No module named
 'backend.conversations'`.
 
-- [ ] **Step 2: Implement the contracts**
+- [x] **Step 2: Implement the contracts**
 
 Implement `models.py` and `repository.py` with the smallest code that passes.
 Follow the R3 module style: frozen dataclasses, `__post_init__` normalization, and
@@ -503,7 +506,7 @@ The modules must import the standard library only. Do not import FastAPI,
 Pydantic, `sqlite3`, RAG, Chroma, model-provider, evaluation, or workspace
 modules here.
 
-- [ ] **Step 3: Run verification**
+- [x] **Step 3: Run verification**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_conversation_models.py`
 
@@ -511,7 +514,7 @@ Run: `./.venv/bin/python -m compileall backend/conversations`
 
 Expected: all contract tests pass and compilation succeeds.
 
-- [ ] **Step 4: Review checkpoint**
+- [x] **Step 4: Review checkpoint**
 
 Review: enum member values against the spec tables, default resolution, identity
 prefixes, the `content` no-limit decision, the sequence floor, the history limit
@@ -542,7 +545,7 @@ RAG or workspace dependency.
   - `WorkspaceNotFoundError` and `ConversationNotFoundError` raised by the service
     so the route layer can map them to `404` without inspecting storage details
 
-- [ ] **Step 1: Write service tests first**
+- [x] **Step 1: Write service tests first**
 
 In `backend/tests/unit/test_conversation_service.py`, using a fake conversation
 repository and a fake workspace repository, assert that:
@@ -578,7 +581,7 @@ Run: `./.venv/bin/python -m pytest backend/tests/unit/test_conversation_service.
 
 Expected: failure before implementation.
 
-- [ ] **Step 2: Write SQLite repository tests first**
+- [x] **Step 2: Write SQLite repository tests first**
 
 In `backend/tests/unit/test_sqlite_conversation_repository.py`, using `tmp_path`
 databases only, assert that:
@@ -620,7 +623,7 @@ Run: `./.venv/bin/python -m pytest backend/tests/unit/test_sqlite_conversation_r
 
 Expected: failure before implementation.
 
-- [ ] **Step 3: Implement the adapter and the service**
+- [x] **Step 3: Implement the adapter and the service**
 
 Implement `sqlite_repository.py` using the shared registry for schema ownership,
 parameterized SQL, context-managed connections, and UTC ISO timestamp storage.
@@ -639,7 +642,7 @@ repository interface, and the workspace repository interface only. Resolve a
 cursor `after_message_id` to its `sequence` before delegating, so the repository
 receives `after_sequence` and never has to interpret an identifier.
 
-- [ ] **Step 4: Run verification**
+- [x] **Step 4: Run verification**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_conversation_service.py backend/tests/unit/test_sqlite_conversation_repository.py`
 
@@ -647,7 +650,7 @@ Run: `./.venv/bin/python -m compileall backend/conversations`
 
 Expected: all pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: that SQL appears only inside the adapter, that sequence allocation and the
 parent bump share one transaction, that the transactional-rollback test genuinely
@@ -679,7 +682,7 @@ two modules coexist in one database file without version contention.
   - `get_conversation_service()` as the single dependency construction site that
     resolves `settings.APP_DB_PATH`, overridable in tests
 
-- [ ] **Step 1: Write route tests first**
+- [x] **Step 1: Write route tests first**
 
 In `backend/tests/integration/test_conversation_api.py`, using a dependency
 override backed by a `tmp_path` database, assert that:
@@ -715,7 +718,7 @@ Run: `./.venv/bin/python -m pytest backend/tests/integration/test_conversation_a
 
 Expected: failure to import `backend.app.api.conversations`.
 
-- [ ] **Step 2: Implement schemas and routes**
+- [x] **Step 2: Implement schemas and routes**
 
 Implement `backend/app/schemas/conversations.py` with request and response models
 and `from_domain` mappers, following the R3 schema style. The list responses are
@@ -733,7 +736,7 @@ Mount the router in `backend/app/main.py` with `prefix=settings.API_V1_STR`,
 matching the existing chat and workspace registration pattern. Keep the diff to
 the import line and the `include_router` line.
 
-- [ ] **Step 3: Run verification**
+- [x] **Step 3: Run verification**
 
 Run: `./.venv/bin/python -m pytest backend/tests/integration/test_conversation_api.py backend/tests/integration/test_workspace_api.py backend/tests/integration/test_api.py`
 
@@ -741,7 +744,7 @@ Run: `./.venv/bin/python -m compileall backend/app backend/conversations`
 
 Expected: all pass, including the untouched R3 workspace and existing API tests.
 
-- [ ] **Step 4: Review checkpoint**
+- [x] **Step 4: Review checkpoint**
 
 Review: route paths against the approved contract, status codes, response field
 names, the nested versus flat decision, the single dependency construction site,
@@ -772,7 +775,7 @@ content.
     excluded from serialization when unset, so an unbound response has no
     `conversation` key at all
 
-- [ ] **Step 1: Write orchestrator tests first**
+- [x] **Step 1: Write orchestrator tests first**
 
 In `backend/tests/unit/test_conversation_orchestrator.py`, using a fake
 conversation service and a fake RAG service that records call order, assert that:
@@ -802,7 +805,7 @@ Run: `./.venv/bin/python -m pytest backend/tests/unit/test_conversation_orchestr
 
 Expected: failure because `backend.orchestration` does not exist.
 
-- [ ] **Step 2: Write chat binding integration tests first**
+- [x] **Step 2: Write chat binding integration tests first**
 
 In `backend/tests/integration/test_chat_conversation_binding.py`, using a
 dependency override that supplies a fake RAG service and a `tmp_path` database,
@@ -835,7 +838,7 @@ Run: `./.venv/bin/python -m pytest backend/tests/integration/test_chat_conversat
 Expected: the new binding tests fail; the extended unbound assertion fails until
 the response model excludes the unset field.
 
-- [ ] **Step 3: Implement the orchestrator and the chat binding**
+- [x] **Step 3: Implement the orchestrator and the chat binding**
 
 Implement `backend/orchestration/conversation_orchestrator.py` depending on the
 conversation service and the `RAGService` facade only. Keep the turn ordering and
@@ -852,7 +855,7 @@ existing `400`, a user-turn storage failure to `500`, and existing generation
 failures to their current behavior. Keep the existing message-prefix log exactly
 as it is; do not extend it and do not remove it.
 
-- [ ] **Step 4: Run verification**
+- [x] **Step 4: Run verification**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_conversation_orchestrator.py backend/tests/integration/test_chat_conversation_binding.py backend/tests/integration/test_api.py`
 
@@ -860,7 +863,7 @@ Run: `./.venv/bin/python -m compileall backend/orchestration backend/app`
 
 Expected: all pass, and the unbound chat key-set assertion passes.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: the recorded call order proving the user turn precedes generation, the
 partial-failure return shape, the absence of a `conversation` key on the unbound
@@ -881,7 +884,7 @@ untouched, and no persistence gap can be silent.
 - Produces: canonical documentation that matches implemented behavior and keeps
   maturity language honest
 
-- [ ] **Step 1: Update the development guide**
+- [x] **Step 1: Update the development guide**
 
 In `DEVELOPMENT.md`, document `APP_DB_PATH` with its default path and the
 `WORKSPACE_DB_PATH` deprecated alias in the environment table, the five
@@ -891,7 +894,7 @@ no-authentication limitation, the statement that local SQLite is not production
 storage readiness, and the statement that the frontend is unchanged so browser
 traffic is not persisted in R4.
 
-- [ ] **Step 2: Update the architecture gateway and current state**
+- [x] **Step 2: Update the architecture gateway and current state**
 
 In `ARCHITECTURE.md`, add the conversation routes, the conversation module, the
 orchestration module, and the shared local application store to the current
@@ -908,7 +911,7 @@ the gap list. Do not repair the pre-existing stale claims in this file about CI
 masking or `.env.example`; those belong to earlier milestones and are out of R4
 scope.
 
-- [ ] **Step 3: Update the data model**
+- [x] **Step 3: Update the data model**
 
 In `docs/architecture/data-model.md`, mark the `Conversation` and `Message`
 implemented field subsets with their R4 rules, following the existing
@@ -917,14 +920,14 @@ has no column and no producer in R4, that messages carry no independent retentio
 state and follow their parent conversation, and that every other entity and
 relationship remains conceptual.
 
-- [ ] **Step 4: Update roadmap and plan state**
+- [x] **Step 4: Update roadmap and plan state**
 
 Update the `R4` roadmap row with implementation evidence only after verification
 passes. Do not mark `R5` or any later milestone started. Move this plan and its
 plan index row to `Completed` only after package verification and repository-owner
 change-set review evidence exist.
 
-- [ ] **Step 5: Run the documentation check**
+- [x] **Step 5: Run the documentation check**
 
 Run:
 
@@ -935,7 +938,7 @@ grep -n -E "tenant isolation|authenticated user|authorization control|production
 Expected: every match is reviewed and either removed or clearly framed as future
 work or an explicit non-goal.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: that documentation matches implemented behavior, that the deferred
 frontend is stated plainly rather than implied, and that nothing overclaims
@@ -957,7 +960,7 @@ without reading the spec.
 - Consumes: the complete R4 change set
 - Produces: fresh verification evidence and a repository-owner review packet
 
-- [ ] **Step 1: Run the full backend suite**
+- [x] **Step 1: Run the full backend suite**
 
 Run: `./.venv/bin/python -m pytest backend/tests`
 
@@ -966,13 +969,13 @@ passing test turning red. If any test requires an unavailable external model or
 Chroma state, stop and report the exact failing command and reason rather than
 substituting weaker evidence.
 
-- [ ] **Step 2: Compile**
+- [x] **Step 2: Compile**
 
 Run: `./.venv/bin/python -m compileall backend`
 
 Expected: exit `0`.
 
-- [ ] **Step 3: Run import-boundary checks**
+- [x] **Step 3: Run import-boundary checks**
 
 Run:
 
@@ -999,40 +1002,60 @@ grep -rn -E "backend\.workspaces|app\.api\.workspaces|app\.schemas\.workspaces" 
 
 Expected: exit `1`, no matches.
 
-- [ ] **Step 4: Run containment checks**
+- [x] **Step 4: Run containment checks**
+
+> **Amended after review.** The original single command matched documentation and
+> build artifacts as well as code, so it could not pass as written. It is replaced
+> by four commands that each express one invariant at code level. See
+> [Post-review amendments](#post-review-amendments).
 
 Run:
 
 ```bash
-grep -rn -E "sqlite3|CREATE TABLE|PRAGMA user_version" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
+grep -rln --include='*.py' -E "^import sqlite3|^from sqlite3|sqlite3\.(connect|Connection|Error|IntegrityError)" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
 ```
 
-Expected: `sqlite3` and `CREATE TABLE` appear only in
-`backend/storage/schema_registry.py`,
+Expected exactly three files: `backend/storage/schema_registry.py`,
 `backend/workspaces/sqlite_repository.py`, and
-`backend/conversations/sqlite_repository.py`. `PRAGMA user_version` appears only
-in `backend/storage/schema_registry.py`. Any other match is a boundary violation
-and must be fixed, not explained.
+`backend/conversations/sqlite_repository.py`. Any other file is a boundary
+violation and must be fixed, not explained.
 
 Run:
 
 ```bash
-grep -rn -E "APP_DB_PATH|WORKSPACE_DB_PATH" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
+grep -rln --include='*.py' -E "^CREATE (TABLE|INDEX)" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
 ```
 
-Expected: `APP_DB_PATH` appears in `backend/app/config.py`, which defines it, and
-at the two dependency construction sites in `backend/app/api/workspaces.py` and
-`backend/app/api/conversations.py`. `WORKSPACE_DB_PATH` appears only in
-`backend/app/config.py` as the deprecated alias.
+Expected: the same three files, and no other.
 
-- [ ] **Step 5: Run API contract checks**
+Run:
+
+```bash
+grep -rn --include='*.py' -E "execute\(f?\"PRAGMA user_version" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
+```
+
+Expected: only `backend/storage/schema_registry.py`. The registry is the single
+owner of the store marker, so no other module may read or write the pragma.
+
+Run:
+
+```bash
+grep -rn --include='*.py' -E "APP_DB_PATH|WORKSPACE_DB_PATH" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
+```
+
+Expected: only `backend/app/config.py`, which defines both names, and the two
+dependency construction sites in `backend/app/api/workspaces.py` and
+`backend/app/api/conversations.py`. Because this command still matches prose, no
+other module may name either setting even in a docstring or comment.
+
+- [x] **Step 5: Run API contract checks**
 
 Run: `./.venv/bin/python -m pytest backend/tests/integration/test_conversation_api.py backend/tests/integration/test_chat_conversation_binding.py backend/tests/integration/test_workspace_api.py backend/tests/integration/test_api.py`
 
 Expected: all pass, proving the new routes work and the health, chat, and R3
 workspace contracts are preserved.
 
-- [ ] **Step 6: Confirm storage rollback evidence**
+- [x] **Step 6: Confirm storage rollback evidence**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_schema_registry.py`
 
@@ -1040,7 +1063,7 @@ Expected: the named rollback-evidence test passes, demonstrating that a database
 initialized by R4 presents a `PRAGMA user_version` value that the pre-R4
 workspace version rule rejects.
 
-- [ ] **Step 7: Run diff and status checks**
+- [x] **Step 7: Run diff and status checks**
 
 Run: `git diff --check`
 
@@ -1052,14 +1075,14 @@ Expected: every changed and untracked file is reviewed and belongs to the approv
 scope. No database file appears, and no symlink appears. Inspect untracked file
 contents directly, because `git diff` alone does not show them.
 
-- [ ] **Step 8: Confirm no default database was created**
+- [x] **Step 8: Confirm no default database was created**
 
 Run: `ls data/app 2>&1`
 
 Expected: the directory does not exist, proving no test touched the default
 developer database path.
 
-- [ ] **Step 9: Scope review**
+- [x] **Step 9: Scope review**
 
 Confirm that R4 implements only the shared registry, the conversation module, the
 orchestration seam, the optional chat binding, the five routes, tests, and
@@ -1068,7 +1091,7 @@ summarization, planner state, itinerary versioning, deletion semantics, ORM,
 migration framework, production database, or frontend work was added. Confirm that
 health, chat, workspace, RAG, and evaluation compatibility evidence is fresh.
 
-- [ ] **Step 10: Repository owner review handoff**
+- [x] **Step 10: Repository owner review handoff**
 
 Record the exact verification commands and outcomes in the completion record.
 Summarize changed files, evidence, limitations, and the remaining Git delivery
@@ -1093,8 +1116,10 @@ grep -rn -E "backend\.conversations|backend\.orchestration|app\.api\.conversatio
 grep -n -E "backend\.conversations|backend\.orchestration|app\.api\.conversations|app\.schemas\.conversations" backend/tests/unit/test_evaluation_*.py backend/tests/integration/test_rag_evaluation_flow.py
 grep -rn -E "backend\.conversations|backend\.orchestration" backend/workspaces
 grep -rn -E "backend\.workspaces|app\.api\.workspaces|app\.schemas\.workspaces" backend/rag
-grep -rn -E "sqlite3|CREATE TABLE|PRAGMA user_version" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
-grep -rn -E "APP_DB_PATH|WORKSPACE_DB_PATH" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
+grep -rln --include='*.py' -E "^import sqlite3|^from sqlite3|sqlite3\.(connect|Connection|Error|IntegrityError)" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
+grep -rln --include='*.py' -E "^CREATE (TABLE|INDEX)" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
+grep -rn --include='*.py' -E "execute\(f?\"PRAGMA user_version" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
+grep -rn --include='*.py' -E "APP_DB_PATH|WORKSPACE_DB_PATH" backend/app backend/workspaces backend/conversations backend/orchestration backend/storage
 git diff --check
 git status --short --untracked-files=all
 ls data/app 2>&1
@@ -1108,10 +1133,10 @@ Expected package result:
    named with its exact failure output.
 3. Compilation succeeds with exit `0`.
 4. All four import-boundary greps return no matches, with `grep` exit `1`.
-5. `sqlite3` and `CREATE TABLE` are confined to the schema registry and the two
-   repository adapters; `PRAGMA user_version` is confined to the schema registry;
-   `APP_DB_PATH` is confined to settings and the two construction sites; and
-   `WORKSPACE_DB_PATH` appears only as the alias in settings.
+5. `sqlite3` usage and table DDL are confined to the schema registry and the two
+   repository adapters; `PRAGMA user_version` is read or written only in the
+   schema registry; `APP_DB_PATH` and `WORKSPACE_DB_PATH` are named only in
+   settings and at the two dependency construction sites.
 6. The unbound chat response key set is exactly `reply`, `model`, `citations`.
 7. The named storage rollback evidence test passes.
 8. No whitespace errors, and every tracked and untracked implementation file is
@@ -1147,11 +1172,300 @@ artifacts, or the R3 workspace database at the old default path.
 
 ## Completion Record
 
-Not yet executed. This plan is `Approved` at version 0.1 and no task has run.
+All eight tasks executed, then three `P1` review findings fixed and re-verified.
+The repository owner accepted the change set on 2026-09-04, which closes the review
+gate and moves this plan to `Completed`. Git delivery remains a repository-owner
+action and has not occurred.
 
-No source file has been created or modified for R4. The artifacts written so far
-are the approved specification, ADR 0004, ADR 0005, this plan, their index
-entries, and the roadmap status synchronization described below.
+| Field | Value |
+| --- | --- |
+| Environment | Primary working tree, branch `feature/agent-memory`, no linked worktree and therefore no symlink |
+| Base | `cb900e4`, baseline re-measured as `447 passed` |
+| Head | Working tree, nothing staged or committed |
+| Result | `708 passed` in `20.95s`, `compileall` exit `0` |
+| Interpreter | `./.venv/bin/python`, Python 3.14.5, pytest 9.1.1 |
+| Review round | One review, three `P1` findings fixed, one `P2` finding returned as an owner decision |
+
+### Change Set
+
+Sixteen modified files and nineteen new files, all inside the approved scope.
+
+| File | Change |
+| --- | --- |
+| `backend/storage/__init__.py` | New. Shared store package exporting the registry entry points |
+| `backend/storage/schema_registry.py` | New. Sentinel ownership rule, `schema_versions` table, per-module register and read, fail-closed errors |
+| `backend/conversations/__init__.py` | New. Contract, service, and repository-interface exports. Deliberately does not re-export the SQLite adapter |
+| `backend/conversations/models.py` | New. `Conversation`, `Message`, `MessageDraft`, `ConversationCreate`, `MessageHistoryQuery`, four vocabularies, identity generation, validation helpers |
+| `backend/conversations/repository.py` | New. Storage interface plus `ConversationRepositoryError`, `ConversationAlreadyExistsError`, `MessageAlreadyExistsError`, `MessageSequenceConflictError`, `ConversationStorageError` |
+| `backend/conversations/sqlite_repository.py` | New. Schema version 1, `BEGIN IMMEDIATE` sequence allocation with the parent bump, cursor reads, fail-closed row mapping |
+| `backend/conversations/service.py` | New. Create, get, list, append, history; workspace and conversation existence; identity and turn-position retry; cursor resolution |
+| `backend/orchestration/__init__.py` | New. Orchestrator exports |
+| `backend/orchestration/conversation_orchestrator.py` | New. `TurnOutcome`, `TurnPersistence`, `handle_turn` turn ordering and partial-failure policy |
+| `backend/app/schemas/conversations.py` | New. Five route request and response shapes with `from_domain` mappers |
+| `backend/app/api/conversations.py` | New. Five routes, the single dependency construction site, role restriction, controlled errors, content-free logging |
+| `backend/app/errors.py` | New, added in review fixes. Application-wide `RequestValidationError` handler that drops `input` and `ctx` so a schema rejection cannot echo submitted content |
+| `backend/app/schemas/chat.py` | Modified. Optional `conversation_id` in, optional `conversation` out, plus a model serializer that drops the key when absent |
+| `backend/app/api/chat.py` | Modified. Delegates one turn to the orchestrator and maps its outcome to HTTP; keeps the existing message-prefix log unchanged |
+| `backend/app/main.py` | Modified. Mounts the conversation router under `settings.API_V1_STR`, and registers the content-free validation error handler |
+| `backend/app/config.py` | Modified. `APP_DB_PATH` with the `WORKSPACE_DB_PATH` deprecated alias and one deprecation warning |
+| `backend/app/api/workspaces.py` | Modified. Resolves `settings.APP_DB_PATH` at the existing single construction site |
+| `backend/workspaces/sqlite_repository.py` | Modified. `_initialize_schema` moved onto the registry; `SCHEMA_MODULE` added; `SchemaRegistryError` translated to `WorkspaceStorageError` |
+| `backend/tests/unit/test_schema_registry.py` | New, 16 tests. Initialization, sentinel, isolation, fail-closed cases, rollback evidence |
+| `backend/tests/unit/test_conversation_models.py` | New, 93 tests. Contract and validation coverage |
+| `backend/tests/unit/test_conversation_service.py` | New. Normalization, existence enforcement, identity retry, no-write-on-invalid, import graph |
+| `backend/tests/unit/test_sqlite_conversation_repository.py` | New. Schema, persistence, sequence allocation, ordering, cursor reads, transactional bump, fail-closed mapping |
+| `backend/tests/unit/test_conversation_orchestrator.py` | New. Turn ordering, partial failure, role authority, import graph |
+| `backend/tests/integration/test_conversation_api.py` | New, 36 tests. Five routes, error cases, role restriction, cursor and limit bounds, no-leak assertions |
+| `backend/tests/integration/test_chat_conversation_binding.py` | New. Bound turn behavior with a fake RAG service and a temporary database |
+| `backend/tests/unit/test_sqlite_workspace_repository.py` | Modified. Three version tests rewritten for registry semantics, plus two new discriminating tests |
+| `backend/tests/integration/test_workspace_api.py` | Modified. `broken_storage_client` now patches `APP_DB_PATH`; docstring updated |
+| `backend/tests/integration/test_api.py` | Modified. Three added assertions: unbound key set, no `conversation` key, no local database created |
+| `DEVELOPMENT.md` | Modified. `APP_DB_PATH` and alias, five routes, chat binding, four limitations, symptom rows, command-contract rows |
+| `ARCHITECTURE.md` | Modified. Components, conversation flow, orchestrator sequence, trust boundary, invariants, known gaps |
+| `docs/architecture/current-state.md` | Modified. Component map, implemented conversation contracts, shared store, gap list, compatibility baseline |
+| `docs/architecture/data-model.md` | Modified. Implemented `Conversation` and `Message` field tables; `summary` recorded as absent |
+| `docs/roadmap/master-roadmap.md` | Modified. `R4` row evidence and the Current Phase paragraph |
+| `docs/plans/README.md` | Modified. `R4` index row status |
+| `docs/plans/2026-09-04-conversation-persistence-implementation.md` | Modified. Status, execution base, checkbox state, this record |
+
+### Fresh Verification
+
+Re-run after the review fixes.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Full suite | `./.venv/bin/python -m pytest backend/tests` | `708 passed` in `20.95s`; baseline `447` preserved, nothing turned red, still one pre-existing Chroma deprecation warning |
+| Compile | `./.venv/bin/python -m compileall backend` | exit `0` |
+| RAG boundary | `grep -rn -E "backend\.conversations\|backend\.orchestration\|app\.api\.conversations\|app\.schemas\.conversations" backend/rag` | exit `1`, no match |
+| Evaluation boundary | same pattern over `test_evaluation_*.py` and `test_rag_evaluation_flow.py` | exit `1`, no match |
+| Workspace boundary | `grep -rn -E "backend\.conversations\|backend\.orchestration" backend/workspaces` | exit `1`, no match |
+| R3 boundary | `grep -rn -E "backend\.workspaces\|app\.api\.workspaces\|app\.schemas\.workspaces" backend/rag` | exit `1`, no match |
+| `sqlite3` containment | amended command C1 | exactly `schema_registry.py`, `workspaces/sqlite_repository.py`, `conversations/sqlite_repository.py` |
+| DDL containment | amended command C2 | the same three files, no other |
+| Pragma containment | amended command C3 | only `backend/storage/schema_registry.py`, lines 98 and 102 |
+| Setting containment | amended command C4 | only `backend/app/config.py` (13 lines, defines both) and the two construction sites (`api/conversations.py` 3 lines, `api/workspaces.py` 2 lines) |
+| API contracts | `pytest test_conversation_api.py test_chat_conversation_binding.py test_workspace_api.py test_api.py` | all pass |
+| Rollback evidence | `pytest backend/tests/unit/test_schema_registry.py -k rollback_evidence` | `1 passed` |
+| Leak probes | the four reviewer probes replayed by hand | all `422`, all `leak=False` |
+| Whitespace | `git diff --check` | exit `0` |
+| Change set | `git status --short --untracked-files=all` | 16 modified, 19 untracked, all in approved scope; no database file, no symlink |
+| Default database | `ls data/app` | **exists**, and is disclosed under [Open Items For The Owner](#open-items-for-the-owner) |
+
+### Deviations From The Plan
+
+Four decisions departed from the letter of the plan or the spec. None expands
+approved scope, and each is listed for review rather than assumed accepted.
+
+1. **`append_message` takes the generated identity as a second argument.** The
+   spec's illustrative `ConversationRepository` snippet shows
+   `append_message(self, message: MessageDraft) -> Message` and describes
+   `MessageDraft` as carrying "every message field except `sequence`", which would
+   put `message_id` inside the draft. The plan's Task 3 test 2 requires the
+   opposite: `MessageDraft` must have no `message_id` field. The signature is
+   therefore `append_message(message, message_id)`, which satisfies the approved
+   test, keeps identity generation and its single retry in the service for both
+   record types, and contradicts only prose, not an acceptance criterion.
+2. **`get_message` was added to the repository interface.** Approved Flow 5 makes
+   cursor resolution and foreign-cursor rejection a service responsibility, which
+   requires a storage lookup by `message_id`. The five-method snippet in the spec
+   provides none, so one read-only method was added.
+3. **`next_cursor` uses the full-page heuristic.** The approved contract says
+   `next_cursor` is the last returned `message_id` "when more records **may**
+   exist". A full page therefore reports a cursor and a short page reports `null`.
+   This keeps both approved signatures returning `tuple[Message, ...]` with no
+   over-fetch and no extra method.
+4. **`backend/tests/integration/test_workspace_api.py` was edited.** The plan's
+   Task 2 file list does not name it, but its `broken_storage_client` fixture
+   patches the setting the workspace route resolves. After the rename to
+   `APP_DB_PATH` the fixture would have pointed at the real default database and
+   the storage-failure tests would have stopped exercising a failure. The edit is
+   one line plus a docstring, and it falls inside the "setting rename" refactor
+   that the approved spec's Alternative C already scoped.
+
+Two further choices are recorded because they shape reviewable structure:
+
+- **The conversation service imports the workspace interface under
+  `TYPE_CHECKING`.** Importing it at runtime would execute
+  `backend/workspaces/__init__.py`, which re-exports the SQLite adapter and would
+  pull `sqlite3` into the conversation runtime graph. The annotation-only import
+  keeps the one-way boundary verifiable by test instead of only documented.
+- **The chat route resolves the conversation service lazily.** Constructing it
+  eagerly would open local storage on every unbound chat request, create the
+  default developer database on first use, and add a storage failure mode to a
+  contract that has none. A provider callable keeps the unbound path untouched,
+  which is what makes `ls data/app` and the unbound key-set assertions hold.
+
+### Post-review amendments
+
+The repository owner's review returned three `P1` findings and one `P2`. All three
+`P1` findings were real and are fixed. The `P2` finding is returned as an owner
+decision because closing it requires amending an approved containment rule.
+
+**P1.1 Error bodies echoed submitted `title` and `content`.** Confirmed by replaying
+the reviewer's probes: `{"title": ["SUPER_SECRET_TITLE"]}` returned `422` with
+`"input":["SUPER_SECRET_TITLE"]`. The domain contract already produced content-free
+rejections for blank, length, and vocabulary rules, but a wrong-typed payload never
+reached the domain: it failed inside the request schema, and FastAPI's default
+`RequestValidationError` body reports the offending value under `input`, with some
+error types repeating it under `ctx`.
+
+Probing further showed the hole was wider than the two fields named. A caller could
+place content in `role`, `source`, or `trace_visibility` and have it echoed, so
+fixing only `title` and `content` would have left the guarantee defeatable on
+purpose.
+
+Fixed with one application-wide handler in the new `backend/app/errors.py`,
+registered in `backend/app/main.py`. It preserves the `422` status, the `detail`
+list, and the diagnostic fields `type`, `loc`, and `msg`, and drops `input` and
+`ctx`. No diagnostic value is lost: for a vocabulary violation `msg` already names
+the permitted values, which a test now pins.
+
+Two consequences are disclosed rather than assumed accepted:
+
+1. **This exceeds the plan's Task 5 Step 2 instruction** to keep the `main.py` diff
+   to the import line and the `include_router` line. Global Constraint 14 and
+   approved Acceptance Criterion 19 require that no error body carries message
+   content, and a handler is the only way to make that hold for an arbitrary
+   payload. A Global Constraint outranks a step-level instruction, so the handler
+   was implemented; the owner may still reject the placement.
+2. **The handler is application-wide, so R3 workspace routes and the chat route
+   inherit the redaction.** The pre-existing R3 leak on a wrong-typed workspace
+   `title` is closed as a side effect. This changes only FastAPI's automatic
+   validation body, never a designed `HTTPException` detail, so no R3 route path,
+   request shape, success response, ordering, or status code changes. No existing
+   test asserted on `input` or `ctx`, which was verified before the change.
+
+**P1.2 `sequence` collision was not retried.** Confirmed. Approved error case 12
+requires one retry then a controlled failure, but the service's retry loop caught
+only `MessageAlreadyExistsError`, so `MessageSequenceConflictError` propagated to
+the route on the first conflict. The loop now catches both. The retry is meaningful
+because the adapter re-reads the highest `sequence` on every attempt, so a second
+attempt re-allocates the position rather than reordering or overwriting a turn.
+Four tests cover it: retried once then succeeds, second conflict fails closed with
+no partial write, and the conflict type never escapes to the route layer.
+
+**P1.3 The containment command could not pass as written.** Confirmed, and this was
+a defect in the plan rather than in the source. The single broad grep matched three
+classes of non-code text: the database filenames inside `backend/app/config.py`
+path strings, docstrings that name `PRAGMA user_version` in order to state the
+constraint, and `__pycache__` byte-code that `compileall` had just produced. The
+plan then said "any other match is a boundary violation and must be fixed, not
+explained", which left no passing outcome available.
+
+Amended along the path the reviewer offered. Task 8 Step 4 and the Package
+Verification block now carry four commands, each expressing one invariant at code
+level rather than at text level:
+
+| ID | Invariant | Command shape |
+| --- | --- | --- |
+| C1 | `sqlite3` is used in three modules only | `--include='*.py'` plus import lines and `sqlite3.` attribute access |
+| C2 | Table and index DDL lives in three modules only | `--include='*.py'` plus `^CREATE (TABLE\|INDEX)` |
+| C3 | The store marker is read or written in one module only | `--include='*.py'` plus `execute\(f?"PRAGMA user_version` |
+| C4 | Both setting names appear in settings and two construction sites only | `--include='*.py'` plus the unchanged name pattern |
+
+C4 was deliberately left broad enough to still match prose, so no module may name
+either setting even in a comment. One docstring line in
+`backend/conversations/sqlite_repository.py` named `APP_DB_PATH`; it was reworded to
+describe the boundary without the literal, and C4 now passes with no exception.
+
+**P2 The chat route imports a dependency from the conversation route module.**
+Confirmed and left unchanged, because the two approved documents disagree and only
+the owner can settle it:
+
+- Approved spec line 457 lists the chat route's allowed dependencies as FastAPI,
+  chat schemas, and the conversation orchestrator.
+- Approved spec lines 483 to 485, and the plan's containment expectation, require
+  that `APP_DB_PATH` appear only in `backend/app/config.py` and at the construction
+  sites in `backend/app/api/workspaces.py` and `backend/app/api/conversations.py`.
+
+The chat route needs a provider for the conversation service, and the containment
+rule pins where that provider may be built. Moving it to a
+`backend/app/dependencies.py` module, as the review suggests, would put
+`APP_DB_PATH` in a fourth location and break C4 as approved. Two alternatives were
+examined and rejected on their merits: letting `chat.py` construct the service
+itself duplicates `APP_DB_PATH` into a fifth location, and moving
+`get_conversation_orchestrator` into `api/conversations.py` creates a genuine import
+cycle, because that module would then need `get_rag_service` from `chat.py`.
+
+Nothing is broken today: the coupling is module-level only, `main.py` already
+imports both routers, and the runtime graph is unchanged. Two paths were offered to
+the owner, both requiring a spec amendment rather than a code change alone.
+
+**Owner decision on 2026-09-04: path 1.** The change set was accepted with the
+import in place, so the current arrangement is recorded as a deliberate narrowing
+of the spec's chat-route dependency list: the chat route depends on the
+orchestrator for behavior and on `api/conversations.py` only to reach the single
+permitted construction site that the containment rule pins there. Path 2, a
+`backend/app/dependencies.py` wiring module holding both construction sites with C4
+amended to name it, remains available as a later cleanup and needs its own spec
+change. No code changed for this finding.
+
+### Open Items For The Owner
+
+**Resolved on 2026-09-04.** Both items below were closed when the repository owner
+accepted the change set.
+
+**A local database file exists at the default path, created by an agent probe, not
+by the test suite.** Task 8 Step 8 expects `ls data/app` to fail. It succeeds.
+
+The cause is disclosed plainly: while reproducing the reviewer's leak probes, a
+hand-run script posted to `POST /api/v1/workspaces` without overriding the
+workspace dependency. The real dependency resolved `settings.APP_DB_PATH` and
+initialized `data/app/travel_agent.sqlite3`. The test suite did not create it,
+which the rewritten `test_unbound_chat_opens_no_conversation_storage` proves
+hermetically by redirecting `APP_DB_PATH` into `tmp_path` instead of asserting
+against the real default path.
+
+Inspected contents, so the decision rested on facts:
+
+| Property | Value |
+| --- | --- |
+| Path | `data/app/travel_agent.sqlite3` |
+| Store marker | `1000` |
+| Tables | `schema_versions`, `trip_workspaces` |
+| Registry rows | `('workspaces', 1)` |
+| `trip_workspaces` rows | `0` |
+| `conversations` and `messages` tables | absent, never initialized |
+| Git status | ignored by `.gitignore:29`, so it is not part of the change set |
+
+The file holds schema and no data. It was **not deleted**, and remains on disk.
+Global Constraint 15 reserves creating, deleting, and cleaning persistent local
+database files for the repository owner naming the exact path, and no such
+instruction was given. The R3 database at
+`data/workspaces/travel_agent_workspaces.sqlite3` was never touched.
+
+**Recorded outcome:** the file is accepted as ordinary local development state, and
+Task 8 Step 8 is treated as satisfied by the hermetic test rather than by the
+filesystem. If the owner later wants the original precondition restored, deleting
+exactly `data/app/travel_agent.sqlite3` and its parent directory is safe because it
+contains no data, but that remains an owner action.
+
+### Known Gaps Carried Forward
+
+1. `backend/app/api/chat.py` still logs a 50-character prefix of the user
+   message. R4 neither extended nor removed it; removal is owned by a
+   security-hardening milestone and would need its own spec.
+2. Message `content` has no maximum length, so request size limiting remains an
+   API-boundary gap.
+3. The frontend is unchanged, so real browser traffic is still not persisted.
+4. No deletion, summarization, or retention transition exists for any record.
+5. The R3 database at the old default path is untouched on disk. Deleting it
+   requires the repository owner to name that exact path.
+
+### Remaining gates
+
+1. Git delivery, which remains a repository-owner action. Nothing has been staged,
+   committed, pushed, or opened as a pull request by an agent.
+
+The specification, both ADRs, the plan, implementation, verification, and the
+repository-owner change-set review are all closed. `R4` is `Accepted in working
+tree` on the roadmap and becomes `Delivered` when the owner merges it.
+
+One unrelated roadmap inconsistency was found and deliberately left alone: the `D4`
+row still reads `In progress` while the `Current Phase` section states that `D0`
+through `D7` are complete and accepted. Task 1 Step 3 restricts this plan to the
+`R4` row, and a milestone status is a governance claim that needs its own evidence,
+so it is reported here rather than changed.
 
 ### Pre-execution amendments
 
@@ -1188,8 +1502,9 @@ Applied changes, all within the roadmap's own change rule 1 for status updates:
 5. Corrected the `D4` recommended action, which still read "Complete this
    package".
 
-`R5` and `R7` remain `Blocked by gate` on `R4`, which is still correct because R4
-has no implementation.
+`R5` and `R7` were left `Blocked by gate` on `R4`, which was correct at that time
+because R4 had no implementation, and remains correct now because R4 has not
+passed repository-owner review.
 
 **Symlink guard.** The plan instructs symlinking `data/processed` into a linked
 worktree. During R3 a `docs` symlink was replaced by a real directory and sixteen
@@ -1206,9 +1521,6 @@ therefore forbids overriding that protection rather than adding a new one. Also
 verified that `docs/` is no longer ignored, so R4 documentation edits are tracked
 deliverables that must never be reached through a symlink.
 
-### Remaining gates
-
-1. Implementation of Tasks 1 through 8, review, and fresh verification.
-2. Repository-owner change-set review.
-3. Git delivery, which remains a repository-owner action. Nothing has been staged,
-   committed, pushed, or opened as a pull request.
+Execution ultimately used the primary working tree on `feature/agent-memory`, so
+no symlink was created and the guard was not exercised. Both verification points
+confirmed an empty symlink result rather than a passing symlink check.

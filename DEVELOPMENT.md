@@ -33,7 +33,8 @@ local untracked `.env` only when a local workflow needs environment values.
 | `GITHUB_TOKEN` | Backend settings and external model client | Stage B external generation | Yes | Placeholder only; do not commit real values |
 | `LLM_MODEL` | Backend settings | Selecting the external model | No secret by itself | Defaults to `gpt-4o-mini` |
 | `VITE_API_URL` | Frontend API client and Docker Compose frontend service | Browser-to-backend API origin | No secret by itself | Defaults to `http://localhost:8000` |
-| `WORKSPACE_DB_PATH` | Backend settings and the local workspace SQLite adapter | Local trip workspace routes | No secret by itself | Defaults to `data/workspaces/travel_agent_workspaces.sqlite3`; local development state only |
+| `APP_DB_PATH` | Backend settings, the local workspace adapter, and the local conversation adapter | Local trip workspace and conversation routes | No secret by itself | Defaults to `data/app/travel_agent.sqlite3`; one shared local SQLite file per ADR 0004; local development state only |
+| `WORKSPACE_DB_PATH` | Backend settings only | Nothing new; kept so an existing local environment still works | No secret by itself | **Deprecated alias for `APP_DB_PATH`.** Used only when `APP_DB_PATH` is unset, and logs one deprecation warning naming the variable without its value |
 
 Do not print, paste, or commit real credential values in logs, examples,
 issues, screenshots, terminal output, or documentation.
@@ -124,7 +125,7 @@ Stage B is the real chat path. Before using `/api/v1/chat`, verify:
 - the external model request contains the user message and retrieved travel
   context.
 
-The current public chat request body contains only:
+The minimal public chat request body still contains only:
 
 ```json
 {
@@ -132,8 +133,10 @@ The current public chat request body contains only:
 }
 ```
 
-There is no implemented user, trip, conversation, or memory identifier in this
-bounded request contract.
+Since `R4` the body also accepts an optional `conversation_id`, documented under
+[Binding a Chat Turn to a Conversation](#binding-a-chat-turn-to-a-conversation).
+There is still no implemented user, trip, or memory identifier in this bounded
+request contract.
 
 ### Local Trip Workspace Routes
 
@@ -180,15 +183,145 @@ Two limitations are deliberate and must not be described otherwise:
    authentication, authorization, a verified principal, or tenant isolation.
    Listing filters deterministically by that label and nothing more. Do not
    expose these routes publicly.
-2. **`WORKSPACE_DB_PATH` is local development state.** The SQLite file is a local
-   `R3` adapter per ADR 0003. It does not establish a production database,
-   migration framework, backup, restore, concurrency, retention, or deletion
-   contract. `R3` implements no workspace update, archive, or deletion route.
+2. **The local database is development state.** The SQLite file at `APP_DB_PATH`
+   is a local adapter per ADR 0003 and a shared application store per ADR 0004. It
+   does not establish a production database, migration framework, backup,
+   restore, concurrency, retention, or deletion contract. `R3` implements no
+   workspace update, archive, or deletion route.
 
-The adapter creates the parent directory and schema version 1 on first use. If an
-existing database reports a different schema version, the adapter fails closed
-with a controlled error instead of migrating. Tests always use temporary database
-paths and never touch the default developer database.
+The adapter creates the parent directory on first use and records `('workspaces',
+1)` in the shared `schema_versions` table. If the database records a different
+workspace schema version, or carries a store marker this build does not
+recognize, the adapter fails closed with a controlled error instead of migrating.
+Tests always use temporary database paths and never touch the default developer
+database.
+
+### Local Conversation Routes
+
+Milestone `R4` adds five backend-only routes for creating conversations and
+appending and reading messages. They are mounted beside chat and workspaces under
+`/api/v1` and change neither the chat nor the workspace contract.
+
+| Method and path | Purpose |
+| --- | --- |
+| `POST /api/v1/workspaces/{workspace_id}/conversations` | Create one conversation and return `201` with the stored record |
+| `GET /api/v1/workspaces/{workspace_id}/conversations` | Return `{"conversations": [...]}` for one workspace, newest updated first |
+| `GET /api/v1/conversations/{conversation_id}` | Return one conversation, or `404` when absent |
+| `POST /api/v1/conversations/{conversation_id}/messages` | Append one message and return `201` with its server-assigned `sequence` |
+| `GET /api/v1/conversations/{conversation_id}/messages` | Return `{"messages": [...], "next_cursor": ...}` in `sequence` ascending order |
+
+Like the workspace routes, these need no credential, embedding model, Chroma
+data, or network access, and they are independent of Stage B readiness.
+
+Create a conversation under an existing workspace:
+
+```bash
+curl --fail --silent --show-error \
+  --request POST http://localhost:8000/api/v1/workspaces/tw_example/conversations \
+  --header 'Content-Type: application/json' \
+  --data '{"title":"Da Nang food plan"}'
+```
+
+Append a message:
+
+```bash
+curl --fail --silent --show-error \
+  --request POST http://localhost:8000/api/v1/conversations/cv_example/messages \
+  --header 'Content-Type: application/json' \
+  --data '{"role":"user","content":"Nên đi Đà Nẵng vào tháng mấy?"}'
+```
+
+Read history with cursor pagination:
+
+```bash
+curl --fail --silent --show-error \
+  'http://localhost:8000/api/v1/conversations/cv_example/messages?limit=50'
+```
+
+Field rules. `title` is optional, trimmed, at most 120 characters, and a blank
+title normalizes to absent. `content` is required, trimmed, non-empty, and
+deliberately has no maximum length, because the chat route already accepts an
+unbounded `message`; request size limiting belongs at the API boundary and is a
+known gap. `role` is one of `user`, `assistant`, `tool`, `system_event`, but the
+public append route accepts only `user` and `system_event` and returns `422` for
+the others. `source` is one of `ui`, `tool`, `model`, `system`, `import` and
+defaults to `ui`. `trace_visibility` is `excluded` or `included` and defaults to
+`excluded`, so no stored message becomes evaluation input without an explicit
+decision. `conversation_id`, `message_id`, `sequence`, `retention_state`,
+`created_at`, and `updated_at` are server-owned. History `limit` defaults to `50`
+and is capped at `200`; an out-of-range limit, an unknown cursor, or a cursor from
+another conversation returns `422`.
+
+Four limitations are deliberate and must not be described otherwise:
+
+1. **These routes are unauthenticated.** Conversations inherit scope from their
+   parent workspace, whose `owner_user_id` is a local development scope label.
+   `R4` adds no authentication, authorization, sessions, or tenant isolation, and
+   claims no cross-user or cross-workspace isolation beyond deterministic
+   repository filtering. Do not expose these routes publicly.
+2. **Local SQLite is not production storage readiness.** `APP_DB_PATH` is one
+   local file for local development. `R4` settles no production database,
+   migration framework, backup, restore, concurrency, retention, or deletion
+   policy.
+3. **The frontend is unchanged, so real browser traffic is not persisted.** `R4`
+   delivers the capability to persist a turn; the browser client still holds its
+   visible transcript in volatile React state. Frontend work was explicitly
+   deferred and requires separate approval.
+4. **Nothing is deleted, summarized, or edited.** `R4` creates only `active`
+   conversations, implements no retention transition and no deletion path, and
+   gives `summary` no column and no producer. Messages are immutable after insert
+   and carry no retention state of their own; they follow their parent
+   conversation.
+
+Message `content` is user content. It is stored, never logged, and never returned
+in an error body. Logs and HTTP error details carry identifiers, sequence
+numbers, roles, counts, route or action names, and failure classes only.
+
+### Binding a Chat Turn to a Conversation
+
+`POST /api/v1/chat` accepts an optional `conversation_id`. The field is additive:
+a request that omits it behaves exactly as it did before `R4`.
+
+Unbound request and response, unchanged from `R3`:
+
+```json
+{ "message": "Nên đi Đà Nẵng vào tháng mấy?" }
+```
+
+```json
+{ "reply": "...", "model": "gpt-4o-mini", "citations": [] }
+```
+
+There is no `conversation` key at all on this path, not even a null one.
+
+Bound request and response:
+
+```json
+{ "message": "Nên đi Đà Nẵng vào tháng mấy?", "conversation_id": "cv_example" }
+```
+
+```json
+{
+  "reply": "...",
+  "model": "gpt-4o-mini",
+  "citations": [],
+  "conversation": {
+    "conversation_id": "cv_example",
+    "user_message_id": "ms_user_example",
+    "assistant_message_id": "ms_assistant_example",
+    "persisted": true
+  }
+}
+```
+
+The user turn is persisted before any model call, so an unknown `conversation_id`
+returns `404` and a failed user-turn write returns `500`, both without calling the
+model provider. If generation succeeds but the assistant turn cannot be stored,
+the reply is still returned with `persisted` `false` and a `null`
+`assistant_message_id`, so a persistence gap is visible rather than silent.
+
+An unbound turn constructs no conversation storage at all, so it cannot be broken
+by a storage failure and does not create the local database file.
 
 ## Command Contract
 
@@ -203,7 +336,9 @@ paths and never touch the default developer database.
 | Compose config | repository root | `docker compose config` | Compose file is syntactically valid | No expected source writes | No expected external call | verified-pass |
 | Stage A smoke | repository root | `docker compose up --build` plus `curl --fail --silent --show-error http://localhost:8000/health` | Dev stack starts and health responds | Docker state, mounted app/data paths, possible Chroma state | Possible during image build or dependency install | blocked by missing Docker daemon/socket in current environment |
 | Stage B chat readiness | repository root | opt-in chat request to `/api/v1/chat` | Chat path can reach retrieval and model provider | Possible logs/cache/data state | Yes | Opt-in, not default CI |
-| Local workspace routes | repository root | `curl` requests to `/api/v1/workspaces` while the backend runs | Workspace records can be created and inspected locally | Local SQLite file at `WORKSPACE_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
+| Local workspace routes | repository root | `curl` requests to `/api/v1/workspaces` while the backend runs | Workspace records can be created and inspected locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
+| Local conversation routes | repository root | `curl` requests to `/api/v1/workspaces/{workspace_id}/conversations` and `/api/v1/conversations/...` while the backend runs | Conversations and messages can be created and read locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
+| Bound chat turn | repository root | opt-in chat request to `/api/v1/chat` carrying `conversation_id` | A chat turn is persisted and reports its persistence outcome | Local SQLite file at `APP_DB_PATH`, possible logs/cache state | Yes, because generation still calls the model provider | Opt-in, not default CI |
 | RAG and memory evaluation | repository root | later approved evaluation command | Approved metric-specific quality claim | Evaluation outputs | Depends on later plan | Future milestone |
 
 ## Opt-in Data and Model Operations
@@ -226,8 +361,13 @@ the approved task that owns their inputs, side effects, and evidence.
 | First chat is slow | Embedding model or cache access may be occurring | Confirm whether model download/cache use is acceptable |
 | CI is green | CI commands completed, not proof of RAG quality | Read the exact workflow steps and exit statuses |
 | Docker fails in a sandbox | Docker socket or localhost access may be blocked by the environment | Retry only with approved host access or record the limitation |
-| Workspace route returns `500` | Local workspace storage could not be opened, initialized, or written | Check that `WORKSPACE_DB_PATH` is writable and that its schema version matches the running build |
+| Workspace route returns `500` | Local workspace storage could not be opened, initialized, or written | Check that `APP_DB_PATH` is writable and that its recorded workspace schema version matches the running build |
 | Workspace list returns an empty array | No record exists for that exact owner scope label | Confirm the `owner_user_id` value; listing filters by exact label after trimming |
+| Conversation route returns `404` | The parent workspace or the conversation does not exist | Create the workspace first, then the conversation; a chat request never creates one implicitly |
+| Conversation route returns `422` on append | A restricted role, an ungoverned vocabulary value, or blank content was submitted | The public route accepts only `user` and `system_event`; `assistant` and `tool` are written by the orchestrator |
+| Conversation history returns `422` | The `limit` is outside `1` to `200`, or the cursor is unknown or belongs to another conversation | Re-read the page with a cursor returned by that same conversation |
+| Bound chat returns `persisted` `false` | Generation succeeded but the assistant turn could not be stored | The reply is still valid; check that `APP_DB_PATH` is writable, then re-read history |
+| A deprecation warning names `WORKSPACE_DB_PATH` | `APP_DB_PATH` is unset and the deprecated alias is being honored | Set `APP_DB_PATH` instead; the alias is retained only for compatibility |
 
 When normal setup has already failed and the problem needs diagnosis or
 recovery, use the

@@ -1,10 +1,16 @@
 """Local SQLite workspace repository adapter for runtime milestone R3.
 
-Per ADR 0003 this adapter is the only module that knows SQLite exists. It owns
-schema version 1 initialization, parameterized SQL, and SQLite error handling.
-It is accepted for local development and tests only; it is not a production
-database commitment, and it settles no production migration, backup, restore,
-concurrency, retention, or deletion policy.
+Per ADR 0003 this adapter is one of the few modules that knows SQLite exists. It
+owns the workspace table definition, parameterized SQL, and SQLite error
+handling. It is accepted for local development and tests only; it is not a
+production database commitment, and it settles no production migration, backup,
+restore, concurrency, retention, or deletion policy.
+
+Per ADR 0004 the adapter no longer owns `PRAGMA user_version`. It registers
+`('workspaces', 1)` with the shared schema registry, which lets a second module
+coexist in the same database file without contending for the single pragma slot.
+`SchemaRegistryError` is translated into `WorkspaceStorageError` here so the
+workspace repository's public error contract is unchanged.
 
 Raised `WorkspaceStorageError` messages are safe for a controlled HTTP 500
 response: they never include the local database path, full SQL text, or
@@ -19,6 +25,11 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.storage.schema_registry import (
+    SchemaRegistryError,
+    open_application_database,
+    register_module_schema,
+)
 from backend.workspaces.models import (
     DateWindow,
     PlanningStatus,
@@ -34,6 +45,7 @@ from backend.workspaces.repository import (
 logger = logging.getLogger("travel_agent_workspaces")
 
 SCHEMA_VERSION = 1
+SCHEMA_MODULE = "workspaces"
 TABLE_NAME = "trip_workspaces"
 
 _CREATE_TABLE = f"""
@@ -123,15 +135,26 @@ def _from_iso_date(value: Any, column: str) -> date | None:
         ) from error
 
 
+def _create_workspace_schema(connection: sqlite3.Connection) -> None:
+    """Create the workspace table and its owner index on first registration.
+
+    Passed to the shared schema registry, which runs it exactly once inside the
+    transaction that records `('workspaces', 1)`.
+    """
+    connection.execute(_CREATE_TABLE)
+    connection.execute(_CREATE_OWNER_INDEX)
+
+
 class SQLiteWorkspaceRepository:
     """Persist trip workspace records in a local SQLite database."""
 
     def __init__(self, db_path: Path) -> None:
-        """Open or initialize the local workspace database.
+        """Open or initialize workspace storage in the shared application database.
 
         Raises:
             WorkspaceStorageError: The parent directory cannot be created, the
-                database cannot be opened, or the existing schema version is
+                database cannot be opened, the file is not owned by a build this
+                one recognizes, or the recorded workspace schema version is
                 incompatible with `SCHEMA_VERSION`.
         """
         self._db_path = Path(db_path)
@@ -148,34 +171,30 @@ class SQLiteWorkspaceRepository:
 
     def _initialize_schema(self) -> None:
         try:
-            self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError as error:
+            connection = open_application_database(self._db_path)
+        except SchemaRegistryError as error:
+            logger.error(
+                "workspace.storage unavailable module=%s failure_class=%s",
+                SCHEMA_MODULE,
+                type(error).__name__,
+            )
             raise WorkspaceStorageError(
-                "Could not create the local workspace database directory."
+                "Could not open the local application database for workspace storage."
             ) from error
 
-        connection = self._connect()
         try:
-            with connection:
-                current = connection.execute("PRAGMA user_version").fetchone()[0]
-
-                if current == 0:
-                    connection.execute(_CREATE_TABLE)
-                    connection.execute(_CREATE_OWNER_INDEX)
-                    connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-                    logger.info(
-                        "Initialized local workspace schema version %s.",
-                        SCHEMA_VERSION,
-                    )
-                elif current != SCHEMA_VERSION:
-                    raise WorkspaceStorageError(
-                        f"Local workspace database reports schema version {current}, "
-                        f"but this build supports version {SCHEMA_VERSION}. "
-                        "Refusing to migrate automatically."
-                    )
-        except sqlite3.Error as error:
+            register_module_schema(
+                connection, SCHEMA_MODULE, SCHEMA_VERSION, _create_workspace_schema
+            )
+        except SchemaRegistryError as error:
+            logger.error(
+                "workspace.storage schema_incompatible module=%s supported=%s",
+                SCHEMA_MODULE,
+                SCHEMA_VERSION,
+            )
             raise WorkspaceStorageError(
-                "Could not initialize the local workspace schema."
+                "The local application database does not provide workspace schema "
+                f"version {SCHEMA_VERSION}. Refusing to migrate automatically."
             ) from error
         finally:
             connection.close()

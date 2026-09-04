@@ -1,8 +1,12 @@
 """Unit tests for the local SQLite workspace repository adapter.
 
 Per ADR 0003 the SQLite adapter is a local R3 boundary, not production storage.
+Per ADR 0004 its schema version now lives in the shared `schema_versions`
+registry table rather than in `PRAGMA user_version`, which carries a shared
+store marker instead.
+
 Every test uses a `tmp_path` database file so no test touches the developer's
-local workspace database at `WORKSPACE_DB_PATH`.
+local database at `APP_DB_PATH`.
 """
 
 import sqlite3
@@ -11,6 +15,10 @@ from pathlib import Path
 
 import pytest
 
+from backend.storage.schema_registry import (
+    SENTINEL_USER_VERSION,
+    open_application_database,
+)
 from backend.workspaces.models import (
     DateWindow,
     PlanningStatus,
@@ -26,6 +34,39 @@ from backend.workspaces.sqlite_repository import (
     SCHEMA_VERSION,
     SQLiteWorkspaceRepository,
 )
+
+WORKSPACE_SCHEMA_MODULE = "workspaces"
+"""The registry key the workspace module must persist.
+
+Asserted as a literal rather than imported from the adapter, because this is the
+stored key a future build reads back from the shared database.
+"""
+
+
+def _recorded_module_version(db_path: Path, module: str) -> int | None:
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT version FROM schema_versions WHERE module = ?", (module,)
+        ).fetchone()
+    return None if row is None else row[0]
+
+
+def _store_marker(db_path: Path) -> int:
+    with sqlite3.connect(db_path) as connection:
+        return connection.execute("PRAGMA user_version").fetchone()[0]
+
+
+def _seed_recorded_workspace_version(db_path: Path, version: int) -> None:
+    """Create a registry-owned database that already records a workspace version."""
+    connection = open_application_database(db_path)
+    try:
+        with connection:
+            connection.execute(
+                "INSERT INTO schema_versions (module, version) VALUES (?, ?)",
+                (WORKSPACE_SCHEMA_MODULE, version),
+            )
+    finally:
+        connection.close()
 
 
 def _workspace(
@@ -75,10 +116,15 @@ def test_initialization_creates_parent_directory(db_path: Path):
 
 
 def test_initialization_records_schema_version(repository, db_path: Path):
-    with sqlite3.connect(db_path) as connection:
-        version = connection.execute("PRAGMA user_version").fetchone()[0]
-    assert version == SCHEMA_VERSION
+    """The workspace module records its version in the shared registry.
+
+    Rewritten for ADR 0004: version bookkeeping moved out of
+    `PRAGMA user_version`, which now carries the shared store marker so a
+    pre-R4 build refuses the file.
+    """
+    assert _recorded_module_version(db_path, WORKSPACE_SCHEMA_MODULE) == SCHEMA_VERSION
     assert SCHEMA_VERSION == 1
+    assert _store_marker(db_path) == SENTINEL_USER_VERSION
 
 
 def test_initialization_creates_workspace_table(repository, db_path: Path):
@@ -101,26 +147,63 @@ def test_initialization_is_idempotent(db_path: Path):
 
 
 def test_incompatible_schema_version_fails_closed(db_path: Path):
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as connection:
-        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+    """A recorded workspace version above the supported one fails closed.
+
+    Rewritten for ADR 0004 to seed the registry row rather than the pragma.
+    """
+    _seed_recorded_workspace_version(db_path, SCHEMA_VERSION + 1)
 
     with pytest.raises(WorkspaceStorageError):
         SQLiteWorkspaceRepository(db_path=db_path)
+
+
+def test_registry_owned_database_without_a_workspace_row_is_adopted(db_path: Path):
+    """The store marker alone must not be the reason a database is refused.
+
+    This is the discriminator for the two fail-closed tests around it: a
+    registry-owned file carrying the shared marker but no workspace row is
+    adopted normally, so their failures are caused by the recorded module
+    version and not by the marker.
+    """
+    connection = open_application_database(db_path)
+    connection.close()
+
+    repository = SQLiteWorkspaceRepository(db_path=db_path)
+    stored = repository.create(_workspace())
+
+    assert repository.get(stored.workspace_id) == stored
+    assert _recorded_module_version(db_path, WORKSPACE_SCHEMA_MODULE) == SCHEMA_VERSION
 
 
 def test_incompatible_schema_version_is_not_silently_migrated(db_path: Path):
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    """The adapter must not rewrite a recorded version it does not support."""
     future_version = SCHEMA_VERSION + 5
-    with sqlite3.connect(db_path) as connection:
-        connection.execute(f"PRAGMA user_version = {future_version}")
+    _seed_recorded_workspace_version(db_path, future_version)
 
     with pytest.raises(WorkspaceStorageError):
         SQLiteWorkspaceRepository(db_path=db_path)
 
+    assert (
+        _recorded_module_version(db_path, WORKSPACE_SCHEMA_MODULE) == future_version
+    ), "adapter must not rewrite the recorded schema version"
+    assert _store_marker(db_path) == SENTINEL_USER_VERSION
+
+
+def test_pre_r4_database_is_refused_instead_of_adopted(db_path: Path):
+    """A database carrying only a pre-R4 pragma value fails closed.
+
+    This is the forward direction of the ADR 0004 sentinel rule: an R4 build
+    must refuse a file whose ownership it cannot establish, rather than creating
+    a registry beside a schema it did not write.
+    """
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as connection:
-        version = connection.execute("PRAGMA user_version").fetchone()[0]
-    assert version == future_version, "adapter must not rewrite the schema version"
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    with pytest.raises(WorkspaceStorageError):
+        SQLiteWorkspaceRepository(db_path=db_path)
+
+    assert _store_marker(db_path) == SCHEMA_VERSION
 
 
 def test_storage_error_message_excludes_local_path(db_path: Path):
