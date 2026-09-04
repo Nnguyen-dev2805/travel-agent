@@ -26,7 +26,6 @@ data/chromadb/
 data/processed/
 *.db
 *.sqlite3
-docs/
 data
 
 # OS, Editor & AI Agent Files
