@@ -881,8 +881,39 @@ router.
 
 `docs/architecture/current-state.md`, `docs/architecture/data-model.md`,
 `docs/roadmap/master-roadmap.md`, `docs/plans/README.md`, and this plan changed in
-the primary tree. They are Git-ignored local governance evidence and are not part
-of the Git delivery change set.
+the primary tree. When Task 5 ran they were Git-ignored, so earlier revisions of
+this plan described them as local governance evidence outside the delivery change
+set. That is no longer true: commit `359a2ab` tracked the whole `docs/` tree and
+the current `.gitignore` has no `docs/` entry, so these files are now ordinary
+tracked deliverables on `feature/agent-memory`.
+
+### Merged-state verification against `71d6cad`
+
+The `427 passed` figure above was measured on base `6076d9e`. `feature/agent-memory`
+has since advanced three commits to `71d6cad`:
+
+| Commit | Effect relevant to R3 |
+| --- | --- |
+| `85ee61c` | Restructured the RAG runtime: added `backend/rag/generation/context.py`, `backend/rag/generation/llm.py`, `backend/rag/retrieval/service.py`; rewrote `backend/rag/generation/rag_service.py`; changed `backend/rag/evaluation/runtime.py`; extended `backend/tests/integration/test_api.py`. Moved the suite baseline from `269` to `289` |
+| `359a2ab` | Tracked the `docs/` tree, so governance artifacts are now Git-delivered |
+| `71d6cad` | Appended 42 lines to `DEVELOPMENT.md` and added R1/R2 Task 7 evaluation evidence |
+
+R3 does not touch any file that `85ee61c` changed, and `6076d9e..71d6cad` leaves
+`backend/app/config.py` and `backend/app/main.py` untouched, so the two change
+sets are disjoint in source. Verified rather than assumed:
+
+| Check | Result |
+| --- | --- |
+| `git merge-file` on `DEVELOPMENT.md` with base `6076d9e`, primary `71d6cad`, and the R3 worktree copy | Clean auto-merge, no conflict block. `71d6cad` appends after old line 227; R3 inserts at old lines 35, 136, 149, and 171 |
+| Merged-state full suite: `71d6cad` tree with the R3 change set overlaid | `447 passed`, equal to the new `289` baseline plus `158` R3 tests, with no previously passing test red |
+| Merged-state `compileall backend` | exit `0` |
+| Merged-state boundary greps against `backend/rag`, including the modules `85ee61c` added, and the evaluation tests | exit `1`, no matches |
+| Merged-state containment grep | `sqlite3` and `CREATE TABLE` only in `backend/workspaces/sqlite_repository.py`; `WORKSPACE_DB_PATH` only in `backend/app/config.py` and the single dependency construction site |
+| Merged-state `test_workspace_api.py` plus the `85ee61c` version of `test_api.py` | `48 passed` |
+
+The merged state was probed in a throwaway directory built from `git archive 71d6cad`
+plus the R3 files, then deleted. No Git state, branch, index, or worktree
+registration was created or changed to produce this evidence.
 
 ### Scope review
 
@@ -893,7 +924,7 @@ semantics, ORM, migration framework, production database, or UI work was added.
 Chat, health, RAG, and evaluation compatibility evidence is fresh. No local
 database file appears in the change set.
 
-Three review notes:
+Four review notes:
 
 1. The routes use integer HTTP status literals rather than `fastapi.status`
    constants, because the installed Starlette 1.6.0 emits a deprecation warning
@@ -911,10 +942,32 @@ Three review notes:
    failed with `Failed: DID NOT RAISE WorkspaceStorageError`. GREEN: a terminal
    `WorkspaceStorageError` makes the declared return type honest, and the route
    maps it to the existing controlled `500`. No public contract changed.
+4. The R3 governance updates to `docs/roadmap/master-roadmap.md` and to this plan
+   were written in the primary tree while the repository owner was committing R1/R2
+   Task 7 work there. They were swept into commit `71d6cad`, whose subject describes
+   only the R1/R2 evaluation evidence. R3 documentation history therefore sits inside
+   an R1/R2 commit on `feature/agent-memory`. No agent performed that commit, and
+   separating it would require history rewriting, which the repository owner has not
+   requested.
 
 ### Remaining gates
 
-Repository-owner change-set review has not occurred. Git delivery remains under
-repository-owner control; nothing has been staged, committed, pushed, or opened as
-a pull request. The plan moves to `Completed` only after the owner accepts this
-change set.
+Repository-owner change-set review has not occurred for the R3 source change set.
+No agent staged, committed, pushed, or opened a pull request for it; the R3 source
+files remain uncommitted in `.worktrees/r3-workspace`. The plan moves to
+`Completed` only after the owner accepts the change set.
+
+Two decisions remain with the repository owner:
+
+1. How the R3 worktree reaches `feature/agent-memory`, given that the worktree base
+   is `6076d9e` and the branch head is `71d6cad`. Merged-state evidence above shows
+   the combination is green, but the R3 branch itself has not been rebased or merged.
+2. Whether the stale documentation debt found outside R3 scope is handled in its own
+   change: `ARCHITECTURE.md` and `docs/architecture/current-state.md` still assert
+   that CI masks test failures, which `.github/workflows/ci.yml` no longer does;
+   `docs/architecture/current-state.md` still describes `.env.example` as empty;
+   `docs/roadmap/master-roadmap.md` still names `D4` as the active documentation
+   package; and the `ARCHITECTURE.md` and `current-state.md` component tables omit
+   the `backend/rag/evaluation` subsystem, `backend/rag/contracts.py`, and
+   `backend/rag/retrieval/adapters.py`. These belong to `R0`, `R1`, and `R2`, not to
+   R3, so they were deliberately left untouched.

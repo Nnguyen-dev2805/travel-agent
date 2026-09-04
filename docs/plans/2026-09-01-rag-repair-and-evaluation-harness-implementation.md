@@ -1194,7 +1194,7 @@ trace aggregate changes to examples/evidence before accepting runtime changes.
 - Consumes: complete R1/R2 candidate change set and canonical evaluation evidence.
 - Produces: verified package evidence and remaining Git-delivery gate.
 
-- [ ] **Step 1: Run all deterministic evaluation/RAG tests**
+- [x] **Step 1: Run all deterministic evaluation/RAG tests**
 
 Run:
 
@@ -1216,7 +1216,7 @@ python3 -m pytest \
 
 Expected: PASS, no required network access.
 
-- [ ] **Step 2: Run full backend regression suite**
+- [x] **Step 2: Run full backend regression suite**
 
 Run:
 
@@ -1227,7 +1227,7 @@ python3 -m pytest backend/tests -q
 Expected: PASS. A failure unrelated to R1/R2 is still reported honestly; do not
 mask it or remove it from the command.
 
-- [ ] **Step 3: Run static compilation**
+- [x] **Step 3: Run static compilation**
 
 Run:
 
@@ -1237,7 +1237,7 @@ python3 -m compileall backend
 
 Expected: exit 0.
 
-- [ ] **Step 4: Verify ADR dependency direction**
+- [x] **Step 4: Verify ADR dependency direction**
 
 Run:
 
@@ -1248,14 +1248,14 @@ rg -n 'backend\.rag\.evaluation' backend/app backend/rag/generation backend/rag/
 Expected: no runtime import from the evaluation package. Documentation strings
 or test-only paths do not count as runtime dependency; inspect every match.
 
-- [ ] **Step 5: Revalidate frozen dataset/configs and canonical runs**
+- [x] **Step 5: Revalidate frozen dataset/configs and canonical runs**
 
 Run dataset validation and preflight again. Reload baseline/candidate artifacts
 through the artifact reader and rerun comparison without performing retrieval.
 
 Expected: comparison result and gates exactly match the recorded human report.
 
-- [ ] **Step 6: Scan for synthetic fallback and hard-coded experiment roles**
+- [x] **Step 6: Scan for synthetic fallback and hard-coded experiment roles**
 
 Run:
 
@@ -1267,7 +1267,7 @@ Expected: no governed synthetic fallback or hard-coded experiment-role storage
 remains. A test fixture may contain strings only when explicitly asserting they
 are rejected/unsupported.
 
-- [ ] **Step 7: Run secret/privacy review**
+- [x] **Step 7: Run secret/privacy review**
 
 Inspect dataset, run artifacts, reports, and logs for token-shaped values and
 unnecessary full-document copies. Confirm run evidence uses bounded excerpts and
@@ -1276,7 +1276,7 @@ stable IDs.
 Expected: no `GITHUB_TOKEN` value, API credential, authorization header, or
 private user content is persisted.
 
-- [ ] **Step 8: Run repository diff checks**
+- [x] **Step 8: Run repository diff checks**
 
 Run:
 
@@ -1289,14 +1289,14 @@ Expected: no whitespace errors; status contains only the approved R1/R2 package
 plus its canonical evidence. Review untracked files directly because `git diff`
 does not show them.
 
-- [ ] **Step 9: Complete exact change-set review**
+- [x] **Step 9: Complete exact change-set review**
 
 Compare every changed/untracked file with the approved spec, ADR, and this plan.
 Confirm all 24 spec acceptance criteria have either fresh passing evidence or an
 explicit blocking limitation. A required provider-dependent acceptance item that
 could not run remains a disclosed limitation; it must not be relabeled PASS.
 
-- [ ] **Step 10: Repository-owner acceptance gate**
+- [x] **Step 10: Repository-owner acceptance gate**
 
 Present changed files, test outputs, canonical run IDs, comparison state, failed
 or unavailable checks, and rollback path to the repository owner.
@@ -1304,7 +1304,7 @@ or unavailable checks, and rollback path to the repository owner.
 Expected: implementation remains `In Progress` until the owner explicitly
 accepts the repository change set.
 
-- [ ] **Step 11: Record completion only after owner acceptance**
+- [x] **Step 11: Record completion only after owner acceptance**
 
 After explicit owner acceptance, set this plan to `Completed`, update its
 completion record, and set R1/R2 roadmap rows to `Accepted in working tree` with
@@ -1395,3 +1395,19 @@ push, PR creation, merge, tag, release, branch deletion, or history rewriting.
 Execution must stop at the explicit benchmark review gate in Task 5, any failed
 D5 promotion gate in Task 7, any scope/architecture deviation, or any required
 verification failure not resolved by this plan.
+
+## Completion Record (Task 8 update, 2026-09-04)
+
+Version 0.1 completed on 2026-09-04 after repository-owner acceptance. All
+tasks 1-8 executed. Final verification: deterministic suite 268 passed, full
+backend suite 289 passed, `compileall` OK, ADR dependency-direction grep clean,
+no synthetic-fallback/experiment-role residue, secret/privacy scan clean,
+`git diff --check` clean, candidate D5 comparison PASS (overall and all
+mandatory-slice deltas 0.0), baseline/candidate artifacts reloaded and
+comparison reproduced exactly.
+
+Acceptance: 23 of 24 spec criteria met with fresh evidence; criterion 5
+(answer-quality full evidence) is a disclosed limitation — provider
+prerequisites (`GITHUB_TOKEN`) were unavailable, so no full answer run was
+executed and no answer-quality promotion claim was made (per Task 7 Step 5).
+Git staging/commit/push/PR/tag/release remain repository-owner actions.
