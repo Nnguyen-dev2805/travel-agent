@@ -34,7 +34,7 @@ layout, Markdown documentation.
 | Approved specification | [Conversation Persistence Design](../specs/2026-09-04-conversation-persistence-design.md), version 0.1 (Approved 2026-09-04) |
 | Governing ADRs | [ADR 0004](../adr/0004-shared-local-application-store-and-per-module-schema-registry.md) (Accepted), [ADR 0005](../adr/0005-conversation-orchestration-seam-and-optional-chat-binding.md) (Accepted) |
 | Plan approval | Repository owner approved implementation plan version 0.1 in conversation on 2026-09-04, conditional on synchronizing the `R3` and `R4` roadmap status and adding the symlink guard; both conditions were satisfied before this status changed |
-| Change-set acceptance | Repository owner reviewed the change set on 2026-09-04, returned three `P1` findings and one `P2`, and accepted the change set after the `P1` fixes were re-verified. Git delivery remains a repository-owner action |
+| Change-set acceptance | Repository owner reviewed the change set on 2026-09-04, returned three `P1` findings and one `P2`, accepted the change set after the `P1` fixes were re-verified, and delivered it to `feature/agent-memory` at `e590ca6` |
 | Execution base | `feature/agent-memory` at `cb900e4`, the documentation-only commit that recorded this plan, ADR 0004, ADR 0005, and the approved spec on top of the R3 merge `2f632e2`. Baseline re-measured on `cb900e4` as `447 passed`, matching the recorded `2f632e2` baseline, so Global Constraint 2 is satisfied |
 | Execution environment | Primary working tree on branch `feature/agent-memory`, selected because the tree was clean, the plan permits either environment, and no symlink is required when `.venv` and `data/processed` are both real paths |
 | Execution owner | Coordinating agent |
@@ -1173,15 +1173,15 @@ artifacts, or the R3 workspace database at the old default path.
 ## Completion Record
 
 All eight tasks executed, then three `P1` review findings fixed and re-verified.
-The repository owner accepted the change set on 2026-09-04, which closes the review
-gate and moves this plan to `Completed`. Git delivery remains a repository-owner
-action and has not occurred.
+The repository owner accepted the change set on 2026-09-04, which closed the
+review gate and moved this plan to `Completed`. The repository owner then
+delivered R4 to `feature/agent-memory` at `e590ca6`.
 
 | Field | Value |
 | --- | --- |
 | Environment | Primary working tree, branch `feature/agent-memory`, no linked worktree and therefore no symlink |
 | Base | `cb900e4`, baseline re-measured as `447 passed` |
-| Head | Working tree, nothing staged or committed |
+| Head | `e590ca6` |
 | Result | `708 passed` in `20.95s`, `compileall` exit `0` |
 | Interpreter | `./.venv/bin/python`, Python 3.14.5, pytest 9.1.1 |
 | Review round | One review, three `P1` findings fixed, one `P2` finding returned as an owner decision |
@@ -1454,12 +1454,12 @@ contains no data, but that remains an owner action.
 
 ### Remaining gates
 
-1. Git delivery, which remains a repository-owner action. Nothing has been staged,
-   committed, pushed, or opened as a pull request by an agent.
+1. No R4 implementation gate remains. Further Git delivery, release, or branch
+   cleanup actions remain repository-owner controlled.
 
 The specification, both ADRs, the plan, implementation, verification, and the
-repository-owner change-set review are all closed. `R4` is `Accepted in working
-tree` on the roadmap and becomes `Delivered` when the owner merges it.
+repository-owner change-set review are all closed. `R4` is `Delivered` on the
+roadmap at `e590ca6`.
 
 One unrelated roadmap inconsistency was found and deliberately left alone: the `D4`
 row still reads `In progress` while the `Current Phase` section states that `D0`

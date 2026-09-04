@@ -143,3 +143,4 @@ evidence.
 | 0003 | Local SQLite Workspace Storage Boundary for R3 | Accepted | 2026-09-03 | [ADR 0003](./0003-local-sqlite-workspace-storage-boundary-for-r3.md) |
 | 0004 | Shared Local Application Store and Per-module Schema Registry | Accepted | 2026-09-04 | [ADR 0004](./0004-shared-local-application-store-and-per-module-schema-registry.md) |
 | 0005 | Conversation Orchestration Seam and Optional Chat Conversation Binding | Accepted | 2026-09-04 | [ADR 0005](./0005-conversation-orchestration-seam-and-optional-chat-binding.md) |
+| 0006 | Shadow Memory Candidate Store and Policy Boundary | Accepted | 2026-09-04 | [ADR 0006](./0006-shadow-memory-candidate-store-and-policy-boundary.md) |

@@ -292,3 +292,4 @@ must be compared; a cosmetic variant is not a distinct alternative.
 | 2026-09-01 | RAG Repair and Evaluation Harness Design | Level 3 | 0.1 | Approved | [Design](./2026-09-01-rag-repair-and-evaluation-harness-design.md) |
 | 2026-09-03 | Trip Workspace Foundation Design | Level 3 | 0.1 | Approved | [Design](./2026-09-03-trip-workspace-foundation-design.md) |
 | 2026-09-04 | Conversation Persistence Design | Level 3 | 0.1 | Approved | [Design](./2026-09-04-conversation-persistence-design.md) |
+| 2026-09-04 | Shadow Memory Extraction Design | Level 3 | 0.1 | Approved | [Design](./2026-09-04-shadow-memory-extraction-design.md) |
