@@ -43,18 +43,40 @@ from backend.memory.policy import (
     POLICY_ID,
     MemoryPolicy,
 )
+from backend.memory.repository import (
+    MemoryAlreadyExistsError,
+    MemoryRepository,
+    MemoryRepositoryError,
+    MemoryStorageError,
+)
+from backend.memory.service import (
+    EXTRACTION_FAILED_REASON,
+    MemoryRunNotFoundError,
+    MemoryScopeMismatchError,
+    MemoryService,
+    MemoryServiceError,
+)
 
 __all__ = [
     "CANDIDATE_TEXT_MAX_LENGTH",
     "EVIDENCE_SUMMARY_MAX_LENGTH",
+    "EXTRACTION_FAILED_REASON",
     "EXTRACTOR_ID",
     "MEMORY_CANDIDATE_ID_PREFIX",
     "MEMORY_RUN_ID_PREFIX",
     "POLICY_CONFIDENCE_ACCEPT",
     "POLICY_CONFIDENCE_FLOOR",
     "POLICY_ID",
+    "MemoryAlreadyExistsError",
     "MemoryExtractor",
     "MemoryPolicy",
+    "MemoryRepository",
+    "MemoryRepositoryError",
+    "MemoryRunNotFoundError",
+    "MemoryScopeMismatchError",
+    "MemoryService",
+    "MemoryServiceError",
+    "MemoryStorageError",
     "MemoryCandidate",
     "MemoryCandidateDraft",
     "MemoryCandidateStatus",

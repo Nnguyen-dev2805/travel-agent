@@ -293,7 +293,7 @@ draft alone per the approved reason vocabulary.
   - `list_runs(workspace_id: str, conversation_id: str | None = None) -> tuple[MemoryExtractionRun, ...]`
   - `list_candidates(run_id: str | None = None, workspace_id: str | None = None, conversation_id: str | None = None) -> tuple[MemoryCandidate, ...]`
 
-- [ ] **Step 1: Write failing repository tests**
+- [x] **Step 1: Write failing repository tests**
 
 Cover schema registration for module `memory` version `1`, run persistence,
 candidate persistence, newest-first run ordering, sequence/source ordering for
@@ -301,26 +301,33 @@ candidates, controlled duplicate errors, the declared DDL/index/unique
 constraints from the spec, cross-run candidate ordering through the parent run
 order, and fail-closed schema mismatch.
 
-- [ ] **Step 2: Run repository tests for RED**
+- [x] **Step 2: Run repository tests for RED**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_sqlite_memory_repository.py -q`
 
 Expected: tests fail because repository modules do not exist.
 
-- [ ] **Step 3: Implement repository protocol and adapter**
+- [x] **Step 3: Implement repository protocol and adapter**
 
 Use only standard-library `sqlite3` in the adapter. Keep SQL and DDL out of
 routes, service, policy, extraction, and orchestration modules.
 
-- [ ] **Step 4: Run repository tests for GREEN**
+- [x] **Step 4: Run repository tests for GREEN**
+
+GREEN: `16 passed` (`backend/tests/unit/test_sqlite_memory_repository.py`).
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_sqlite_memory_repository.py -q`
 
 Expected: all repository tests pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: no Chroma write, no RAG import, no message content in error strings.
+
+Checkpoint: `sqlite3` appears only in `sqlite_repository.py` plus the shared
+registry (boundary grep clean); DDL is verbatim from the spec; controlled
+errors carry identifiers and column names only, verified by asserting stored
+content absent from error strings.
 
 ## Task 5: Memory Service
 
@@ -338,34 +345,45 @@ Review: no Chroma write, no RAG import, no message content in error strings.
   - `MemoryService.list_runs(workspace_id: str, conversation_id: str | None = None) -> tuple[MemoryExtractionRun, ...]`
   - `MemoryService.list_candidates(workspace_id: str, conversation_id: str | None = None, run_id: str | None = None) -> tuple[MemoryCandidate, ...]`
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
 Cover missing workspace, missing conversation, workspace/conversation mismatch,
 excluded trace visibility, no eligible messages, count accuracy including
 `invalid_count`, extraction failure status, and no raw content in exceptions.
 
-- [ ] **Step 2: Run service tests for RED**
+- [x] **Step 2: Run service tests for RED**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_service.py -q`
 
 Expected: tests fail because `MemoryService` does not exist.
 
-- [ ] **Step 3: Implement service**
+- [x] **Step 3: Implement service**
 
 Read messages through an approved conversation boundary, map them into
 `MemorySourceMessage`, validate workspace scope, run extractor and policy,
 persist run and candidates, and return counts.
 
-- [ ] **Step 4: Run service tests for GREEN**
+- [x] **Step 4: Run service tests for GREEN**
+
+GREEN: `18 passed` (`backend/tests/unit/test_memory_service.py`).
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_service.py -q`
 
 Expected: all service tests pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: service enforces provenance before extraction and never writes accepted
 candidates when provenance is invalid.
+
+Checkpoint: every provenance failure (missing workspace/conversation,
+mismatch, non-active conversation) raises before any write (tested with
+empty fake stores); extractor failure persists a `failed` run with the
+controlled `extraction_failed` label then raises without content; two test
+bugs fixed (unknown filter is 404 per spec, mismatch needs an existing
+workspace); candidate-write failure propagates the controlled storage error
+because the approved repository interface has no run-update operation —
+recorded here as a known limitation for Task 8 review.
 
 ## Task 6: API Routes
 
