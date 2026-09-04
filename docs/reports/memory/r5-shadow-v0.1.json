@@ -1,0 +1,275 @@
+{
+  "code_identity": {
+    "extractor_id": "rule-based-v1",
+    "policy_id": "policy-v1"
+  },
+  "counts": {
+    "eligible_examples": 13,
+    "invalid_examples": 0,
+    "skipped_examples": 0
+  },
+  "dataset": {
+    "dataset_id": "r5-shadow-v0.1",
+    "dataset_role": "benchmark",
+    "dataset_version": "0.1"
+  },
+  "hard_gates": [
+    {
+      "applicable": true,
+      "events": 0,
+      "gate": "cross_workspace_leakage",
+      "passed": true
+    },
+    {
+      "applicable": true,
+      "events": 0,
+      "gate": "secret_durable_promotion",
+      "passed": true
+    },
+    {
+      "applicable": false,
+      "events": 0,
+      "gate": "correction_precedence",
+      "passed": true
+    },
+    {
+      "applicable": false,
+      "events": 0,
+      "gate": "deleted_memory_retrieval",
+      "passed": true
+    },
+    {
+      "applicable": false,
+      "events": 0,
+      "gate": "cross_user_leakage",
+      "passed": true
+    }
+  ],
+  "mandatory_slices": [
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "ambiguous"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "assistant-turn"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "correction"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "explicit-preference"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "profile-fact"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "secret-like"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "sensitive-personal"
+    },
+    {
+      "actual": 2,
+      "eligible_examples": 2,
+      "expected": 2,
+      "matched": 2,
+      "precision": 1.0,
+      "slice": "trace-excluded"
+    },
+    {
+      "actual": 2,
+      "eligible_examples": 2,
+      "expected": 2,
+      "matched": 2,
+      "precision": 1.0,
+      "slice": "transient"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "trip-constraint"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "wrong-scope"
+    }
+  ],
+  "metrics": {
+    "extraction_precision": {
+      "denominator": 13,
+      "name": "extraction_precision",
+      "numerator": 13,
+      "threshold": ">= 0.95",
+      "value": 1.0
+    },
+    "extraction_recall": {
+      "denominator": 13,
+      "name": "extraction_recall",
+      "numerator": 13,
+      "threshold": ">= 0.9",
+      "value": 1.0
+    },
+    "scope_accuracy": {
+      "denominator": 13,
+      "name": "scope_accuracy",
+      "numerator": 13,
+      "threshold": ">= 0.98",
+      "value": 1.0
+    }
+  },
+  "notes": [
+    "R5 shadow report: candidates are measured but never used in answers. Promotion precision, retrieval, and personalization metrics are not applicable and carry no values here.",
+    "Cross-user and deleted-memory gates are not applicable: R5 has no user identity, no deletion path, and no memory retrieval.",
+    "Correction precedence is not applicable as a hard-gate event: R5 keeps no competing memory store, so no older inference can override a correction at retrieval time. Correction classification is measured in the correction slice instead.",
+    "The secret gate scans accepted candidate content with the secret-like patterns rather than trusting the sensitivity label."
+  ],
+  "per_example": [
+    {
+      "actual_total": 1,
+      "example_id": "r5-pref-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "explicit-preference"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-constraint-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "trip-constraint"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-profile-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "profile-fact"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-correction-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "correction"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-transient-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "transient"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-transient-002",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "transient"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-ambiguous-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "ambiguous"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-scope-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "wrong-scope"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-excluded-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "trace-excluded"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-chat-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "assistant-turn"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-secret-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "secret-like"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-sensitive-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "sensitive-personal"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r5-chat-002",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "trace-excluded"
+    }
+  ],
+  "report_id": "r5-shadow-v0.1-20260904T105938Z",
+  "result_state": "PASS"
+}
