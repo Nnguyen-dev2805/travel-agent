@@ -318,3 +318,59 @@ it governs new promotion evidence.
 Do not retroactively reinterpret an old run under a new protocol version.
 Compare runs only when their contracts are compatible or explicitly re-run the
 baseline and candidate under the same new contract.
+
+## R2 Harness CLI Usage
+
+The governed evaluation CLI is `python3 -m backend.rag.evaluation.cli`. All four
+commands operate on frozen artifacts; they never alter the D5 formulas or
+thresholds defined above.
+
+Validate a dataset directory (manifest + JSONL):
+
+```bash
+python3 -m backend.rag.evaluation.cli validate-dataset \
+  --dataset data/evaluation/benchmark/rag-v0.1
+```
+
+Preflight environment and contract checks before a run:
+
+```bash
+python3 -m backend.rag.evaluation.cli preflight \
+  --dataset data/evaluation/benchmark/rag-v0.1 \
+  --config data/evaluation/configs/rag-structured-candidate-v0.1.json \
+  --mode retrieval
+```
+
+Run retrieval-only evaluation (local, no provider required):
+
+```bash
+python3 -m backend.rag.evaluation.cli run \
+  --dataset data/evaluation/benchmark/rag-v0.1 \
+  --config data/evaluation/configs/rag-structured-candidate-v0.1.json \
+  --mode retrieval \
+  --output-dir data/evaluation/runs
+```
+
+Run full answer/judge evaluation (opt-in; requires provider access):
+
+```bash
+python3 -m backend.rag.evaluation.cli run \
+  --dataset data/evaluation/benchmark/rag-v0.1 \
+  --config data/evaluation/configs/rag-structured-candidate-v0.1.json \
+  --mode full \
+  --output-dir data/evaluation/runs
+```
+
+Compare a candidate run against a frozen baseline under D5 gates:
+
+```bash
+python3 -m backend.rag.evaluation.cli compare \
+  --baseline data/evaluation/runs/<baseline-run-id> \
+  --candidate data/evaluation/runs/<candidate-run-id> \
+  --output data/evaluation/runs/<candidate-run-id>/comparison.json
+```
+
+Provenance requirement: a candidate run that will be compared under D5 MUST be
+created with `--baseline-run-id <baseline-run-id>`; otherwise the comparison
+returns `INVALID` because the candidate `run.json` lacks the required reference
+(`validate_comparison_contract` requires `baseline_run_id`).

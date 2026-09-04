@@ -21,10 +21,17 @@ prototype with a React/Vite frontend, FastAPI backend, Chroma travel-knowledge
 retrieval, and an external model call path. The implemented chat contract is
 one `message` in and `reply`, `model`, and `citations` out.
 
-Trip workspaces, user identity, conversation persistence, layered memory,
-planner state, evaluation traces, production security policy, operational
-runbooks, license text, and open-source templates are planned direction rather
-than current capability.
+Trip workspaces are no longer purely conceptual. Milestone `R3` implements a
+backend-only `TripWorkspace` container with three `/api/v1/workspaces` routes and
+local SQLite storage behind a repository interface. That work lives in the linked
+worktree `r3-trip-workspace` and awaits repository-owner change-set review, so it
+is not part of a delivered branch yet. It adds no authentication and no
+workspace-aware chat.
+
+User identity, conversation persistence, layered memory, planner state,
+evaluation traces, production security policy, operational runbooks, license
+text, and open-source templates are planned direction rather than current
+capability.
 
 Current documentation packages D0 through D3 have been completed in the working
 tree and accepted by the repository owner before Git delivery. D4 is the active
@@ -66,9 +73,9 @@ documentation package.
 | `D6` | Operations and Security | Accepted in working tree | `D5` | Security policy and operational runbooks | Owner accepted Package 6 change set | Package 6 spec, plan, and review evidence |
 | `D7` | GitHub and Open Source | Accepted in working tree | `D6` | Issue templates, PR template, license, notices, and changelog | Owner accepted Package 7 change set | Package 7 spec, plan, and review evidence |
 | `R0` | Foundation Cleanup | Accepted in working tree | `D4` | Tooling fixes, CI honesty, env examples, dependency hygiene | Owner accepted R0 change set | R0 spec, plan, verification evidence, and owner acceptance |
-| `R1` | RAG Repair and Baseline | Accepted in working tree | `R0`, `D5` | Retrieval baseline, dataset policy, and answer-quality baseline | RAG quality is measurable against Package 5 gates | [R1/R2 spec v0.1](../specs/2026-09-01-rag-repair-and-evaluation-harness-design.md), [ADR 0001](../adr/0001-separate-online-rag-execution-from-config-driven-evaluation.md), [implementation plan v0.1](../plans/2026-09-01-rag-repair-and-evaluation-harness-implementation.md); repository owner accepted R1/R2 change set in conversation on 2026-09-03 |
-| `R2` | Evaluation Harness | Accepted in working tree | `D5`, `R0` | Repeatable local evaluation runner and traceable result format | Evaluation output can compare two runs | [R1/R2 spec v0.1](../specs/2026-09-01-rag-repair-and-evaluation-harness-design.md), [ADR 0001](../adr/0001-separate-online-rag-execution-from-config-driven-evaluation.md), [implementation plan v0.1](../plans/2026-09-01-rag-repair-and-evaluation-harness-implementation.md); repository owner accepted R1/R2 change set in conversation on 2026-09-03 |
-| `R3` | Trip Workspace Foundation | In progress | `D3`, [ADR 0002](../adr/0002-trip-workspace-as-primary-product-container.md), [ADR 0003](../adr/0003-local-sqlite-workspace-storage-boundary-for-r3.md), `R0` | Workspace contracts, storage boundary, and minimal routes | Workspace records can be created and inspected behind approved interfaces | [R3 spec v0.1](../specs/2026-09-03-trip-workspace-foundation-design.md), [implementation plan v0.2](../plans/2026-09-03-trip-workspace-foundation-implementation.md); repository owner approved plan v0.2 on 2026-09-03; all six tasks complete in linked worktree `r3-trip-workspace` with `413 passed` and boundary checks clean; awaiting repository-owner change-set review before Git delivery |
+| `R1` | RAG Repair and Baseline | Accepted in working tree | `R0`, `D5` | Retrieval baseline, dataset policy, and answer-quality baseline | RAG quality is measurable against Package 5 gates | [R1/R2 spec v0.1](../specs/2026-09-01-rag-repair-and-evaluation-harness-design.md), [ADR 0001](../adr/0001-separate-online-rag-execution-from-config-driven-evaluation.md), [implementation plan v0.1](../plans/2026-09-01-rag-repair-and-evaluation-harness-implementation.md); repository owner accepted R1/R2 change set in conversation on 2026-09-03; [Task 7 candidate comparison](../reports/rag/rag-candidate-v0.1-comparison.md) (2026-09-04): D5 state=PASS, deltas 0.0 |
+| `R2` | Evaluation Harness | Accepted in working tree | `D5`, `R0` | Repeatable local evaluation runner and traceable result format | Evaluation output can compare two runs | [R1/R2 spec v0.1](../specs/2026-09-01-rag-repair-and-evaluation-harness-design.md), [ADR 0001](../adr/0001-separate-online-rag-execution-from-config-driven-evaluation.md), [implementation plan v0.1](../plans/2026-09-01-rag-repair-and-evaluation-harness-implementation.md); repository owner accepted R1/R2 change set in conversation on 2026-09-03; [Task 7 candidate comparison](../reports/rag/rag-candidate-v0.1-comparison.md) (2026-09-04): D5 state=PASS, deltas 0.0 |
+| `R3` | Trip Workspace Foundation | In progress | `D3`, [ADR 0002](../adr/0002-trip-workspace-as-primary-product-container.md), [ADR 0003](../adr/0003-local-sqlite-workspace-storage-boundary-for-r3.md), `R0` | Workspace contracts, storage boundary, and minimal routes | Workspace records can be created and inspected behind approved interfaces | [R3 spec v0.1](../specs/2026-09-03-trip-workspace-foundation-design.md), [implementation plan v0.2](../plans/2026-09-03-trip-workspace-foundation-implementation.md); repository owner approved plan v0.2 on 2026-09-03; all six tasks complete in linked worktree `r3-trip-workspace` with `427 passed` and boundary checks clean; awaiting repository-owner change-set review before Git delivery |
 | `R4` | Conversation Persistence | Blocked by gate | `R3` | Conversation and message storage behind an adapter | Messages persist with retention and privacy boundaries named | Integration tests and storage rollback evidence |
 | `R5` | Shadow Memory Extraction | Blocked by gate | `R2`, `R4`, memory ADR | Memory candidates extracted but not used in answers | Candidate precision, sensitivity, and scope quality are measured | Shadow evaluation report and rejection examples |
 | `R6` | Memory Retrieval | Blocked by gate | `R5` | Feature-gated memory retrieval into context bundles | Personalization improves without privacy or grounding regressions | A/B evaluation and trace review |

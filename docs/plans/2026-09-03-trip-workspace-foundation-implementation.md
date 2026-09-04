@@ -808,6 +808,10 @@ Recorded worktree baseline before any R3 change: `269 passed` in about 21 second
 
 ### Task evidence
 
+The per-task `GREEN` counts below are the counts at first implementation. R3 test
+coverage grew afterwards, so the current totals are in
+[Task 6 package verification](#task-6-package-verification).
+
 | Task | Result | Evidence |
 | --- | --- | --- |
 | Task 1 | Complete | Approval gates verified: plan v0.2 approved, ADR 0002 `Accepted`, ADR 0003 `Accepted`, spec v0.1 `Approved`, R1/R2 integration base approved, primary `git status` empty. Plan, plan index, and the roadmap R3 row moved to `In Progress` |
@@ -819,21 +823,28 @@ Recorded worktree baseline before any R3 change: `269 passed` in about 21 second
 
 ### Task 6 package verification
 
-Run freshly in `.worktrees/r3-workspace` after Task 5:
+Run freshly in `.worktrees/r3-workspace` against the current change set:
 
 | Command | Result |
 | --- | --- |
-| `./.venv/bin/python -m pytest backend/tests` | `413 passed` in about 22 seconds |
+| `./.venv/bin/python -m pytest backend/tests` | `427 passed` in about 24 seconds |
 | `./.venv/bin/python -m compileall backend` | exit `0` |
 | `grep -rn -E "backend\.workspaces\|app\.api\.workspaces\|app\.schemas\.workspaces" backend/rag` | exit `1`, no matches |
 | `grep -n -E "backend\.workspaces\|app\.api\.workspaces\|app\.schemas\.workspaces" backend/tests/unit/test_evaluation_*.py backend/tests/integration/test_rag_evaluation_flow.py` | exit `1`, no matches |
 | `grep -rn -E "sqlite3\|CREATE TABLE\|WORKSPACE_DB_PATH" backend/app backend/workspaces` | `sqlite3` and `CREATE TABLE` only in `backend/workspaces/sqlite_repository.py`; `WORKSPACE_DB_PATH` only in `backend/app/config.py` and the single dependency construction site in `backend/app/api/workspaces.py` |
-| `./.venv/bin/python -m pytest backend/tests/integration/test_workspace_api.py backend/tests/integration/test_api.py` | `37 passed` |
+| `./.venv/bin/python -m pytest backend/tests/integration/test_workspace_api.py backend/tests/integration/test_api.py` | `46 passed` |
 | `git diff --check` | exit `0`, no whitespace errors |
 | `git status --short --untracked-files=all` | 4 modified, 11 untracked; no database file present |
 
-The suite total is the recorded `269` baseline plus `144` new R3 tests. No
+The suite total is the recorded `269` baseline plus `158` new R3 tests, split as
+`50` contract, `34` service, `30` SQLite repository, and `44` route tests. No
 previously passing test turned red.
+
+An earlier record of this section reported `413 passed` and `144` new R3 tests.
+That figure described an earlier state of the change set. R3 route, contract, and
+persistence coverage was extended after it was written, and the service gained
+the fail-closed fix in review note 3 below, so the numbers above supersede it.
+The `269` baseline is unchanged.
 
 A live route smoke check through `TestClient` with a temporary database confirmed
 `POST` `201`, `GET` `200`, missing `GET` `404`, list `200` returning the
@@ -847,21 +858,26 @@ Worktree `.worktrees/r3-workspace`, branch `r3-trip-workspace`, base `6076d9e`.
 
 | File | Change | Requirement satisfied |
 | --- | --- | --- |
-| `backend/workspaces/models.py` | New, 312 lines | Workspace contracts, planning and retention vocabularies, validation, `tw_` identity, UTC timestamps |
-| `backend/workspaces/repository.py` | New, 55 lines | Storage interface and repository error types |
-| `backend/workspaces/sqlite_repository.py` | New, 305 lines | Local SQLite adapter, schema version 1, fail-closed version check |
-| `backend/workspaces/service.py` | New, 102 lines | Create, get, and list use cases with one identity retry |
-| `backend/workspaces/__init__.py` | New, 55 lines | Public exports |
+| `backend/workspaces/models.py` | New, 288 lines | Workspace contracts, planning and retention vocabularies, validation, `tw_` identity, UTC timestamps |
+| `backend/workspaces/repository.py` | New, 54 lines | Storage interface and repository error types |
+| `backend/workspaces/sqlite_repository.py` | New, 306 lines | Local SQLite adapter, schema version 1, fail-closed version check |
+| `backend/workspaces/service.py` | New, 102 lines | Create, get, and list use cases with one identity retry and a fail-closed terminal raise |
+| `backend/workspaces/__init__.py` | New, 42 lines | Public exports |
 | `backend/app/schemas/workspaces.py` | New, 92 lines | Request and response JSON shapes, list object wrapper |
-| `backend/app/api/workspaces.py` | New, 153 lines | Three routes, dependency construction, controlled HTTP errors, minimal logging |
+| `backend/app/api/workspaces.py` | New, 157 lines | Three routes, dependency construction, controlled HTTP errors, minimal logging |
 | `backend/app/config.py` | +8 lines | `WORKSPACE_DB_PATH` setting |
 | `backend/app/main.py` | +2 lines | Workspace router mounted under `settings.API_V1_STR` |
-| `backend/tests/unit/test_workspace_models.py` | New, 402 lines | Contract and validation coverage |
-| `backend/tests/unit/test_workspace_service.py` | New, 325 lines | Service behavior, retry, no-write-on-invalid coverage |
-| `backend/tests/unit/test_sqlite_workspace_repository.py` | New, 421 lines | Schema, persistence, ordering, fail-closed coverage |
-| `backend/tests/integration/test_workspace_api.py` | New, 327 lines | Route, error, and chat compatibility coverage |
+| `backend/tests/unit/test_workspace_models.py` | New, 416 lines | Contract and validation coverage |
+| `backend/tests/unit/test_workspace_service.py` | New, 371 lines | Service behavior, retry, fail-closed, no-write-on-invalid coverage |
+| `backend/tests/unit/test_sqlite_workspace_repository.py` | New, 426 lines | Schema, persistence, ordering, fail-closed coverage |
+| `backend/tests/integration/test_workspace_api.py` | New, 590 lines | Route, error, and chat compatibility coverage |
 | `DEVELOPMENT.md` | +59 lines | Workspace routes, `WORKSPACE_DB_PATH`, no-auth and non-production limits |
-| `ARCHITECTURE.md` | +53, -4 lines | Workspace components, trust boundary, invariants, gaps, local workspace flow |
+| `ARCHITECTURE.md` | +49, -4 lines | Workspace components, trust boundary, invariants, gaps, local workspace flow |
+
+`backend/tests/integration/test_api.py` is listed as a Task 4 modification target
+but needed no edit: its existing health and chat assertions already describe the
+compatibility contract R3 must preserve, and they run green against the workspace
+router.
 
 `docs/architecture/current-state.md`, `docs/architecture/data-model.md`,
 `docs/roadmap/master-roadmap.md`, `docs/plans/README.md`, and this plan changed in
@@ -877,7 +893,7 @@ semantics, ORM, migration framework, production database, or UI work was added.
 Chat, health, RAG, and evaluation compatibility evidence is fresh. No local
 database file appears in the change set.
 
-Two review notes:
+Three review notes:
 
 1. The routes use integer HTTP status literals rather than `fastapi.status`
    constants, because the installed Starlette 1.6.0 emits a deprecation warning
@@ -885,6 +901,16 @@ Two review notes:
 2. `backend/app/main.py` and `backend/app/config.py` were reduced to the minimum
    R3 diff after an initial edit introduced incidental reformatting. The final
    diff is 2 added lines in `main.py` and 8 in `config.py`.
+3. `WorkspaceService.create_workspace` declares `-> TripWorkspace` but had no
+   statement after its identity retry loop. The loop body is unreachable when
+   `MAX_IDENTITY_ATTEMPTS` is not positive, so the method could fall through and
+   return `None` while reporting success. No configured check caught this: the
+   repository pins no linter or type checker in `requirements.txt`, and CI runs
+   only `compileall` and `pytest`. Fixed test-first inside the approved Task 3
+   file scope. RED: `test_create_fails_closed_when_attempt_budget_is_not_positive`
+   failed with `Failed: DID NOT RAISE WorkspaceStorageError`. GREEN: a terminal
+   `WorkspaceStorageError` makes the declared return type honest, and the route
+   maps it to the existing controlled `500`. No public contract changed.
 
 ### Remaining gates
 

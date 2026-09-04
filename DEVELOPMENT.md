@@ -225,3 +225,45 @@ and Operations track in
 | 2026-09-01 | `rg -n "\\|\\| echo|continue-on-error|No backend tests found|Frontend tests completed or skipped" .github/workflows/ci.yml` | repository root | local shell | verified-pass | No success-producing test masks found |
 | 2026-09-01 | `docker compose config` | repository root | local shell | verified-pass | Rendered Compose configuration without needing Docker daemon access |
 | 2026-09-01 | `docker compose up --build` | repository root | local shell | blocked | Docker daemon/socket was unavailable at `~/.docker/run/docker.sock` |
+
+## Local RAG Evaluation
+
+Retrieval-only evaluation is local and does not require a provider:
+
+```bash
+python3 -m backend.rag.evaluation.cli preflight \
+  --dataset data/evaluation/benchmark/rag-v0.1 \
+  --config data/evaluation/configs/rag-structured-candidate-v0.1.json \
+  --mode retrieval
+python3 -m backend.rag.evaluation.cli run \
+  --dataset data/evaluation/benchmark/rag-v0.1 \
+  --config data/evaluation/configs/rag-structured-candidate-v0.1.json \
+  --mode retrieval \
+  --output-dir data/evaluation/runs
+```
+
+Full answer/judge evaluation is opt-in and may require `GITHUB_TOKEN`, provider
+access, the embedding model, and populated Chroma data:
+
+```bash
+python3 -m backend.rag.evaluation.cli run \
+  --dataset data/evaluation/benchmark/rag-v0.1 \
+  --config data/evaluation/configs/rag-structured-candidate-v0.1.json \
+  --mode full \
+  --output-dir data/evaluation/runs
+python3 -m backend.rag.evaluation.cli compare \
+  --baseline data/evaluation/runs/<baseline-run-id> \
+  --candidate data/evaluation/runs/<candidate-run-id> \
+  --output data/evaluation/runs/<candidate-run-id>/comparison.json
+```
+
+Preconditions:
+
+- The evaluation benchmark dataset exists (see `docs/evaluation/rag-evaluation.md`).
+- Chroma data is populated for the configured collection
+  (`vietnam_travel_parent_child`) before `preflight`/`run` in `retrieval` or
+  `full` mode.
+- Run from the primary working tree (nearest `data/` directory), or otherwise
+  make `data/` available to the working tree. A linked worktree without `data/`
+  creates an empty Chroma store and produces misleading retrieval results.
+- Full mode additionally requires the configured judge/provider environment.

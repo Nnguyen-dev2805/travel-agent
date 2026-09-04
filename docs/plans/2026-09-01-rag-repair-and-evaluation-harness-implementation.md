@@ -1071,7 +1071,7 @@ is created.
 - Produces: candidate run, paired D5 comparison, failure taxonomy, review report,
   and optional reviewed regression dataset version.
 
-- [ ] **Step 1: Run candidate retrieval preflight**
+- [x] **Step 1: Run candidate retrieval preflight**
 
 Run:
 
@@ -1085,7 +1085,7 @@ python3 -m backend.rag.evaluation.cli preflight \
 Expected: same dataset and corpus identity are usable and candidate config is
 valid before result generation.
 
-- [ ] **Step 2: Execute canonical candidate retrieval run**
+- [x] **Step 2: Execute canonical candidate retrieval run**
 
 Run:
 
@@ -1100,7 +1100,7 @@ python3 -m backend.rag.evaluation.cli run \
 Expected: 25 eligible examples unless a recorded validity/infrastructure failure
 prevents interpretation.
 
-- [ ] **Step 3: Compare candidate retrieval against the frozen baseline**
+- [x] **Step 3: Compare candidate retrieval against the frozen baseline**
 
 Run:
 
@@ -1116,7 +1116,7 @@ decisions; uncertainty status. Because benchmark v0.1 has 25 examples,
 `uncertainty_status` should be `not_applicable_n_lt_30` unless the benchmark was
 re-versioned and expanded before candidate observation.
 
-- [ ] **Step 4: Stop on `INVALID`, `INCONCLUSIVE`, or `FAIL`**
+- [x] **Step 4: Stop on `INVALID`, `INCONCLUSIVE`, or `FAIL`**
 
 `INVALID`: repair only infrastructure/harness validity without changing the
 frozen comparison contract, then rerun.
@@ -1130,7 +1130,7 @@ new reviewed dataset version and requires fresh baseline + candidate runs.
 
 Only `PASS` authorizes continuing toward R1 runtime acceptance.
 
-- [ ] **Step 5: Run full candidate answer evaluation when the baseline answer layer exists**
+- [x] **Step 5: Run full candidate answer evaluation when the baseline answer layer exists**
 
 If a protocol-valid full baseline was captured in Task 5, run candidate full
 mode with the same judge model/prompt/rubric/schema and compare those runs. Apply
@@ -1138,7 +1138,7 @@ mean groundedness/correctness gates exactly. If no full baseline exists because
 provider prerequisites were unavailable, state that answer-quality promotion
 was not evaluated and make no answer-quality claim.
 
-- [ ] **Step 6: Review durable failures before regression versioning**
+- [x] **Step 6: Review durable failures before regression versioning**
 
 For a failure worth protecting, reproduce it with public/synthetic/redacted
 content, define durable expected behavior/source IDs, and present it to the
@@ -1146,7 +1146,7 @@ repository owner. Only after review create a new versioned regression manifest
 and JSONL dataset under `data/evaluation/regression/`. Do not silently copy every
 benchmark miss into regression data.
 
-- [ ] **Step 7: Write comparison report**
+- [x] **Step 7: Write comparison report**
 
 `docs/reports/rag/rag-candidate-v0.1-comparison.md` must include baseline and
 candidate run IDs/config IDs, same dataset/version, overall and mandatory-slice
@@ -1155,7 +1155,7 @@ validity if applicable, uncertainty status, and the explicit claim boundary:
 **this R1 refactor is a no-regression candidate; no quality-improvement claim is
 made unless D5's separate improvement criterion is predeclared and met.**
 
-- [ ] **Step 8: Document executable evaluation workflow**
+- [x] **Step 8: Document executable evaluation workflow**
 
 Update `docs/evaluation/rag-evaluation.md` with the implemented CLI examples for
 dataset validation, preflight, retrieval/full run, and compare. Do not alter the
@@ -1165,14 +1165,14 @@ Update `DEVELOPMENT.md` so retrieval-only evaluation is documented as local/no
 provider, while full answer/judge evaluation is opt-in and may require
 `GITHUB_TOKEN`, provider access, embedding model, and populated Chroma data.
 
-- [ ] **Step 9: Update roadmap only when evidence supports it**
+- [x] **Step 9: Update roadmap only when evidence supports it**
 
 If the candidate comparison is `PASS` and required deterministic tests pass,
 update `R1` and `R2` rows to `Accepted in working tree` only after repository-
 owner change-set acceptance. Before that acceptance, keep them `In progress` and
 link the run/report evidence.
 
-- [ ] **Step 10: Review checkpoint**
+- [x] **Step 10: Review checkpoint**
 
 Present retrieval/full comparison reports, per-example failures, and exact gate
 state to the repository owner.
