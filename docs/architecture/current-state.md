@@ -62,6 +62,10 @@ Material evidence paths:
 | Shared schema registry | Owns the `PRAGMA user_version` store marker and the `schema_versions` table, registers or verifies one module's version, and fails closed on unknown ownership or an unsupported version | `backend/storage/schema_registry.py` |
 | Local SQLite workspace store | Registers `('workspaces', 1)` through the shared registry, persists and reads workspace records at `APP_DB_PATH`, and fails closed on an incompatible recorded version | `backend/workspaces/sqlite_repository.py` |
 | Local SQLite conversation store | Registers `('conversations', 1)` through the shared registry, allocates `sequence` and bumps the parent `updated_at` inside one `BEGIN IMMEDIATE` transaction, and fails closed on a stored row outside the contract | `backend/conversations/sqlite_repository.py` |
+| Memory routes | Trigger manual shadow extraction runs and list run/candidate evidence for a workspace or conversation; enforce the public trigger restriction; construct no RAG, embedding, Chroma, or model-provider dependency | `backend/app/api/memory.py`, `backend/app/schemas/memory.py` |
+| Memory contracts, extraction, policy, and service | Own `MemoryCandidate` and `MemoryExtractionRun` value objects, the scope, type, sensitivity, status, and reason vocabularies, deterministic rule-based extraction, policy decisions, provenance-checked use cases, and the storage interface | `backend/memory/models.py`, `backend/memory/extraction.py`, `backend/memory/policy.py`, `backend/memory/service.py`, `backend/memory/repository.py` |
+| Local SQLite memory store | Registers `('memory', 1)` through the shared registry, persists runs and candidates atomically per batch, orders runs newest first and candidates by run then source order, and fails closed on an incompatible recorded version or a stored row outside the contract | `backend/memory/sqlite_repository.py` |
+| Memory shadow evaluation | Replays tracked synthetic fixtures end to end through the real stores and service, and writes a Markdown and JSON report with result state and hard-gate evidence | `backend/memory/evaluation/runner.py`, `backend/memory/evaluation/cli.py` |
 | RAG generation service | Embeds the user message, retrieves Chroma context, builds the prompt, calls the configured external model endpoint, and formats citations | `backend/rag/generation/rag_service.py` |
 | Vector embedder | Lazily loads `BAAI/bge-m3` through sentence-transformers when available, or returns deterministic 1024-dimensional fallback vectors | `backend/rag/embedding/embedder.py` |
 | Chroma vector store | Creates or opens a persistent local Chroma collection, upserts baseline or parent-child chunks, searches by query embedding, and counts records | `backend/rag/retrieval/vector_store.py` |
@@ -316,6 +320,96 @@ These routes are unauthenticated and must not be exposed publicly. `R4` claims n
 cross-user or cross-workspace isolation beyond deterministic repository filtering.
 Message `content` is stored, never logged, and never returned in an error body.
 
+## Implemented Memory Contracts
+
+Milestone `R5` adds three backend-only memory routes beside chat, workspaces,
+and conversations. Every R3 workspace route, every R4 conversation route, and
+both bound and unbound chat contracts are unchanged, and no candidate enters
+an answer.
+
+| Route | Behavior |
+| --- | --- |
+| `POST /api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/memory/extractions` | Returns `201` with the run summary and counts; always creates a `manual` run and rejects any caller-supplied `trigger` or unknown field with `422` |
+| `GET /api/v1/workspaces/{workspace_id}/memory/extractions?conversation_id=<id>` | Returns `{"runs":[...]}` newest first; a missing workspace returns `404` and a conversation outside the workspace returns `409` |
+| `GET /api/v1/workspaces/{workspace_id}/memory/candidates?conversation_id=<id>&run_id=<id>` | Returns `{"candidates":[...]}` in governed run and source order; a missing run returns `404` and a filter outside the workspace returns `409` |
+
+The implemented `MemoryExtractionRun` and `MemoryCandidate` records contain:
+
+```json
+{
+  "run_id": "mer_9d21ab",
+  "workspace_id": "tw_2f8a1c",
+  "conversation_id": "cv_9d21ab",
+  "trigger": "manual",
+  "status": "completed_with_rejections",
+  "candidate_count": 2,
+  "accepted_count": 1,
+  "rejected_count": 1,
+  "needs_user_action_count": 0,
+  "invalid_count": 0
+}
+```
+
+```json
+{
+  "candidate_id": "mc_4c77de",
+  "run_id": "mer_9d21ab",
+  "source_message_id": "ms_4c77de",
+  "source_sequence": 1,
+  "proposed_scope": "user",
+  "proposed_type": "preference",
+  "status": "accepted",
+  "confidence": 0.8,
+  "sensitivity_label": "none",
+  "reason": "supported_preference"
+}
+```
+
+Implemented rules:
+
+1. `run_id` and `candidate_id` are server-generated with the prefixes `mer_`
+   and `mc_` and are never accepted from caller input.
+2. Every non-empty candidate references an existing `message_id`,
+   `conversation_id`, and `workspace_id`; missing or mismatched provenance
+   fails closed before any write.
+3. Extraction proposes candidate drafts; policy assigns `status` and `reason`.
+   The extractor never marks a candidate accepted.
+4. `accepted` means accepted into the shadow candidate set for evaluation
+   only. `R5` creates no answer-eligible `MemoryRecord` and implements no
+   promotion, retrieval, or personalization.
+5. Extraction runs only on explicitly opted-in evidence: the service feeds
+   stored messages through, and the policy marks excluded trace visibility
+   as `trace_excluded` and non-user provenance as `system_generated`, so
+   ordinary chat-bound turns never become accepted candidates.
+6. Secret-like spans are redacted before persistence, and secret-like or
+   unsafe sensitivity is rejected, never accepted.
+7. Candidate `text` is excluded from HTTP responses. Responses and reports
+   carry identifiers, timestamps, status values, counts, controlled reason
+   codes, sensitivity labels, confidence, and redacted summaries only.
+8. Timestamps are server-generated timezone-aware UTC values.
+9. For a finished run, `candidate_count` equals the sum of the four status
+   counters. An extractor failure persists a `failed` run with the controlled
+   `extraction_failed` label and no candidates.
+
+Implemented module boundary:
+
+```text
+FastAPI memory routes -> MemoryService -> MemoryRepository interface
+                                         -> SQLiteMemoryRepository
+                                         -> shared schema registry
+                       MemoryService -> ConversationRepository interface
+                       MemoryService -> WorkspaceRepository interface
+```
+
+`sqlite3`, table DDL, and connection management appear only in the shared
+schema registry and the three repository adapters. `backend/rag`, including
+RAG evaluation, imports no memory module, and `backend/memory` imports no RAG
+or orchestration module.
+
+These routes are unauthenticated and must not be exposed publicly. `R5` claims
+no cross-user isolation and no deletion path. Candidate evidence is local
+development state only.
+
 ## RAG Module Shape
 
 `RAGService` currently owns several responsibilities behind one method:
@@ -386,10 +480,12 @@ the configured environment, and mutate persistent Chroma state under
 | Travel datasets | Indexing reads processed paths or legacy fallback paths | Dataset quality and freshness are not established by Package 3 |
 | Application environment | Backend loads `.env` if present | `.env.example` is empty and no secret values are documented |
 
-There is no implemented user profile store, memory store, planner state store, or
-evaluation trace store in the bounded online architecture. The shared local store
-holds trip container records, conversations, and messages only. No conversation or
-message record is written to Chroma or any vector database.
+There is no implemented user profile store, answer-eligible memory store,
+planner state store, or evaluation trace store in the bounded online
+architecture. The shared local store holds trip container records,
+conversations, messages, and shadow memory candidate evidence only. No
+conversation, message, or candidate record is written to Chroma or any vector
+database, and no candidate is used in answers.
 
 ## Current Tests and Verification Signals
 
@@ -409,8 +505,10 @@ correctness, production readiness, privacy guarantees, or complete test health.
 
 Current gaps:
 
-1. No implemented memory read path.
-2. No implemented memory write path.
+1. No implemented answer-time memory read path.
+2. No durable answer-eligible memory write path. `R5` persists shadow
+   candidates and measures extraction quality, but implements no
+   `MemoryRecord` promotion.
 3. No implemented user identity or authentication; workspace and conversation
    routes are unauthenticated and `owner_user_id` is a local scope label only.
 4. No implemented conversation summarization: `summary` has no column and no
@@ -466,3 +564,13 @@ approved spec changes them:
     or orchestration module.
 11. Message `sequence` remains a stored server-assigned integer starting at `1`
     per conversation, never supplied by a caller.
+12. Memory extraction-run identity remains a server-generated `mer_`-prefixed
+    string and candidate identity `mc_`-prefixed; `accepted` remains
+    shadow-only and no candidate enters retrieval, context assembly, prompts,
+    or generated answers.
+13. The memory trigger route remains manual-only and rejects any
+    caller-supplied `trigger`; the run and candidate list responses remain
+    `{"runs": [...]}` and `{"candidates": [...]}` objects, and candidate
+    `text` remains excluded from HTTP responses.
+14. Memory evaluation fixtures remain tracked under
+    `docs/evaluation/fixtures/memory/`, never under Git-ignored `data/`.

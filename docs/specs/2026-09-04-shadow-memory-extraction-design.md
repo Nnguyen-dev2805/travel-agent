@@ -274,7 +274,7 @@ R5 uses a governed reason vocabulary:
 
 ### Extraction Eligibility
 
-R5 extracts only from messages that meet all of these conditions:
+R5 persists candidates only from messages that meet all of these conditions:
 
 1. the parent conversation exists;
 2. the parent workspace exists;
@@ -282,6 +282,11 @@ R5 extracts only from messages that meet all of these conditions:
 4. `trace_visibility` is `included`;
 5. the conversation retention state is `active`;
 6. the message content is non-empty after normalization.
+
+Conditions 1, 2, 5, and 6 gate at the service, which never writes when they
+fail. Conditions 3 and 4 are enforced by the policy as explicit rejected
+candidates (`system_generated`, `trace_excluded`), so an ineligible turn
+leaves reviewable rejection evidence instead of a silent gap.
 
 Assistant, tool, and `system_event` turns are not eligible as primary candidate
 sources in R5. They may be referenced in evaluation fixtures as context only if

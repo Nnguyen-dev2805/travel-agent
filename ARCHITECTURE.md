@@ -37,6 +37,9 @@ Use these Package 3 architecture documents for deeper review:
 | Workspace module | Owns `TripWorkspace` contracts, validation, identity generation, timestamps, and the storage interface | `backend/workspaces/models.py`, `backend/workspaces/service.py`, `backend/workspaces/repository.py` |
 | Conversation module | Owns `Conversation` and `Message` contracts, the governed role, source, trace-visibility and retention vocabularies, validation, identity generation, timestamps, cursor resolution, and the storage interface | `backend/conversations/models.py`, `backend/conversations/service.py`, `backend/conversations/repository.py` |
 | Conversation orchestrator | Coordinates conversation persistence with RAG generation for one chat turn and reports the persistence outcome truthfully | `backend/orchestration/conversation_orchestrator.py` |
+| Memory routes | Trigger manual shadow extraction runs and list run/candidate evidence for a workspace or conversation; construct no RAG, embedding, or model-provider dependency | `backend/app/api/memory.py`, `backend/app/schemas/memory.py` |
+| Memory module | Owns `MemoryCandidate` and `MemoryExtractionRun` contracts, deterministic rule-based extraction, policy decisions, service use cases, and the storage interface | `backend/memory/models.py`, `backend/memory/extraction.py`, `backend/memory/policy.py`, `backend/memory/service.py`, `backend/memory/repository.py` |
+| Memory evaluation | Replays tracked synthetic fixtures end to end and writes a shadow report with result state and hard-gate evidence | `backend/memory/evaluation/runner.py`, `backend/memory/evaluation/cli.py` |
 | Shared schema registry | Owns the `PRAGMA user_version` store marker and the `schema_versions` table, registers or verifies one module's schema version, and fails closed on unknown ownership or an unsupported version | `backend/storage/schema_registry.py` |
 | Shared local application store | One local SQLite file at `APP_DB_PATH` holding trip workspace, conversation, and message records with per-module schema versions | `backend/workspaces/sqlite_repository.py`, `backend/conversations/sqlite_repository.py` |
 | RAG generation service | Embeds the user message, retrieves Chroma context, builds the model prompt, calls the configured external model endpoint, and formats citations | `backend/rag/generation/rag_service.py` |
@@ -174,6 +177,46 @@ its failure modes unchanged.
 
 Message `content` is stored, never logged, and never deleted by `R4`.
 
+## Shadow Memory Flow
+
+Milestone `R5` adds backend-only shadow memory extraction beside workspaces
+and conversations. Candidates are measured but never used in answers, per
+ADR 0006.
+
+```mermaid
+flowchart LR
+    Caller[Local caller] --> Routes[FastAPI memory routes]
+    Routes --> Service[MemoryService]
+    Service --> Conv[ConversationRepository interface]
+    Service --> WS[WorkspaceRepository interface]
+    Service --> Ext[RuleBasedMemoryExtractor]
+    Service --> Pol[MemoryPolicy]
+    Ext --> Draft[MemoryCandidateDraft]
+    Pol --> Draft
+    Service --> Interface[MemoryRepository interface]
+    Interface --> Adapter[SQLiteMemoryRepository]
+    Adapter --> Registry[Shared schema registry]
+    Registry --> DB[(APP_DB_PATH)]
+```
+
+The service validates workspace, conversation, and scope provenance before
+extraction, persists a `MemoryExtractionRun` with per-status counts, and
+persists the decided `MemoryCandidate` rows. Extraction proposes; policy
+decides `accepted`, `rejected`, `needs_user_action`, or `invalid`. `accepted`
+means accepted into the shadow candidate set for evaluation only.
+
+A separate evaluation command replays tracked synthetic fixtures under
+`docs/evaluation/fixtures/memory/` through the same service and writes a
+report with result state (`PASS`, `FAIL`, `INCONCLUSIVE`, `INVALID`) and
+hard-gate evidence. Candidate `text` is excluded from HTTP responses;
+reports carry identifiers, counts, and controlled reason codes only.
+
+This path is independent of RAG: memory routes construct no embedder, Chroma
+collection, or model-provider client, `backend/rag` imports no memory module,
+and no candidate enters `ContextBundle`, prompt assembly, retrieval, or
+generated answers. It is unauthenticated local development behavior and must
+not be exposed publicly.
+
 ## Trust Boundaries
 
 | Boundary | Current implication |
@@ -181,6 +224,8 @@ Message `content` is stored, never logged, and never deleted by `R4`.
 | Browser to local API | Local browser requests cross into the FastAPI process through permissive local CORS configuration that includes `*` |
 | Caller to workspace routes | Workspace routes are unauthenticated. `owner_user_id` is a caller-supplied local development scope label, not authentication, authorization, or tenant isolation, so these routes must not be exposed publicly |
 | Caller to conversation routes | Conversation routes are unauthenticated. Conversations inherit scope from their parent workspace and carry no owner field, so `R4` claims no cross-user or cross-workspace isolation beyond deterministic repository filtering. The public append route accepts only `user` and `system_event`, so a caller cannot forge an assistant turn. These routes must not be exposed publicly |
+| Caller to memory routes | Memory routes are unauthenticated and inherit workspace scope through the parent conversation. The trigger route always creates a `manual` run and rejects any caller-supplied `trigger`. These routes must not be exposed publicly |
+| Memory candidate evidence to callers and reports | Candidate `text` is excluded from HTTP responses; reports carry identifiers, counts, controlled reason codes, and redacted summaries only. Secret-like spans are redacted before persistence, and raw message content is never logged |
 | Local process to model provider | User message and retrieved travel context leave the local process for the configured external model endpoint |
 | Local files, model cache, and vector store | Data, Chroma state, and model cache are local development assets, not isolated production stores |
 | Local application database | The SQLite file at `APP_DB_PATH` holds user-entered trip content and full message content as local development state, with no production retention, backup, restore, or deletion contract |
@@ -198,7 +243,8 @@ Message `content` is stored, never logged, and never deleted by `R4`.
 - Workspace routes are additive; the chat route performs no workspace lookup and
   accepts no `workspace_id`.
 - Workspace identity is server-generated and prefixed `tw_`; conversation identity
-  is prefixed `cv_` and message identity `ms_`.
+  is prefixed `cv_` and message identity `ms_`. Memory extraction-run identity
+  is prefixed `mer_` and candidate identity `mc_`.
 - Message order within a conversation is a stored `sequence` integer starting at
   `1`, unique per conversation, assigned by the adapter inside the write
   transaction and never supplied by a caller.
@@ -213,11 +259,14 @@ Message `content` is stored, never logged, and never deleted by `R4`.
   `backend/workspaces/sqlite_repository.py`, and
   `backend/conversations/sqlite_repository.py`. `PRAGMA user_version` is confined
   to the schema registry.
-- Schema versions are recorded per module in `schema_versions`, so two modules
-  coexist in one database file without version contention.
-- RAG and evaluation modules do not import workspace, conversation, or
-  orchestration modules, and `backend/workspaces` does not import conversation or
-  orchestration modules.
+- Schema versions are recorded per module in `schema_versions`, so workspace,
+  conversation, and memory modules coexist in one database file without
+  version contention.
+- RAG and evaluation modules do not import workspace, conversation, memory, or
+  orchestration modules, and `backend/workspaces` does not import conversation,
+  memory, or orchestration modules. `backend/memory` does not import RAG or
+  orchestration modules, and no memory candidate enters `ContextBundle`, prompt
+  assembly, RAG retrieval, or generated answers.
 - The RAG service is process-global after first construction.
 - Chroma uses persistent local storage under `data/chromadb` by default, and no
   conversation or message record is written to any vector database.
@@ -231,7 +280,9 @@ Message `content` is stored, never logged, and never deleted by `R4`.
 - No user, trip, or memory identifier exists in the bounded chat request
   contract. `conversation_id` is the only implemented identifier, and it is
   optional.
-- No implemented agent memory exists yet.
+- No answer-eligible agent memory exists yet. `R5` persists shadow candidates
+  and measures extraction quality, but implements no `MemoryRecord` promotion,
+  no memory retrieval, and no personalization in answers.
 - Trip workspace and conversation records exist as local backend components, but
   there is no authenticated user, workspace-aware chat, itinerary state, planner
   behavior, workspace or conversation UI, or workspace lifecycle transition.

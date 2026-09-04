@@ -58,10 +58,11 @@ optional additive `conversation_id`, and the response then carries an additive
 | ContextBundle | Per-turn selected workspace state, memories, retrieval items, and planner context | Evaluation run |
 | EvaluationTrace | Reproducible evidence for a request, response, selected context, scores, and failures | Evaluation run |
 
-Every entity except `TripWorkspace` remains fully conceptual. `TripWorkspace` has
-a bounded implemented subset from milestone `R3`; all other entities, including
-every relationship that connects them to `TripWorkspace`, are still target
-direction.
+`TripWorkspace` has a bounded implemented subset from milestone `R3`,
+`Conversation` and `Message` from milestone `R4`, and `MemoryCandidate` plus
+`MemoryExtractionRun` from milestone `R5`; see the implemented sections below.
+Every other entity, including every relationship that connects it to
+`TripWorkspace`, remains fully conceptual.
 
 ## Relationship Map
 
@@ -238,10 +239,10 @@ archive, deletion, tombstoning, redaction, sharing, import, export, or full-text
 search. Content is stored, never logged, and never returned in an error body.
 
 Every other entity and relationship in this document remains conceptual. Memory
-records, memory candidates, itinerary versions, trip decisions, context bundles,
-and evaluation traces are not implemented, so their references to
-`conversation_id` and `message_id` have a stable target for the first time but no
-stored consumer yet.
+records, itinerary versions, trip decisions, context bundles, and evaluation
+traces are not implemented. Memory candidates are implemented as shadow
+evaluation evidence since `R5`; the promotion edge from `MemoryCandidate` to
+`MemoryRecord` remains target direction with no stored consumer yet.
 
 Physical storage for `R4` is the same shared local SQLite file as `R3`, with
 `('conversations', 1)` recorded in the per-module `schema_versions` registry per
@@ -333,6 +334,32 @@ Conceptual fields:
 
 Candidate records are evaluation evidence. Rejected candidates can be useful for
 debugging memory extraction quality.
+
+#### Implemented MemoryCandidate Fields (R5)
+
+Milestone `R5` implements this entity as a local backend record alongside a
+`MemoryExtractionRun` record, with these implemented constraints:
+
+| Field | Implemented rule |
+| --- | --- |
+| `candidate_id` | Server-generated opaque string prefixed `mc_`; never accepted from caller input |
+| `run_id` | Server-generated opaque string prefixed `mer_`; references the parent extraction run |
+| `workspace_id`, `conversation_id`, `source_message_id` | Required, trimmed, non-empty, and verified to reference existing records before extraction |
+| `source_sequence` | Stored R4 message sequence copied for review and ordering |
+| `proposed_scope` | `user`, `workspace`, `conversation`, or `none` |
+| `proposed_type` | `preference`, `constraint`, `profile_fact`, `episode`, `decision`, `correction`, `safety_note`, or `none` |
+| `status` | `accepted`, `rejected`, `needs_user_action`, or `invalid`; assigned by policy, never by the extractor. `accepted` means shadow-only |
+| `confidence` | Floating-point value in `[0.0, 1.0]` |
+| `sensitivity_label` | `none`, `personal`, `sensitive`, `secret`, or `unsafe`; secret-like spans are redacted before persistence |
+| `text` | Normalized candidate content, at most 500 characters; excluded from HTTP responses |
+| `evidence_summary` | Redacted support summary, at most 240 characters |
+| `reason` | Governed policy reason code (`supported_preference`, `trace_excluded`, `secret_like`, and twelve others) |
+| `created_at` | Server-generated timezone-aware UTC timestamp |
+
+`MemoryRecord` remains conceptual: `R5` designs no promotion, retrieval,
+answer-time use, deletion, or expiration for durable memory. Candidate rows
+live in the shared local SQLite file with `('memory', 1)` recorded in the
+per-module `schema_versions` registry per ADR 0004 and ADR 0006.
 
 ## Knowledge and Retrieval Records
 

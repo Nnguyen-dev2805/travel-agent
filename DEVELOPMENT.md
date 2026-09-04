@@ -33,7 +33,7 @@ local untracked `.env` only when a local workflow needs environment values.
 | `GITHUB_TOKEN` | Backend settings and external model client | Stage B external generation | Yes | Placeholder only; do not commit real values |
 | `LLM_MODEL` | Backend settings | Selecting the external model | No secret by itself | Defaults to `gpt-4o-mini` |
 | `VITE_API_URL` | Frontend API client and Docker Compose frontend service | Browser-to-backend API origin | No secret by itself | Defaults to `http://localhost:8000` |
-| `APP_DB_PATH` | Backend settings, the local workspace adapter, and the local conversation adapter | Local trip workspace and conversation routes | No secret by itself | Defaults to `data/app/travel_agent.sqlite3`; one shared local SQLite file per ADR 0004; local development state only |
+| `APP_DB_PATH` | Backend settings, the local workspace adapter, the local conversation adapter, and the local memory adapter | Local trip workspace, conversation, and memory routes | No secret by itself | Defaults to `data/app/travel_agent.sqlite3`; one shared local SQLite file per ADR 0004; local development state only |
 | `WORKSPACE_DB_PATH` | Backend settings only | Nothing new; kept so an existing local environment still works | No secret by itself | **Deprecated alias for `APP_DB_PATH`.** Used only when `APP_DB_PATH` is unset, and logs one deprecation warning naming the variable without its value |
 
 Do not print, paste, or commit real credential values in logs, examples,
@@ -323,6 +323,34 @@ the reply is still returned with `persisted` `false` and a `null`
 An unbound turn constructs no conversation storage at all, so it cannot be broken
 by a storage failure and does not create the local database file.
 
+### Local Memory Routes
+
+`R5` adds backend-only shadow memory extraction. It measures candidates but
+never uses them in answers.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/workspaces/<workspace_id>/conversations/<conversation_id>/memory/extractions \
+  -H 'Content-Type: application/json' -d '{}'
+curl 'http://localhost:8000/api/v1/workspaces/<workspace_id>/memory/extractions'
+curl 'http://localhost:8000/api/v1/workspaces/<workspace_id>/memory/candidates?run_id=<run_id>'
+```
+
+Rules:
+
+1. The trigger route accepts an empty body or `{}` only and always creates a
+   `manual` run. Any caller-supplied field returns `422`.
+2. Only messages explicitly persisted with `trace_visibility` `included`
+   become accepted candidates. Ordinary chat-bound turns stay `excluded` and
+   are never accepted.
+3. Candidate `text` is excluded from responses. Listings carry identifiers,
+   counts, controlled reason codes, sensitivity labels, confidence, and
+   redacted summaries only.
+4. `accepted` means accepted into the shadow candidate set for evaluation,
+   not promoted into answer-eligible memory. There is no retrieval,
+   personalization, deletion, or frontend surface.
+5. Requires no credential, model, or Chroma state. Writes the local SQLite
+   file at `APP_DB_PATH`.
+
 ## Command Contract
 
 | Category | Working directory | Command | Claim | Writes | Network | Status |
@@ -339,6 +367,8 @@ by a storage failure and does not create the local database file.
 | Local workspace routes | repository root | `curl` requests to `/api/v1/workspaces` while the backend runs | Workspace records can be created and inspected locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
 | Local conversation routes | repository root | `curl` requests to `/api/v1/workspaces/{workspace_id}/conversations` and `/api/v1/conversations/...` while the backend runs | Conversations and messages can be created and read locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
 | Bound chat turn | repository root | opt-in chat request to `/api/v1/chat` carrying `conversation_id` | A chat turn is persisted and reports its persistence outcome | Local SQLite file at `APP_DB_PATH`, possible logs/cache state | Yes, because generation still calls the model provider | Opt-in, not default CI |
+| Local memory routes | repository root | `curl` requests to `/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/memory/extractions` and `/api/v1/workspaces/{workspace_id}/memory/...` while the backend runs | Shadow candidates can be extracted and inspected locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
+| Local memory evaluation | repository root | `python -m backend.memory.evaluation.cli run-shadow --fixture docs/evaluation/fixtures/memory/r5-shadow-v0.1/manifest.json --output-dir docs/reports/memory` | Shadow report with result state and hard-gate evidence | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
 | RAG and memory evaluation | repository root | later approved evaluation command | Approved metric-specific quality claim | Evaluation outputs | Depends on later plan | Future milestone |
 
 ## Opt-in Data and Model Operations
@@ -367,6 +397,10 @@ the approved task that owns their inputs, side effects, and evidence.
 | Conversation route returns `422` on append | A restricted role, an ungoverned vocabulary value, or blank content was submitted | The public route accepts only `user` and `system_event`; `assistant` and `tool` are written by the orchestrator |
 | Conversation history returns `422` | The `limit` is outside `1` to `200`, or the cursor is unknown or belongs to another conversation | Re-read the page with a cursor returned by that same conversation |
 | Bound chat returns `persisted` `false` | Generation succeeded but the assistant turn could not be stored | The reply is still valid; check that `APP_DB_PATH` is writable, then re-read history |
+| Memory trigger returns `404` | The workspace or conversation does not exist | Create the workspace first, then the conversation; a chat request never creates one implicitly |
+| Memory trigger or list returns `409` | The conversation or run does not belong to the requested workspace | Re-check the workspace/conversation/run identifiers; filters never cross workspace scope |
+| Memory trigger returns `422` on body | A caller-supplied `trigger` or unknown field was submitted | Send an empty body or `{}`; the route always creates a `manual` run |
+| Memory run shows `completed_with_rejections` | At least one candidate was rejected, marked for user action, or invalid | Read the candidate `reason` codes; this is the normal shadow outcome, not a failure |
 | A deprecation warning names `WORKSPACE_DB_PATH` | `APP_DB_PATH` is unset and the deprecated alias is being honored | Set `APP_DB_PATH` instead; the alias is retained only for compatibility |
 
 When normal setup has already failed and the problem needs diagnosis or
@@ -466,3 +500,22 @@ Preconditions:
   make `data/` available to the working tree. A linked worktree without `data/`
   creates an empty Chroma store and produces misleading retrieval results.
 - Full mode additionally requires the configured judge/provider environment.
+
+## Local Memory Evaluation
+
+Shadow evaluation is local and deterministic. It requires no provider,
+embedding model, Chroma data, or Docker:
+
+```bash
+python -m backend.memory.evaluation.cli run-shadow \
+  --fixture docs/evaluation/fixtures/memory/r5-shadow-v0.1/manifest.json \
+  --output-dir docs/reports/memory
+```
+
+The command replays the tracked synthetic fixtures end to end through the
+real stores and service, then writes `r5-shadow-v0.1.md` and
+`r5-shadow-v0.1.json` with the result state (`PASS`, `FAIL`,
+`INCONCLUSIVE`, or `INVALID`), metric values, mandatory-slice evidence, and
+applicable hard-gate counts. Fixture source files stay tracked under
+`docs/evaluation/fixtures/memory/`; reports carry identifiers and codes
+only, never message content or candidate text.

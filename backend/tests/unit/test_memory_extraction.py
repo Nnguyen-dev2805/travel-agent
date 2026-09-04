@@ -155,6 +155,66 @@ def test_message_with_two_signals_produces_two_drafts():
     }
 
 
+def test_hedged_preference_gets_below_accept_confidence():
+    (draft,) = _extract("Có lẽ tôi thích đi biển, nhưng chưa chắc đâu.")
+    assert draft.proposed_scope is MemoryScope.USER
+    assert draft.proposed_type is MemoryType.PREFERENCE
+    assert draft.confidence == 0.6
+    decided = MemoryPolicy().evaluate(draft)
+    assert decided.reason is PolicyReason.AMBIGUOUS
+
+
+def test_chat_local_preference_is_conversation_scoped():
+    (draft,) = _extract("Trong chat này thì tôi thích đi biển.")
+    assert draft.proposed_scope is MemoryScope.CONVERSATION
+    assert draft.proposed_type is MemoryType.PREFERENCE
+    decided = MemoryPolicy().evaluate(draft)
+    assert decided.reason is PolicyReason.WRONG_SCOPE
+
+
+_CO_OCCURRENCE_CASES = [
+    "API key của tôi là sk-live-PersistProbe9 và tôi thích ăn chay.",
+    "password: hunter2x, ngân sách chuyến này tối đa 20 triệu.",
+    "token = abcxyz9, thực ra tôi đổi sang đi tàu hỏa.",
+]
+
+
+def test_secret_co_occurrence_marks_every_draft_secret():
+    for content in _CO_OCCURRENCE_CASES:
+        drafts = _extract(content)
+        assert len(drafts) == 2
+        for draft in drafts:
+            assert draft.sensitivity_label is SensitivityLabel.SECRET
+
+
+def test_secret_co_occurrence_leaks_no_raw_secret():
+    for content in _CO_OCCURRENCE_CASES:
+        for draft in _extract(content):
+            assert "PersistProbe9" not in draft.text
+            assert "hunter2x" not in draft.text
+            assert "abcxyz9" not in draft.text
+            assert "PersistProbe9" not in draft.evidence_summary
+            assert "hunter2x" not in draft.evidence_summary
+            assert "abcxyz9" not in draft.evidence_summary
+
+
+def test_secret_co_occurrence_produces_no_accepted_candidate():
+    policy = MemoryPolicy()
+    for content in _CO_OCCURRENCE_CASES:
+        decided = [policy.evaluate(draft) for draft in _extract(content)]
+        assert decided
+        assert all(item.status is MemoryCandidateStatus.REJECTED for item in decided)
+        assert all(item.reason is PolicyReason.SECRET_LIKE for item in decided)
+
+
+def test_evidence_summary_carries_no_message_content():
+    (draft,) = _extract(PREFERENCE_TEXT)
+    assert draft.evidence_summary == "signal=preference:ăn chay"
+    assert PREFERENCE_TEXT not in draft.evidence_summary
+    (secret_draft,) = _extract(SECRET_TEXT)
+    assert secret_draft.evidence_summary == "secret-like pattern redacted"
+
+
 def test_extractor_contract_and_identity():
     assert isinstance(RuleBasedMemoryExtractor(), MemoryExtractor)
     assert EXTRACTOR_ID == "rule-based-v1"

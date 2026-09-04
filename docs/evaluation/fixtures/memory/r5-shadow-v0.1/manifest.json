@@ -1,0 +1,10 @@
+{
+  "dataset_id": "r5-shadow-v0.1",
+  "dataset_version": "0.1",
+  "dataset_role": "benchmark",
+  "description": "Deterministic R5 shadow extraction benchmark over synthetic Vietnamese conversation fixtures. Every fixture uses artificial identities and one artificial secret-like marker; no real credential appears.",
+  "created": "2026-09-04",
+  "reviewer": "repository-owner",
+  "examples_file": "examples.jsonl",
+  "protocol": "docs/evaluation/memory-evaluation.md"
+}

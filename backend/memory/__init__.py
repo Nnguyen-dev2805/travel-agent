@@ -13,6 +13,7 @@ generated answers.
 
 from backend.memory.extraction import (
     EXTRACTOR_ID,
+    SECRET_PATTERNS,
     MemoryExtractor,
     RuleBasedMemoryExtractor,
 )
@@ -90,6 +91,7 @@ __all__ = [
     "PolicyReason",
     "SensitivityLabel",
     "RuleBasedMemoryExtractor",
+    "SECRET_PATTERNS",
     "generate_memory_candidate_id",
     "generate_memory_run_id",
     "utc_now",

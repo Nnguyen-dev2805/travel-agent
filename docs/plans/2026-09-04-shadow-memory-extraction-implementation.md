@@ -402,34 +402,41 @@ recorded here as a known limitation for Task 8 review.
   - `GET /api/v1/workspaces/{workspace_id}/memory/extractions`
   - `GET /api/v1/workspaces/{workspace_id}/memory/candidates`
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 Cover manual trigger success, rejection of caller-supplied `trigger`, missing
 workspace/conversation errors, workspace/conversation mismatch, sanitized error
 bodies, list runs, list candidates, response counts, and exact route status
 codes from the spec.
 
-- [ ] **Step 2: Run API tests for RED**
+- [x] **Step 2: Run API tests for RED**
 
 Run: `./.venv/bin/python -m pytest backend/tests/integration/test_memory_api.py -q`
 
 Expected: tests fail because routes are not mounted.
 
-- [ ] **Step 3: Implement schemas and routes**
+- [x] **Step 3: Implement schemas and routes**
 
 Map service errors to controlled HTTP responses. Do not include source message
 content, candidate text, evidence summary, or conversation title in errors.
 
-- [ ] **Step 4: Run API tests for GREEN**
+- [x] **Step 4: Run API tests for GREEN**
+
+GREEN: `10 passed` (`backend/tests/integration/test_memory_api.py`).
 
 Run: `./.venv/bin/python -m pytest backend/tests/integration/test_memory_api.py -q`
 
 Expected: all API tests pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: route handlers contain no SQL/DDL/path creation and no memory write is
 visible to RAG.
+
+Checkpoint: candidate `text` is excluded from responses (spec MAY-list names
+redacted summaries only); one test-helper bug fixed (dependency override was
+popped before requests ran — R4 keeps it alive via fixture yield); errors use
+static details, never echoing content, titles, or submitted values.
 
 ## Task 7: Memory Evaluation Report
 
@@ -450,12 +457,12 @@ visible to RAG.
 - Consumes: memory repository/service evidence and `docs/evaluation/memory-evaluation.md`
 - Produces: deterministic shadow-memory evaluation report
 
-- [ ] **Step 1: Write failing evaluation tests**
+- [x] **Step 1: Write failing evaluation tests**
 
 Cover result states `PASS`, `FAIL`, `INCONCLUSIVE`, and `INVALID`; hard-gate
 failure dominance; invalid evidence behavior; redacted report output.
 
-- [ ] **Step 2: Create synthetic fixtures**
+- [x] **Step 2: Create synthetic fixtures**
 
 Create tracked benchmark/safety examples under
 `docs/evaluation/fixtures/memory/r5-shadow-v0.1/` covering explicit durable
@@ -463,29 +470,44 @@ preference, trip constraint, transient detail, ambiguous candidate, explicit
 correction, wrong-scope case, excluded trace, ordinary R4 default-excluded chat
 message, and controlled secret-like marker.
 
-- [ ] **Step 3: Implement evaluation runner and CLI command**
+- [x] **Step 3: Implement evaluation runner and CLI command**
 
 Add a memory-specific command, for example
 `./.venv/bin/python -m backend.memory.evaluation.cli run-shadow --fixture docs/evaluation/fixtures/memory/r5-shadow-v0.1/manifest.json`.
 Do not modify existing RAG evaluation commands or result formats.
 
-- [ ] **Step 4: Run evaluation tests**
+- [x] **Step 4: Run evaluation tests**
+
+GREEN: `11 passed` (`backend/tests/unit/test_memory_evaluation_runner.py`).
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_evaluation_runner.py -q`
 
 Expected: all memory evaluation tests pass.
 
-- [ ] **Step 5: Run the shadow evaluation**
+- [x] **Step 5: Run the shadow evaluation**
+
+Report `r5-shadow-v0.1` (`docs/reports/memory/`): **PASS**, 13/13 eligible,
+precision/recall/scope `1.0`, applicable hard gates `0` events. Fixture
+`r5-chat-001` initially mismatched (assistant + excluded hits
+`trace_excluded` before `system_generated`); fixed by giving the assistant
+turn `included` visibility so the two slices stay distinct, plus added
+`r5-chat-002` for the ordinary default-excluded chat case.
 
 Run the approved memory evaluation command from the implementation. Expected:
 one Markdown report and one machine-readable JSON report under
 `docs/reports/memory/`. Fixture source files remain tracked under
 `docs/evaluation/fixtures/memory/`.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: report includes hard safety counts, mandatory slices, invalid evidence,
 redacted examples, and the final result state.
+
+Checkpoint: JSON + Markdown verified free of the secret marker and message
+content; two Task 3 extractor additions were required by the fixture list
+(hedged wording yields `ambiguous`, chat-local framing yields `wrong_scope`),
+each with its own unit test and pipeline assertion; RAG commands and result
+formats untouched.
 
 ## Task 8: Documentation, Boundary Checks, and Handoff
 
@@ -504,30 +526,41 @@ redacted examples, and the final result state.
 - Consumes: completed R5 implementation and verification evidence
 - Produces: review packet ready for repository-owner acceptance
 
-- [ ] **Step 1: Update canonical docs**
+- [x] **Step 1: Update canonical docs**
 
 Document R5 as shadow-only, backend-only, local-development-only, and not used
 in answers.
 
-- [ ] **Step 2: Run focused R5 tests**
+- [x] **Step 2: Run focused R5 tests**
+
+`119 passed` across all seven R5 test files.
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_models.py backend/tests/unit/test_memory_policy.py backend/tests/unit/test_memory_extraction.py backend/tests/unit/test_sqlite_memory_repository.py backend/tests/unit/test_memory_service.py backend/tests/unit/test_memory_evaluation_runner.py backend/tests/integration/test_memory_api.py -q`
 
 Expected: all focused R5 tests pass.
 
-- [ ] **Step 3: Run full backend tests**
+- [x] **Step 3: Run full backend tests**
+
+`827 passed` (`backend/tests`), no regressions from the `708` baseline.
 
 Run: `./.venv/bin/python -m pytest backend/tests -q`
 
 Expected: full backend test suite passes.
 
-- [ ] **Step 4: Compile backend**
+- [x] **Step 4: Compile backend**
+
+`compileall` exit `0`.
 
 Run: `./.venv/bin/python -m compileall backend`
 
 Expected: exit code `0`.
 
-- [ ] **Step 5: Run import-boundary checks**
+- [x] **Step 5: Run import-boundary checks**
+
+All three plan greps return no output (exit `1`): RAG imports no memory,
+RAG-evaluation tests import no memory, memory imports no RAG or
+orchestration. `sqlite3` is confined to the shared registry, the three
+adapters, and inspection tests.
 
 Run: `grep -rnI -E "backend\.memory|app\.api\.memory|app\.schemas\.memory" backend/rag`
 
@@ -541,7 +574,14 @@ Run: `grep -rnI -E "backend\.rag|backend\.orchestration" backend/memory`
 
 Expected: no output and exit code `1`.
 
-- [ ] **Step 6: Run static Git checks**
+- [x] **Step 6: Run static Git checks**
+
+`git diff --check` clean. `git status` shows only the R5 file scope:
+modified gateway, development guide, current-state, data-model, roadmap,
+plan, `main.py` mount, extractor additions, and extractor tests; new
+memory routes/schemas, evaluation package, API/evaluation tests, tracked
+fixtures, and the two report files. No ignored `data/` artifact, database
+file, symlink, or Chroma state appears.
 
 Run: `git diff --check`
 
@@ -553,10 +593,16 @@ Expected: only R5 source, test, docs, and tracked evaluation fixture/report
 paths appear. No ignored `data/` fixture, database file, symlink, Chroma
 artifact, or unrelated file appears.
 
-- [ ] **Step 7: Review checkpoint**
+- [x] **Step 7: Review checkpoint**
 
 Prepare the final review packet with changed files, requirement mapping, RED and
 GREEN evidence, report path, limitations, and exact remaining Git delivery gate.
+
+Review packet delivered to the repository owner in conversation; no
+`code-reviewer` subagent exists in this runtime, so review was
+implementer self-review against the spec/plan checklists plus the fresh
+verification above. Remaining gate: owner change-set review, then owner Git
+delivery. No staging, commit, push, PR, merge, or cleanup performed.
 
 ## Package Verification
 
