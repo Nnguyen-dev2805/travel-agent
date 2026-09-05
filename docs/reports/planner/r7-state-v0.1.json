@@ -1,0 +1,131 @@
+{
+  "dataset_id": "r7-state-v0.1",
+  "dataset_version": "0.1",
+  "result_state": "PASS",
+  "counts": {
+    "eligible_examples": 16
+  },
+  "gates": [
+    {
+      "gate": "version_continuity",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "single_accepted",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "rejected_preservation",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "cross_workspace_isolation",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "operation_traceability",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "no_implicit_chat_writes",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    }
+  ],
+  "per_example": [
+    {
+      "example_id": "v-chain",
+      "slice": "itinerary_versioning",
+      "failures": []
+    },
+    {
+      "example_id": "v-drafts",
+      "slice": "itinerary_versioning",
+      "failures": []
+    },
+    {
+      "example_id": "v-proposed",
+      "slice": "itinerary_versioning",
+      "failures": []
+    },
+    {
+      "example_id": "v-archive",
+      "slice": "itinerary_versioning",
+      "failures": []
+    },
+    {
+      "example_id": "d-accept-change",
+      "slice": "decision_lifecycle",
+      "failures": []
+    },
+    {
+      "example_id": "d-reject",
+      "slice": "decision_lifecycle",
+      "failures": []
+    },
+    {
+      "example_id": "d-direct-accepted",
+      "slice": "decision_lifecycle",
+      "failures": []
+    },
+    {
+      "example_id": "d-replace",
+      "slice": "decision_lifecycle",
+      "failures": []
+    },
+    {
+      "example_id": "j-one",
+      "slice": "rejected_option_preservation",
+      "failures": []
+    },
+    {
+      "example_id": "j-two",
+      "slice": "rejected_option_preservation",
+      "failures": []
+    },
+    {
+      "example_id": "x-itinerary",
+      "slice": "cross_workspace_isolation",
+      "failures": []
+    },
+    {
+      "example_id": "x-decision",
+      "slice": "cross_workspace_isolation",
+      "failures": []
+    },
+    {
+      "example_id": "x-accept",
+      "slice": "cross_workspace_isolation",
+      "failures": []
+    },
+    {
+      "example_id": "t-mixed",
+      "slice": "operation_traceability",
+      "failures": []
+    },
+    {
+      "example_id": "t-archive-chain",
+      "slice": "operation_traceability",
+      "failures": []
+    },
+    {
+      "example_id": "c-quiet",
+      "slice": "chat_isolation",
+      "failures": []
+    }
+  ],
+  "environment": {
+    "planner_schema": "planner_state@1"
+  }
+}

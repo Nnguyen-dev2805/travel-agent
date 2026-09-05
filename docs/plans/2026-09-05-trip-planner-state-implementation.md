@@ -353,14 +353,14 @@ Expected: service behavior is explicit, reversible, and workspace-scoped.
 - Consumes: `PlannerService`.
 - Produces: R7 planner API routes under `/api/v1/workspaces/{workspace_id}/planner`.
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 Tests must cover create/list/get itinerary routes, accept supersession, archive,
 create/list/update decision routes, replacement decision supersession, operation
 listing, invalid body `422`, missing workspace `404`, cross-workspace `404`, and
 bound chat calls creating no planner rows.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 
@@ -370,23 +370,23 @@ Run:
 
 Expected: FAIL because routes are not mounted.
 
-- [ ] **Step 3: Implement schemas**
+- [x] **Step 3: Implement schemas**
 
 Use Pydantic request/response models that mirror the domain contracts. Set
 `extra = "forbid"` for write request models.
 
-- [ ] **Step 4: Implement routes**
+- [x] **Step 4: Implement routes**
 
 Routes construct `SQLitePlannerRepository`, `SQLiteWorkspaceRepository`, and
 `SQLiteConversationRepository` from `settings.APP_DB_PATH`, then call
 `PlannerService`. Convert domain errors into controlled HTTP errors from the
 spec.
 
-- [ ] **Step 5: Mount router**
+- [x] **Step 5: Mount router**
 
 Include planner router in `backend/app/main.py` under `settings.API_V1_STR`.
 
-- [ ] **Step 6: Run GREEN**
+- [x] **Step 6: Run GREEN**
 
 Run:
 
@@ -396,7 +396,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 7: Review checkpoint**
+- [x] **Step 7: Review checkpoint**
 
 Review: route handlers contain no SQL or lifecycle logic, response bodies expose
 only controlled planner fields, and chat isolation test proves no implicit
@@ -421,12 +421,12 @@ Expected: API matches the spec and stays backend-only.
 - Consumes: planner service and repository.
 - Produces: `run-state --suite r7-state-v0.1` command and traceable reports.
 
-- [ ] **Step 1: Write failing evaluation tests**
+- [x] **Step 1: Write failing evaluation tests**
 
 Tests must cover report result states, invalid fixture handling, pass/fail gate
 calculation, no implicit chat write gate, and report serialization.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 
@@ -436,18 +436,18 @@ Run:
 
 Expected: FAIL because planner evaluation code does not exist.
 
-- [ ] **Step 3: Create fixtures**
+- [x] **Step 3: Create fixtures**
 
 Create at least 15 synthetic examples across `itinerary_versioning`,
 `decision_lifecycle`, `rejected_option_preservation`,
 `cross_workspace_isolation`, and `operation_traceability`.
 
-- [ ] **Step 4: Implement runner and models**
+- [x] **Step 4: Implement runner and models**
 
 The runner uses temporary SQLite databases and does not call model providers,
 RAG retrieval, Chroma, memory retrieval, or external APIs.
 
-- [ ] **Step 5: Implement CLI**
+- [x] **Step 5: Implement CLI**
 
 Expose:
 
@@ -455,7 +455,7 @@ Expose:
 ./.venv/bin/python -m backend.planner.evaluation.cli run-state --suite r7-state-v0.1
 ```
 
-- [ ] **Step 6: Run GREEN**
+- [x] **Step 6: Run GREEN**
 
 Run:
 
@@ -466,7 +466,7 @@ Run:
 
 Expected: tests pass and report files are written under `docs/reports/planner/`.
 
-- [ ] **Step 7: Review checkpoint**
+- [x] **Step 7: Review checkpoint**
 
 Review: fixture slices, gate calculations, result-state mapping, report content,
 and absence of provider/RAG/memory calls.
