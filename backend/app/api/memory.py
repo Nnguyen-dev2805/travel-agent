@@ -28,6 +28,8 @@ from backend.app.schemas.memory import (
     MemoryExtractionRequest,
     MemoryExtractionRunListResponse,
     MemoryExtractionRunResponse,
+    MemoryPromotionRequest,
+    MemoryPromotionResultResponse,
 )
 from backend.conversations.repository import ConversationRepositoryError
 from backend.conversations.service import (
@@ -35,7 +37,10 @@ from backend.conversations.service import (
     WorkspaceNotFoundError,
 )
 from backend.conversations.sqlite_repository import SQLiteConversationRepository
-from backend.memory.models import MemoryExtractionTrigger, MemoryValidationError
+from backend.memory.models import (
+    MemoryExtractionTrigger,
+    MemoryValidationError,
+)
 from backend.memory.repository import MemoryRepositoryError
 from backend.memory.service import (
     MemoryRunNotFoundError,
@@ -244,3 +249,53 @@ def list_candidates(
     return MemoryCandidateListResponse(
         candidates=[MemoryCandidateResponse.from_domain(item) for item in candidates]
     )
+
+
+@router.post(
+    "/workspaces/{workspace_id}/memory/promotions",
+    response_model=MemoryPromotionResultResponse,
+    status_code=201,
+)
+def promote_candidates(
+    workspace_id: str,
+    conversation_id: Optional[str] = Query(
+        None, description="Promote only candidates for this conversation"
+    ),
+    request: Optional[MemoryPromotionRequest] = None,
+    service: MemoryService = Depends(get_memory_service),
+) -> MemoryPromotionResultResponse:
+    """Promote eligible shadow candidates into answer-eligible records."""
+    try:
+        result = service.promote_workspace(
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            trigger=MemoryExtractionTrigger.MANUAL,
+        )
+    except MemoryValidationError as error:
+        logger.info("memory.promote rejected failure_class=validation")
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except WorkspaceNotFoundError as error:
+        logger.info("memory.promote miss failure_class=workspace_not_found")
+        raise HTTPException(
+            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
+        ) from error
+    except ConversationNotFoundError as error:
+        logger.info("memory.promote miss failure_class=conversation_not_found")
+        raise HTTPException(
+            status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
+        ) from error
+    except MemoryScopeMismatchError as error:
+        logger.info("memory.promote mismatch failure_class=scope_mismatch")
+        raise HTTPException(status_code=409, detail=_SCOPE_MISMATCH_DETAIL) from error
+    except (MemoryServiceError, MemoryRepositoryError) as error:
+        logger.error("memory.promote failed failure_class=%s", type(error).__name__)
+        raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
+
+    logger.info(
+        "memory.promote ok promotion_run_id=%s workspace_id=%s promoted=%s skipped=%s",
+        result.promotion_run_id,
+        result.workspace_id,
+        result.promoted_count,
+        result.skipped_count,
+    )
+    return MemoryPromotionResultResponse.from_domain(result)

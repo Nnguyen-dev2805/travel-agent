@@ -322,7 +322,7 @@ documented as R6-scoped decisions in code.
   - service method for workspace or conversation promotion
   - optional backend-only promotion route
 
-- [ ] **Step 1: Write failing promotion tests**
+- [x] **Step 1: Write failing promotion tests**
 
 Cover promotion of the three reasons that have an R5 producer
 (`supported_preference` at `user` scope, `supported_constraint` at `workspace`
@@ -347,13 +347,13 @@ suppresses a record in a different `scope_id`, and that a `user`-scope
 correction raised in one conversation can supersede a `user`-scope record
 created in another.
 
-- [ ] **Step 2: Run promotion tests for RED**
+- [x] **Step 2: Run promotion tests for RED**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_promotion.py backend/tests/integration/test_memory_promotion_api.py -q`
 
 Expected: tests fail because promotion does not exist.
 
-- [ ] **Step 3: Implement promotion**
+- [x] **Step 3: Implement promotion**
 
 Implement candidate-to-record promotion with controlled skip reasons and counts.
 Derive `supersedes_memory_id` only from scope identity and the
@@ -361,17 +361,25 @@ Derive `supersedes_memory_id` only from scope identity and the
 similarity or a model. Return identifiers and counts only; do not log raw
 content.
 
-- [ ] **Step 4: Run promotion tests for GREEN**
+- [x] **Step 4: Run promotion tests for GREEN**
+
+GREEN: `18 passed` (`test_memory_promotion.py` + `test_memory_promotion_api.py`).
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_promotion.py backend/tests/integration/test_memory_promotion_api.py -q`
 
 Expected: all promotion tests pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: R6 does not reinterpret rejected R5 candidates, does not promote any
 secret-like fixture content, and does not modify `backend/memory/extraction.py`
 or `backend/memory/policy.py` to widen promotion coverage.
+
+Checkpoint: `MemoryService` gained only an additive `promotion_policy`
+dependency (existing constructor calls unaffected); seven test-setup bugs
+fixed (fixture message ids must match candidate provenance, mismatch needs
+an existing workspace); the promotion route reuses the R5 `get_memory_service`
+dependency and static error details.
 
 ## Task 5: Retrieval Policy and Context Composition
 
@@ -389,38 +397,46 @@ or `backend/memory/policy.py` to widen promotion coverage.
   - deterministic lexical ranking
   - memory prompt section composer
 
-- [ ] **Step 1: Write failing retrieval tests**
+- [x] **Step 1: Write failing retrieval tests**
 
 Cover user, workspace, and conversation scope; cross-workspace isolation;
 cross-user isolation; status filtering; expiration filtering; correction
 precedence; max-selected limit; and no eligible memory.
 
-- [ ] **Step 2: Write failing context tests**
+- [x] **Step 2: Write failing context tests**
 
 Cover memory prompt section formatting, no memory-as-citation behavior,
 preserved RAG citations, and no raw source message leakage.
 
-- [ ] **Step 3: Run retrieval/context tests for RED**
+- [x] **Step 3: Run retrieval/context tests for RED**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_retrieval.py backend/tests/unit/test_memory_context.py -q`
 
 Expected: tests fail because retrieval and context composition do not exist.
 
-- [ ] **Step 4: Implement retrieval and composition**
+- [x] **Step 4: Implement retrieval and composition**
 
 Implement deterministic selection and a controlled memory context section that
 the orchestrator can combine with the existing RAG prompt context.
 
-- [ ] **Step 5: Run retrieval/context tests for GREEN**
+- [x] **Step 5: Run retrieval/context tests for GREEN**
+
+GREEN: `13 passed` (`test_memory_retrieval.py` + `test_memory_context.py`).
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_retrieval.py backend/tests/unit/test_memory_context.py -q`
 
 Expected: all retrieval and context tests pass.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: memory context is separate from travel citations and RAG still has no
 memory imports.
+
+Checkpoint: composer takes selection contracts only (a narrower dependency
+than the plan's `ContextBundle` column, same behavior — orchestration still
+passes travel context alongside in Task 6); two test-setup bugs fixed
+(zero-overlap fixtures select nothing by rule 9, tie order needs distinct
+timestamps); a speculative `rank_records` helper was deleted before GREEN.
 
 ## Task 6: Feature-gated Chat Integration
 

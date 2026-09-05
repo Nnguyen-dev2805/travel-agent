@@ -1,10 +1,12 @@
-"""Memory shadow-extraction use cases for runtime milestone R5.
+"""Memory shadow-extraction and promotion use cases for milestones R5 and R6.
 
 Per ADR 0006 the service owns provenance validation, extraction
-orchestration, run-count accuracy, and controlled errors. It depends on the
-memory contracts, the memory repository interface, the conversation
-repository interface, and the workspace repository interface only. It never
-imports RAG, orchestration, FastAPI, or SQLite.
+orchestration, run-count accuracy, and controlled errors. Per ADR 0007 it
+additionally owns candidate-to-record promotion behind the same provenance
+boundary. It depends on the memory contracts, the memory repository
+interface, the conversation repository interface, and the workspace
+repository interface only. It never imports RAG, orchestration, FastAPI, or
+SQLite.
 
 Provenance is enforced before extraction: the workspace must exist, the
 conversation must exist and belong to that workspace, and the conversation
@@ -31,15 +33,25 @@ from backend.memory.models import (
     MemoryCandidateStatus,
     MemoryExtractionRun,
     MemoryExtractionTrigger,
+    MemoryPromotionResult,
+    MemoryPromotionRun,
+    MemoryRecord,
+    MemoryRecordScope,
+    MemoryRecordStatus,
     MemoryRunStatus,
     MemorySourceMessage,
     MemoryValidationError,
+    PromotionSkipCount,
+    PromotionSkipReason,
     generate_memory_candidate_id,
+    generate_memory_promotion_run_id,
+    generate_memory_record_id,
     generate_memory_run_id,
     require_text,
     utc_now,
 )
 from backend.memory.policy import MemoryPolicy
+from backend.memory.promotion import MemoryPromotionPolicy
 from backend.memory.repository import MemoryRepository
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -81,12 +93,14 @@ class MemoryService:
         workspace_repository: "WorkspaceRepository",
         extractor: MemoryExtractor | None = None,
         policy: MemoryPolicy | None = None,
+        promotion_policy: MemoryPromotionPolicy | None = None,
     ) -> None:
         self._memory = memory_repository
         self._conversations = conversation_repository
         self._workspaces = workspace_repository
         self._extractor = extractor or RuleBasedMemoryExtractor()
         self._policy = policy or MemoryPolicy()
+        self._promotion = promotion_policy or MemoryPromotionPolicy()
 
     def run_conversation_extraction(
         self,
@@ -215,6 +229,149 @@ class MemoryService:
             invalid,
         )
         return persisted
+
+    def promote_workspace(
+        self,
+        workspace_id: str,
+        conversation_id: Optional[str] = None,
+        trigger: MemoryExtractionTrigger | str = MemoryExtractionTrigger.MANUAL,
+    ) -> MemoryPromotionResult:
+        """Promote eligible shadow candidates into answer-eligible records.
+
+        Every candidate in scope is assessed; ineligible ones contribute
+        controlled skip reasons and write nothing. Promoted corrections
+        suppress their supersession targets, which the repository flips to
+        `superseded` in the same use case.
+
+        Raises:
+            MemoryValidationError: An identifier is blank or the trigger is
+                ungoverned.
+            WorkspaceNotFoundError: The workspace does not exist.
+            ConversationNotFoundError: The conversation does not exist.
+            MemoryScopeMismatchError: The conversation belongs elsewhere.
+            MemoryServiceError: Storage failed.
+        """
+        workspace_id = require_text(workspace_id, "workspace_id")
+        if conversation_id is not None:
+            conversation_id = require_text(conversation_id, "conversation_id")
+        resolved_trigger = self._coerce_trigger(trigger)
+        self._require_scope(workspace_id, conversation_id)
+
+        workspace = self._workspaces.get(workspace_id)
+        assert workspace is not None  # checked by _require_scope
+        candidates = self._memory.list_candidates(
+            workspace_id=workspace_id, conversation_id=conversation_id
+        )
+        active_records = self._memory.list_records(
+            owner_user_id=workspace.owner_user_id,
+            status=MemoryRecordStatus.ACTIVE,
+        )
+
+        started_at = utc_now()
+        assessments = []
+        for candidate in candidates:
+            conversation = self._conversations.get(candidate.conversation_id)
+            message_exists = (
+                self._conversations.get_message(candidate.source_message_id) is not None
+            )
+            assessments.append(
+                self._promotion.assess(
+                    candidate,
+                    workspace=workspace,
+                    conversation=conversation,
+                    message_exists=message_exists,
+                    active_records=active_records,
+                )
+            )
+
+        moment = utc_now()
+        created: list[MemoryRecord] = []
+        supersede_ids: list[str] = []
+        multi_target_corrections = 0
+        for candidate, assessment in zip(candidates, assessments):
+            if assessment.outcome is not PromotionSkipReason.PROMOTED:
+                continue
+            assert assessment.scope_id is not None  # set for every promotion
+            created.append(
+                MemoryRecord(
+                    memory_id=generate_memory_record_id(),
+                    source_candidate_id=candidate.candidate_id,
+                    workspace_id=candidate.workspace_id,
+                    conversation_id=candidate.conversation_id,
+                    source_message_id=candidate.source_message_id,
+                    source_sequence=candidate.source_sequence,
+                    owner_user_id=workspace.owner_user_id,
+                    scope=MemoryRecordScope(candidate.proposed_scope.value),
+                    scope_id=assessment.scope_id,
+                    memory_type=candidate.proposed_type.value,  # type: ignore[arg-type]
+                    status=MemoryRecordStatus.ACTIVE,
+                    text=candidate.text,
+                    confidence=candidate.confidence,
+                    sensitivity_label=candidate.sensitivity_label,
+                    supersedes_memory_id=(
+                        assessment.superseded_ids[0]
+                        if assessment.superseded_ids
+                        else None
+                    ),
+                    created_at=moment,
+                    updated_at=moment,
+                    expires_at=None,
+                )
+            )
+            supersede_ids.extend(assessment.superseded_ids)
+            if len(assessment.superseded_ids) > 1:
+                multi_target_corrections += 1
+        persisted_records = self._memory.create_records(created)
+        if supersede_ids:
+            self._memory.mark_records_superseded(supersede_ids)
+
+        skip_counter: dict[PromotionSkipReason, int] = {}
+        for assessment in assessments:
+            if assessment.outcome is PromotionSkipReason.PROMOTED:
+                continue
+            skip_counter[assessment.outcome] = (
+                skip_counter.get(assessment.outcome, 0) + 1
+            )
+        if multi_target_corrections:
+            skip_counter[PromotionSkipReason.CORRECTION_SUPERSEDES_MULTIPLE] = (
+                multi_target_corrections
+            )
+        skip_reasons = tuple(
+            PromotionSkipCount(reason, skip_counter[reason])
+            for reason in sorted(skip_counter, key=lambda item: item.value)
+        )
+        run = MemoryPromotionRun(
+            promotion_run_id=generate_memory_promotion_run_id(),
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            source_candidate_count=len(candidates),
+            promoted_count=len(persisted_records),
+            skipped_count=len(candidates) - len(persisted_records),
+            skip_reasons=skip_reasons,
+            started_at=started_at,
+            finished_at=utc_now(),
+        )
+        persisted_run = self._memory.create_promotion_run(run)
+        logger.info(
+            "memory.promotion completed promotion_run_id=%s workspace_id=%s "
+            "promoted=%s skipped=%s",
+            persisted_run.promotion_run_id,
+            workspace_id,
+            len(persisted_records),
+            len(candidates) - len(persisted_records),
+        )
+        return MemoryPromotionResult(
+            promotion_run_id=persisted_run.promotion_run_id,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            source_candidate_count=len(candidates),
+            promoted_count=len(persisted_records),
+            skipped_count=len(candidates) - len(persisted_records),
+            skip_reasons=skip_reasons,
+            promoted_memory_ids=tuple(record.memory_id for record in persisted_records),
+            started_at=persisted_run.started_at,
+            finished_at=persisted_run.finished_at,
+        )
 
     def list_runs(
         self, workspace_id: str, conversation_id: Optional[str] = None

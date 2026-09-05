@@ -62,6 +62,13 @@ from backend.memory.policy import (
     POLICY_ID,
     MemoryPolicy,
 )
+from backend.memory.promotion import (
+    MEMORY_PROMOTION_MIN_CONFIDENCE,
+    PROMOTABLE_REASONS,
+    MemoryPromotionPolicy,
+    PromotionAssessment,
+)
+from backend.memory.retrieval import MEMORY_MAX_SELECTED, MemoryRetrievalService
 from backend.memory.repository import (
     MemoryAlreadyExistsError,
     MemoryRepository,
@@ -94,6 +101,12 @@ __all__ = [
     "MemoryAlreadyExistsError",
     "MemoryExtractor",
     "MemoryPolicy",
+    "MemoryPromotionPolicy",
+    "MemoryRetrievalService",
+    "MEMORY_MAX_SELECTED",
+    "MEMORY_PROMOTION_MIN_CONFIDENCE",
+    "PROMOTABLE_REASONS",
+    "PromotionAssessment",
     "MemoryRepository",
     "MemoryRepositoryError",
     "MemoryRunNotFoundError",

@@ -24,10 +24,12 @@ from backend.memory.models import (
     MemoryCandidateStatus,
     MemoryExtractionRun,
     MemoryExtractionTrigger,
+    MemoryPromotionResult,
     MemoryRunStatus,
     MemoryScope,
     MemoryType,
     PolicyReason,
+    PromotionSkipReason,
     SensitivityLabel,
 )
 
@@ -134,3 +136,56 @@ class MemoryCandidateListResponse(BaseModel):
     """Candidate evidence in governed run and source order."""
 
     candidates: List[MemoryCandidateResponse] = Field(default_factory=list)
+
+
+class MemoryPromotionRequest(BaseModel):
+    """Run one candidate-to-record promotion for a workspace.
+
+    The model carries no fields: any submitted field is rejected instead of
+    interpreted. An optional conversation filter travels as a query parameter
+    so scope stays a structural property of the route.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PromotionSkipReasonCountResponse(BaseModel):
+    """One governed promotion outcome with its candidate count."""
+
+    reason: PromotionSkipReason
+    count: int
+
+
+class MemoryPromotionResultResponse(BaseModel):
+    """One promotion execution with counts, skip reasons, and created ids."""
+
+    promotion_run_id: str
+    workspace_id: str
+    conversation_id: Optional[str]
+    source_candidate_count: int
+    promoted_count: int
+    skipped_count: int
+    skip_reasons: List[PromotionSkipReasonCountResponse] = Field(default_factory=list)
+    promoted_memory_ids: List[str] = Field(default_factory=list)
+    started_at: datetime
+    finished_at: datetime
+
+    @classmethod
+    def from_domain(
+        cls, result: MemoryPromotionResult
+    ) -> "MemoryPromotionResultResponse":
+        return cls(
+            promotion_run_id=result.promotion_run_id,
+            workspace_id=result.workspace_id,
+            conversation_id=result.conversation_id,
+            source_candidate_count=result.source_candidate_count,
+            promoted_count=result.promoted_count,
+            skipped_count=result.skipped_count,
+            skip_reasons=[
+                PromotionSkipReasonCountResponse(reason=item.reason, count=item.count)
+                for item in result.skip_reasons
+            ],
+            promoted_memory_ids=list(result.promoted_memory_ids),
+            started_at=result.started_at,
+            finished_at=result.finished_at,
+        )
