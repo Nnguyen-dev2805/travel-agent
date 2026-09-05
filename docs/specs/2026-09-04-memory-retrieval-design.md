@@ -26,7 +26,9 @@ memory-disabled baseline.
 R6 does not make memory default-on. The feature gate remains off unless a local
 developer or evaluation runner explicitly enables it. Default-on personalization
 requires a later owner decision after the R6 evaluation report satisfies the
-accepted memory gates.
+accepted memory gates. If provider-backed answer judging is unavailable, R6 may
+validate retrieval and safety gates, but answer-quality and personalization
+claims remain `INCONCLUSIVE`.
 
 R6 is backend-only. It adds no frontend UI, no authentication, no vector memory
 store, no Chroma writes, no deletion API, no memory edit UI, no planner state,
@@ -160,9 +162,11 @@ developer to answer:
 8. If enabled, the orchestrator resolves workspace and owner scope from the
    conversation, asks the memory retrieval service for eligible records, and
    records selected memory IDs and reasons.
-9. The orchestrator retrieves travel evidence through RAG, assembles travel
-   context, prepends a controlled memory context section when memory is
-   selected, and calls the existing generator.
+9. The orchestrator asks `RAGService` for travel evidence and assembled travel
+   context through a narrow injectable seam, prepends a controlled memory
+   context section when memory is selected, and calls the existing generator
+   through the same RAG-owned dependencies. The orchestrator must not construct
+   vector-store or Chroma clients directly.
 10. The response preserves travel citations and may include controlled memory
     trace metadata only when the gate is enabled.
 11. The evaluation runner executes paired memory-disabled and memory-enabled
@@ -182,15 +186,16 @@ promotion policy, not directly by the extractor.
 | `workspace_id` | Existing workspace identifier for provenance |
 | `conversation_id` | Existing conversation identifier for provenance |
 | `source_message_id` | Existing message identifier for provenance |
+| `source_sequence` | R5 candidate `source_sequence` copied forward; part of the correction-supersession age key, which is `(created_at, source_sequence)` because `sequence` is monotonic only inside one conversation |
 | `owner_user_id` | Local owner label copied from the workspace; not authentication |
 | `scope` | `user`, `workspace`, or `conversation` |
 | `scope_id` | Owner label for `user`, workspace id for `workspace`, conversation id for `conversation` |
-| `memory_type` | `preference`, `constraint`, `profile_fact`, `episode`, `decision`, or `correction` |
+| `memory_type` | `preference`, `constraint`, `profile_fact`, `episode`, `decision`, or `correction`. Promotion reaches only `preference`, `constraint`, and `correction`; the other three are reachable in R6 solely through seeded evaluation fixtures |
 | `status` | `active`, `superseded`, `expired`, `archived`, `deletion_requested`, or `deleted` |
 | `text` | Normalized memory text, at most 500 characters, never logged |
 | `confidence` | Floating-point value in `[0.0, 1.0]` |
-| `sensitivity_label` | `none` or `personal` for promoted R6 records |
-| `supersedes_memory_id` | Optional older memory id suppressed by this record |
+| `sensitivity_label` | `none` or `personal` for promoted R6 records; `personal` is forward-compatible only, because no `accepted` R5 candidate carries it |
+| `supersedes_memory_id` | Optional older memory id suppressed by this record; derived only by the promotion-time rule in `Correction Supersession` |
 | `created_at` | UTC timestamp |
 | `updated_at` | UTC timestamp |
 | `expires_at` | Optional UTC timestamp after which the record is ineligible |
@@ -226,9 +231,11 @@ Promotion returns counts and skip reasons, not raw source text.
 
 ### Chat Response Compatibility
 
-When `MEMORY_RETRIEVAL_ENABLED=false`, chat responses are byte-for-byte
-compatible at the schema level with R4/R5: `reply`, `model`, `citations`, and
-optional existing conversation metadata.
+When `MEMORY_RETRIEVAL_ENABLED=false`, chat responses are schema-compatible with
+R4/R5: `reply`, `model`, `citations`, and optional existing conversation
+metadata. `backend/app/schemas/chat.py` must extend the existing
+`_omit_absent_conversation` serializer pattern so an absent memory object is
+omitted entirely, not serialized as `"memory": null`.
 
 When enabled, R6 may add an optional `memory` object:
 
@@ -247,12 +254,13 @@ The `memory` object must not include raw source message content.
 | --- | --- | --- |
 | `backend/memory/models.py` | Memory record, promotion, retrieval, and trace contracts | Standard library only |
 | `backend/memory/repository.py` | Repository protocols and controlled errors | Memory models |
-| `backend/memory/sqlite_repository.py` | Memory schema version 2 records, promotion runs, and retrieval events | Shared schema registry, memory repository |
+| `backend/memory/sqlite_repository.py` | `memory_records` schema module version 1 records, promotion runs, and retrieval events | Shared schema registry, memory repository |
 | `backend/memory/promotion.py` | Candidate-to-record eligibility and skip reasons | Memory models/repository |
 | `backend/memory/retrieval.py` | Scope/lifecycle filtering and deterministic ranking | Memory models/repository |
 | `backend/memory/service.py` | Promotion and retrieval use cases | Memory repository plus R5-compatible candidate access |
 | `backend/orchestration/memory_context.py` | Compose memory selections with RAG prompt context for a turn | Memory selection contracts and RAG `ContextBundle` |
 | `backend/orchestration/conversation_orchestrator.py` | Calls memory retrieval only when enabled, then calls RAG/generator path | Conversation service, RAG service, optional memory service |
+| `backend/rag/generation/rag_service.py` | Add an injectable travel-context seam so orchestration can compose memory without constructing retriever, assembler, generator, or vector-store clients | RAG retriever, context assembler, generator |
 | `backend/rag/*` | Travel retrieval, travel context, citations, and RAG evaluation | Must not import `backend.memory` |
 | `backend/memory/evaluation/*` | R6 memory retrieval evaluation runner and report writer | Memory service/repository, deterministic fakes |
 
@@ -263,18 +271,115 @@ R6 promotes a candidate only when all conditions are true:
 1. candidate status is `accepted`;
 2. proposed scope is `user`, `workspace`, or `conversation`;
 3. proposed type is not `none` and not `safety_note`;
-4. confidence is at least `MEMORY_PROMOTION_MIN_CONFIDENCE`, default `0.80`;
+4. confidence is at least `MEMORY_PROMOTION_MIN_CONFIDENCE`, default `0.75`;
 5. sensitivity label is `none` or `personal`;
 6. candidate provenance resolves to the same workspace and conversation;
 7. policy reason is one of `supported_preference`,
-   `supported_constraint`, `supported_profile_fact`, `supported_episode`,
-   `supported_decision`, or `explicit_correction`;
+   `supported_constraint`, `supported_profile_fact`,
+   `supported_trip_decision`, or `explicit_correction`;
 8. no active duplicate record already exists for the same normalized text,
    scope, and source candidate.
 
 Candidates with `secret`, `sensitive`, `unsafe`, `needs_user_action`,
 `rejected`, `invalid`, `none` scope, or unresolved provenance are skipped with
 controlled reasons.
+
+### Promotion Reason Codes
+
+R6 promotion uses a governed vocabulary, following the R5 pattern. A skip reason
+is never free text and never contains candidate content.
+
+| Code | Meaning |
+| --- | --- |
+| `promoted` | Candidate became an active memory record |
+| `not_accepted` | Candidate status was `rejected`, `needs_user_action`, or `invalid` |
+| `scope_not_promotable` | Proposed scope was `none` |
+| `type_not_promotable` | Proposed type was `none` or `safety_note` |
+| `below_min_confidence` | Confidence was under `MEMORY_PROMOTION_MIN_CONFIDENCE` |
+| `sensitivity_not_promotable` | Sensitivity label was `sensitive`, `secret`, or `unsafe` |
+| `provenance_unresolved` | Workspace, conversation, or message provenance did not resolve |
+| `reason_not_promotable` | Policy reason was outside the promotion allow-list |
+| `duplicate_active_record` | An active record already exists for the same normalized text, scope, and source candidate |
+| `correction_supersedes_multiple` | A correction suppressed more than one active target; reported alongside `promoted`, not instead of it |
+
+### Producer Reachability of the Promotion Allow-list
+
+The allow-list above is the governed vocabulary. The delivered R5 pipeline does
+not currently produce all of it. Verified against `backend/memory/extraction.py`
+and `backend/memory/policy.py` on 2026-09-04:
+
+| Allowed reason | R5 producer | Evidence |
+| --- | --- | --- |
+| `supported_preference` | Yes; `preference` at `user` scope, confidence `0.80` | Preference markers in `extraction.py`, accepted by `policy.py` |
+| `supported_constraint` | Yes; `constraint` at `workspace` scope, confidence `0.85` | Constraint markers in `extraction.py`, accepted by `policy.py` |
+| `explicit_correction` | Yes; `correction` at `user` scope, confidence `0.85` | Correction markers in `extraction.py`, accepted by `policy.py` |
+| `supported_profile_fact` | No producer | Every `profile_fact` draft carries `sensitivity_label = personal`, and `policy.py` maps `personal` to `needs_user_action` before the accept branch, so this reason is never attached to an `accepted` candidate |
+| `supported_trip_decision` | No producer | The R5 extractor never proposes `memory_type = decision` |
+
+Two consequences are explicit R6 scope decisions:
+
+1. R6 keeps both no-producer reasons in the allow-list as forward-compatible
+   entries. R6 must not add extraction rules to create them, because extraction
+   behavior is R5-owned and changing it requires an approved change to the R5
+   contract.
+2. Because no `accepted` candidate carries `sensitivity_label = personal`, the
+   `personal` branch of promotion rule 5 and the `personal` value of
+   `MemoryRecord.sensitivity_label` are forward-compatible only. R6 must not
+   claim promotion coverage for `personal` records.
+
+Retrieval-side slices for `profile_fact` and `decision` memory are covered by
+seeding `MemoryRecord` rows directly in R6 fixtures, which is the same
+mechanism the lifecycle slices already use. Promotion coverage for those two
+reasons is not claimed by R6.
+
+### Correction Supersession
+
+R5 candidates carry no link to the memory they correct. `supersedes_memory_id`
+is therefore derived at promotion time from provenance, scope, and record age
+only. Text similarity, embeddings, and model inference must not be used.
+
+A candidate whose policy reason is `explicit_correction` selects its target set
+as the existing memory records that satisfy all of:
+
+1. `status` is `active`;
+2. same `owner_user_id`;
+3. same `scope` and `scope_id`;
+4. `memory_type` is not `correction`;
+5. the record is strictly older than the correction under the age key below.
+
+Scope isolation comes from condition 3 alone. For `conversation` scope
+`scope_id` is the conversation id, for `workspace` scope it is the workspace id,
+and for `user` scope it is the owner label, so no target can cross a
+conversation, workspace, or owner boundary that its own scope does not already
+contain.
+
+Targeting deliberately does not require the same `conversation_id`. A
+user-global preference recorded in one trip must be correctable from another
+trip, which is the reason `user` scope exists.
+
+Because `Message.sequence` is monotonic per conversation and not comparable
+across conversations, the age key is the tuple `(created_at, source_sequence)`
+ascending. A record is older when its tuple is strictly less than the
+correction candidate's. A record that ties on both values is also treated as
+older, matching the suppression bias stated below rather than leaving an
+unresolved competitor active.
+
+Resolution is deterministic:
+
+| Target count | Behavior |
+| --- | --- |
+| `0` | `supersedes_memory_id` is absent and the correction is promoted as a standalone active record |
+| `1` | The correction records that `memory_id`, and the target's `status` becomes `superseded` |
+| More than `1` | Every target's `status` becomes `superseded`, `supersedes_memory_id` records the oldest target by the age key, and the promotion trace reports the count under the controlled reason `correction_supersedes_multiple` |
+
+Suppressing every ambiguous target errs toward forgetting. That direction costs
+retrieval recall and can suppress an unrelated record in the same scope, but it
+can never leave an older inference outranking a newer explicit correction, which
+is a hard gate. Precise correction targeting requires an explicit link field
+produced during extraction, which is an R5 contract change outside R6 scope.
+
+Supersession is resolved once, at promotion time, and stored as record status.
+Retrieval does not re-derive it.
 
 ## Retrieval Rules
 
@@ -287,7 +392,8 @@ R6 retrieves memories only when all conditions are true:
 5. `expires_at` is absent or in the future;
 6. sensitivity label is `none` or `personal`;
 7. scope matches the current owner, workspace, or conversation;
-8. record is not superseded by a newer selected correction;
+8. the record was not marked `superseded` by a later correction at promotion
+   time; retrieval reads the stored status and does not re-derive supersession;
 9. lexical score is above zero or the record is a direct active correction;
 10. selected count does not exceed `MEMORY_MAX_SELECTED`, default `5`.
 
@@ -295,7 +401,7 @@ R6 retrieves memories only when all conditions are true:
 
 1. Missing R5 delivery evidence stops implementation before code changes.
 2. Missing R5 evaluation report makes R6 implementation ineligible.
-3. Existing memory schema newer than expected fails closed.
+3. Existing `memory_records` schema newer than expected fails closed.
 4. Feature gate disabled returns R4/R5 behavior.
 5. Unbound chat skips memory retrieval.
 6. Conversation not found uses the existing conversation error path and does not
@@ -342,14 +448,36 @@ R6 must add unit and integration tests for:
 
 1. memory record model validation;
 2. promotion eligibility and skip reasons;
-3. SQLite schema version 2 and temporary database isolation;
+3. `memory_records` SQLite schema version 1 and temporary database isolation;
 4. scope filtering for user, workspace, and conversation memories;
 5. lifecycle filtering for inactive records;
-6. correction precedence;
+6. correction precedence, including the zero-target, single-target, and
+   multiple-target supersession cases;
 7. feature-gate-off chat compatibility;
 8. feature-gate-on bound chat memory selection;
 9. RAG import-boundary checks;
-10. R6 evaluation report result states.
+10. R6 evaluation report result states;
+11. omitted `memory` response key when the feature gate is off;
+12. promotion skips the two allow-list reasons that have no R5 producer, proving
+    the allow-list is forward-compatible rather than silently unreachable.
+
+### Evaluation Gate Applicability
+
+| Protocol gate | R6 applicability | R6 expectation |
+| --- | --- | --- |
+| Memory extraction precision | Indirect | Consumed from the R5 shadow report; R6 stops if R5 is `FAIL` or `INVALID` |
+| Memory extraction recall | Indirect | Consumed from the R5 shadow report; not recomputed by R6 unless fixtures are reused for regression |
+| Scope assignment accuracy | Applicable | Promotion and retrieval must preserve user, workspace, and conversation scope labels |
+| Promotion precision | Applicable | Promoted records must come only from eligible accepted R5 candidates; target `>= 0.97`. Measured over the three reasons that have an R5 producer; `supported_profile_fact` and `supported_trip_decision` contribute no denominator |
+| Memory Hit@5 | Applicable | Retrieval over seeded eligible records must meet the protocol threshold |
+| Irrelevant-memory rate | Applicable | Selected memories must stay below the protocol maximum |
+| Personalization win rate | Conditional | `INCONCLUSIVE` unless provider-backed or otherwise approved answer judging is configured |
+| Constraint satisfaction delta | Conditional | `INCONCLUSIVE` without answer judging; no negative delta is allowed when judging is available |
+| Cross-user leakage | Limited applicability | Measures isolation by the local `owner_user_id` label copied from the workspace, not authenticated identity |
+| Cross-workspace leakage | Applicable | Zero tolerated failures |
+| Deleted or tombstoned retrieval | Applicable through seeded lifecycle states | Zero tolerated retrieval of `deleted`, `deletion_requested`, `expired`, `archived`, or `superseded` records |
+| Controlled secret-like promotion | Applicable | Zero tolerated promoted records from `secret`, `sensitive`, or `unsafe` candidates |
+| Older inferred memory overriding explicit correction | Applicable | Zero tolerated failures. Enforced at promotion time by the `Correction Supersession` rule, which suppresses every ambiguous target rather than guessing one |
 
 The R6 evaluation report must include:
 
@@ -376,9 +504,10 @@ R6 implementation starts only after:
 4. this spec is approved;
 5. the R6 implementation plan is approved.
 
-The storage change is additive. The memory module may move from schema version 1
-to schema version 2 through one reviewed R6 upgrade step. Any unexpected schema
-state fails closed.
+The storage change is additive. R6 registers a new `memory_records` schema
+module at version 1 for answer-eligible records, promotion runs, and retrieval
+events. The R5 `memory` schema module remains at version 1. Any unexpected
+`memory_records` schema state fails closed.
 
 The runtime feature gate remains off by default after delivery.
 
@@ -396,7 +525,9 @@ unchanged.
 3. Feature-gate-off chat behavior preserves R4/R5 responses.
 4. Feature-gate-on bound chat can select in-scope active memories and expose
    selected IDs/reasons through controlled metadata or traces.
-5. RAG and RAG evaluation import-boundary checks prove no dependency on memory.
+5. RAG and RAG evaluation import-boundary checks prove no dependency on memory,
+   and memory import-boundary checks prove `backend/memory` does not depend on
+   `backend.rag` or `backend.orchestration`.
 6. Memory retrieval never selects out-of-scope, deleted, expired, superseded,
    sensitive, secret-like, unsafe, or unresolved-provenance records.
 7. R6 evaluation writes JSON and Markdown reports following the memory

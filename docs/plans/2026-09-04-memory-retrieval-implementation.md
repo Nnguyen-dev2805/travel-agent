@@ -8,9 +8,11 @@ memory candidates into answer-eligible records and uses them in bound chat turns
 only behind a default-off feature gate.
 
 **Architecture:** `backend/memory/` owns promotion, memory records, retrieval
-policy, storage, and memory evaluation. `ConversationOrchestrator` calls memory
-retrieval only when enabled and composes selected memory with travel RAG prompt
-context. `backend/rag` remains independent from `backend.memory`.
+policy, storage, and memory evaluation. Answer-eligible records live in a new
+`memory_records` schema module at version 1, leaving R5's `memory` module at
+version 1. `ConversationOrchestrator` calls memory retrieval only when enabled
+and composes selected memory with travel RAG prompt context through a narrow
+RAGService seam. `backend/rag` remains independent from `backend.memory`.
 
 **Tech Stack:** Python 3.11+ baseline, FastAPI, Pydantic, standard-library
 `sqlite3`, pytest, Markdown, existing shared schema registry, existing backend
@@ -51,7 +53,8 @@ test layout.
 8. Preserve `GET /health`, every workspace route, every conversation route, and
    both bound and unbound chat response contracts.
 9. `backend/rag`, including RAG evaluation, must not import `backend.memory` or
-   memory API modules.
+   memory API modules. `backend/memory` must not import `backend.rag` or
+   `backend.orchestration`.
 10. Memory retrieval fixtures must be tracked under
     `docs/evaluation/fixtures/memory/`, not under Git-ignored `data/`.
 11. If R6 is executed in a linked worktree, use the primary tree virtual
@@ -59,7 +62,14 @@ test layout.
     `data/processed` if the full existing backend suite requires it. Never
     symlink `docs`, `.venv`, `backend`, `frontend`, `data`, `data/chromadb`, or
     `data/evaluation`; never force-add ignored `data/` paths.
-12. The implementation worker must not stage, commit, push, merge, rebase, tag,
+12. Do not modify `backend/memory/extraction.py`, `backend/memory/policy.py`, or
+    the R5 `PolicyReason` vocabulary. R5 extraction and policy behavior is
+    governed by the approved R5 spec and ADR 0006; widening what becomes
+    promotable is an R5 change, not an R6 change.
+13. Do not modify `backend/storage/schema_registry.py`. R6 registers the new
+    `memory_records` module through the existing registry API and relies on ADR
+    0004 fail-closed behavior unchanged.
+14. The implementation worker must not stage, commit, push, merge, rebase, tag,
     release, delete branches, or perform destructive cleanup unless the
     repository owner asks for that exact Git action.
 
@@ -69,13 +79,15 @@ test layout.
 | --- | --- | --- |
 | `backend/memory/models.py` | Add R6 memory record, promotion, retrieval, and trace contracts while preserving R5 candidate contracts | R5 implementation, R6 spec |
 | `backend/memory/repository.py` | Add memory record, promotion run, and retrieval event repository protocols | Memory models |
-| `backend/memory/sqlite_repository.py` | Add memory schema version 2 tables and queries | Shared schema registry, R5 memory schema |
+| `backend/memory/sqlite_repository.py` | Add `memory_records` schema module version 1 tables and queries while preserving R5 `memory` schema version 1 | Shared schema registry, R5 memory schema |
 | `backend/memory/promotion.py` | Candidate-to-record eligibility, duplicate detection, and skip reasons | Memory repository, R5 candidates |
 | `backend/memory/retrieval.py` | Scope, lifecycle, correction, and deterministic lexical ranking | Memory repository |
 | `backend/memory/service.py` | Promotion and retrieval use cases | Promotion, retrieval, repository |
 | `backend/orchestration/memory_context.py` | Compose selected memory text with RAG prompt context without changing RAG ownership | Memory retrieval output, RAG `ContextBundle` |
 | `backend/orchestration/conversation_orchestrator.py` | Feature-gated memory retrieval and response metadata for bound chat | Conversation service, RAG service, memory service |
-| `backend/app/schemas/chat.py` | Optional memory response metadata when feature gate is enabled | Orchestrator output |
+| `backend/rag/generation/rag_service.py` | Add a narrow injectable travel-context seam for orchestration memory composition without memory imports | RAG retriever, assembler, generator |
+| `backend/app/config.py` | Add `MEMORY_RETRIEVAL_ENABLED`, `MEMORY_PROMOTION_MIN_CONFIDENCE`, and `MEMORY_MAX_SELECTED` to `Settings` following the existing `os.getenv` pattern, with the gate defaulting to false | Existing settings module |
+| `backend/app/schemas/chat.py` | Optional memory response metadata when feature gate is enabled, omitted entirely when absent | Orchestrator output |
 | `backend/app/api/chat.py` | Wire optional memory service/settings into orchestrator dependency construction | App settings, memory service |
 | `backend/app/schemas/memory.py` | Add promotion and retrieval inspection schemas if not already present | Memory models |
 | `backend/app/api/memory.py` | Add backend-only promotion and inspection routes | Memory service |
@@ -85,7 +97,7 @@ test layout.
 | `backend/tests/unit/test_memory_records.py` | Memory record and trace model tests | Memory models |
 | `backend/tests/unit/test_memory_promotion.py` | Promotion eligibility and skip reason tests | Promotion |
 | `backend/tests/unit/test_memory_retrieval.py` | Scope, lifecycle, correction, and ranking tests | Retrieval |
-| `backend/tests/unit/test_sqlite_memory_records.py` | Schema version 2 and temporary database tests | SQLite adapter |
+| `backend/tests/unit/test_sqlite_memory_records.py` | `memory_records` schema version 1 and temporary database tests | SQLite adapter |
 | `backend/tests/unit/test_memory_context.py` | Memory/RAG prompt composition tests | Orchestration context helper |
 | `backend/tests/unit/test_memory_retrieval_evaluation_runner.py` | R6 evaluation state and hard-gate tests | Evaluation runner |
 | `backend/tests/integration/test_chat_memory_retrieval.py` | Feature-gate-off compatibility and feature-gate-on bound chat tests | FastAPI app, orchestrator |
@@ -94,8 +106,9 @@ test layout.
 | `docs/evaluation/fixtures/memory/r6-retrieval-v0.1/examples.jsonl` | Tracked synthetic examples for R6 retrieval evaluation | Memory evaluation protocol |
 | `docs/reports/memory/r6-retrieval-v0.1.md` | Human-readable R6 evaluation report | Evaluation run |
 | `docs/reports/memory/r6-retrieval-v0.1.json` | Machine-readable R6 evaluation report | Evaluation run |
+| `.env.example` | Add the three R6 memory variables as commented placeholders with the gate off | Implemented settings |
 | `ARCHITECTURE.md` | Current-state gateway update after R6 implementation | Implemented behavior |
-| `DEVELOPMENT.md` | Local R6 commands, env flags, and limitations | Implemented behavior |
+| `DEVELOPMENT.md` | Local R6 commands, env flags, and limitations; add the three R6 variables to the `## Environment` table | Implemented behavior |
 | `docs/architecture/current-state.md` | Current-state update after R6 implementation | Implemented behavior |
 | `docs/architecture/data-model.md` | Mark R6 memory records implemented and lifecycle limits | Implemented contracts |
 | `docs/roadmap/master-roadmap.md` | R6 status and evidence update | Completion evidence |
@@ -216,10 +229,10 @@ spec exactly.
 
 - [ ] **Step 1: Write failing repository tests**
 
-Cover empty database initialization to memory schema version 2, additive upgrade
-from R5 schema version 1 to version 2, fail-closed behavior for unexpected
-versions, record uniqueness, lifecycle filtering, and temporary database
-isolation.
+Cover empty database initialization with R5 `memory` schema version 1 plus
+`memory_records` schema version 1, coexistence with existing R5 candidate
+tables, fail-closed behavior for unexpected `memory_records` versions, record
+uniqueness, lifecycle filtering, and temporary database isolation.
 
 - [ ] **Step 2: Run repository tests for RED**
 
@@ -229,8 +242,9 @@ Expected: tests fail because R6 repository methods and schema do not exist.
 
 - [ ] **Step 3: Implement repository and schema**
 
-Add explicit schema version 2 tables and indexes. Do not introduce a general
-migration framework. Do not write memory data to Chroma or `data/evaluation`.
+Add explicit `memory_records` schema module version 1 tables and indexes. Do not
+change the R5 `memory` module version. Do not introduce a general migration
+framework. Do not write memory data to Chroma or `data/evaluation`.
 
 - [ ] **Step 4: Run repository tests for GREEN**
 
@@ -241,7 +255,8 @@ Expected: all repository tests pass.
 - [ ] **Step 5: Review checkpoint**
 
 Review: schema ownership remains under `backend/memory/`, all tests use temp
-databases, and R5 candidate persistence still works.
+databases, R5 candidate persistence still works, and ADR 0004 fail-closed
+registry behavior remains unchanged.
 
 ## Task 4: Promotion Policy
 
@@ -261,9 +276,28 @@ databases, and R5 candidate persistence still works.
 
 - [ ] **Step 1: Write failing promotion tests**
 
-Cover accepted candidate promotion, rejected candidate skip, needs-user-action
-skip, invalid provenance skip, low confidence skip, secret/sensitive/unsafe
-skip, duplicate skip, scope mapping, and explicit correction supersession.
+Cover promotion of the three reasons that have an R5 producer
+(`supported_preference` at `user` scope, `supported_constraint` at `workspace`
+scope, `explicit_correction` at `user` scope), rejected candidate skip,
+needs-user-action skip, invalid provenance skip, low confidence skip at `0.75`,
+secret/sensitive/unsafe skip, duplicate skip, scope mapping, and the governed
+promotion reason codes.
+
+Also cover the two allow-list reasons with no R5 producer. Construct
+`supported_profile_fact` and `supported_trip_decision` candidates directly as
+contract fixtures, assert promotion accepts them, and assert with the real
+`RuleBasedMemoryExtractor` plus `MemoryPolicy` that no fixture message yields an
+`accepted` candidate carrying either reason. That keeps the allow-list
+forward-compatible without claiming coverage R5 cannot produce.
+
+Cover correction supersession in all three target cases: zero targets leaves
+`supersedes_memory_id` absent, one target records that id and marks the target
+`superseded`, and multiple targets mark every target `superseded` while
+recording the oldest id by the `(created_at, source_sequence)` age key and the
+`correction_supersedes_multiple` trace reason. Also assert a correction never
+suppresses a record in a different `scope_id`, and that a `user`-scope
+correction raised in one conversation can supersede a `user`-scope record
+created in another.
 
 - [ ] **Step 2: Run promotion tests for RED**
 
@@ -274,7 +308,10 @@ Expected: tests fail because promotion does not exist.
 - [ ] **Step 3: Implement promotion**
 
 Implement candidate-to-record promotion with controlled skip reasons and counts.
-Return identifiers and counts only; do not log raw content.
+Derive `supersedes_memory_id` only from scope identity and the
+`(created_at, source_sequence)` age key as the spec requires; never from text
+similarity or a model. Return identifiers and counts only; do not log raw
+content.
 
 - [ ] **Step 4: Run promotion tests for GREEN**
 
@@ -284,8 +321,9 @@ Expected: all promotion tests pass.
 
 - [ ] **Step 5: Review checkpoint**
 
-Review: R6 does not reinterpret rejected R5 candidates and does not promote any
-secret-like fixture content.
+Review: R6 does not reinterpret rejected R5 candidates, does not promote any
+secret-like fixture content, and does not modify `backend/memory/extraction.py`
+or `backend/memory/policy.py` to widen promotion coverage.
 
 ## Task 5: Retrieval Policy and Context Composition
 
@@ -341,13 +379,16 @@ memory imports.
 **Files:**
 
 - Modify: `backend/orchestration/conversation_orchestrator.py`
+- Modify: `backend/rag/generation/rag_service.py`
+- Modify: `backend/app/config.py`
 - Modify: `backend/app/schemas/chat.py`
 - Modify: `backend/app/api/chat.py`
 - Test: `backend/tests/integration/test_chat_memory_retrieval.py`
 
 **Interfaces:**
 
-- Consumes: memory retrieval service and context composer
+- Consumes: memory retrieval service, context composer, and RAGService
+  travel-context seam
 - Produces: feature-gated memory selection during bound chat turns
 
 - [ ] **Step 1: Write failing integration tests**
@@ -355,6 +396,9 @@ memory imports.
 Cover:
 
 - feature gate disabled preserves response schema and does not call memory;
+- feature gate disabled omits the `memory` key entirely, rather than returning
+  `memory: null`;
+- gate default is off when no environment variable is set;
 - unbound chat skips memory even when the gate is enabled;
 - bound chat with eligible memory selects IDs/reasons and preserves travel
   citations;
@@ -368,8 +412,13 @@ Expected: tests fail because chat integration does not exist.
 
 - [ ] **Step 3: Implement feature-gated integration**
 
-Wire memory settings and service construction through existing dependency
-patterns. Keep the public request body free of a memory override.
+Add the three R6 settings to `backend/app/config.py` using the existing
+`os.getenv` pattern, with `MEMORY_RETRIEVAL_ENABLED` defaulting to false. Add a
+narrow `RAGService` seam that exposes travel retrieval context and generation
+through injectable RAG-owned dependencies, then wire memory settings and service
+construction through existing dependency patterns. Keep the public request body
+free of a memory override. Extend the existing chat response serializer so an
+absent `memory` object is omitted entirely.
 
 - [ ] **Step 4: Run integration tests for GREEN**
 
@@ -422,7 +471,7 @@ and relevant memory help.
 
 - [ ] **Step 4: Run R6 evaluation**
 
-Run: `./.venv/bin/python -m backend.memory.evaluation.cli run --suite r6-retrieval-v0.1`
+Run: `./.venv/bin/python -m backend.memory.evaluation.cli run-retrieval --suite r6-retrieval-v0.1`
 
 Expected: JSON and Markdown reports are written under `docs/reports/memory/`.
 If no answer judge is configured, answer-quality fields are `INCONCLUSIVE` and
@@ -445,6 +494,7 @@ message or memory content is leaked beyond controlled synthetic fixture text.
 
 - Modify: `ARCHITECTURE.md`
 - Modify: `DEVELOPMENT.md`
+- Modify: `.env.example`
 - Modify: `docs/architecture/current-state.md`
 - Modify: `docs/architecture/data-model.md`
 - Modify: `docs/roadmap/master-roadmap.md`
@@ -460,9 +510,15 @@ message or memory content is leaked beyond controlled synthetic fixture text.
 
 Document:
 
-- feature gate name and default-off behavior;
+- feature gate name and default-off behavior, including the three R6 variables
+  in the `DEVELOPMENT.md` `## Environment` table and as commented
+  `.env.example` placeholders;
 - R6 implemented modules and routes or commands;
+- the `memory_records` schema module alongside the unchanged R5 `memory` module;
 - RAG independence from memory;
+- promotion coverage limits: `profile_fact` and `decision` memory reach R6 only
+  through seeded fixtures, and `personal` sensitivity is not promoted;
+- correction supersession behavior, including ambiguous-target suppression;
 - evaluation limitations and report path;
 - roadmap R6 status and evidence.
 
@@ -473,10 +529,11 @@ Run:
 ```text
 grep -R "backend.memory" -n backend/rag
 grep -R "from backend.memory\\|import backend.memory" -n backend/rag
+grep -R "backend.rag\\|backend.orchestration" -n backend/memory
 grep -R "chromadb" -n backend/memory
 ```
 
-Expected: first two commands return no matches. The third returns no memory
+Expected: all commands return no matches. The final command proves no memory
 Chroma dependency.
 
 - [ ] **Step 3: Run full backend verification**
@@ -499,6 +556,14 @@ Review changed files against the File Responsibility Map. Confirm no frontend,
 auth, vector memory, deletion API, planner state, Chroma memory writes,
 unapproved RAG dependency, or Git delivery action entered the change set.
 
+Confirm `backend/memory/extraction.py`, `backend/memory/policy.py`, and
+`backend/storage/schema_registry.py` are unchanged.
+
+Run: `git diff --stat -- backend/memory/extraction.py backend/memory/policy.py backend/storage/schema_registry.py`
+
+Expected: no output, proving R5 extraction, R5 policy, and the ADR 0004 registry
+were not modified to make R6 easier.
+
 - [ ] **Step 5: Mark completion**
 
 Update this plan status to `Completed`, update the plan index, and update
@@ -519,8 +584,10 @@ Run these checks freshly before handoff:
 ./.venv/bin/python -m compileall backend
 grep -R "backend.memory" -n backend/rag
 grep -R "from backend.memory\\|import backend.memory" -n backend/rag
+grep -R "backend.rag\\|backend.orchestration" -n backend/memory
 grep -R "chromadb" -n backend/memory
-./.venv/bin/python -m backend.memory.evaluation.cli run --suite r6-retrieval-v0.1
+git diff --stat -- backend/memory/extraction.py backend/memory/policy.py backend/storage/schema_registry.py
+./.venv/bin/python -m backend.memory.evaluation.cli run-retrieval --suite r6-retrieval-v0.1
 git diff --check
 git status --short --untracked-files=all
 ```
@@ -530,10 +597,11 @@ Expected:
 1. backend tests pass;
 2. compileall exits 0;
 3. RAG import-boundary checks return no matches;
-4. memory module has no Chroma dependency;
-5. R6 evaluation report is present and internally consistent;
-6. Git status contains only intentional R6 files;
-7. no Git delivery command has been run by the implementation worker.
+4. memory reverse-boundary and Chroma checks return no matches;
+5. R5 extraction, R5 policy, and the shared schema registry are unchanged;
+6. R6 evaluation report is present and internally consistent;
+7. Git status contains only intentional R6 files;
+8. no Git delivery command has been run by the implementation worker.
 
 ## Rollback
 

@@ -38,7 +38,9 @@ citations.
 ## Decision
 
 R6 introduces answer-eligible `MemoryRecord` rows and feature-gated memory
-retrieval under `backend/memory/`. Memory retrieval is called only by
+retrieval under `backend/memory/`. The answer-eligible record store registers as
+a new local schema module named `memory_records` at version 1, rather than
+changing R5's `memory` module version. Memory retrieval is called only by
 `ConversationOrchestrator`, and only when the R6 feature gate is enabled for a
 bound conversation. `backend/rag` remains unaware of `backend.memory`.
 
@@ -46,7 +48,10 @@ The decision has ten rules.
 
 1. **Promoted records are separate from candidates.** R5 `MemoryCandidate`
    records remain shadow evidence. R6 creates `MemoryRecord` records only from
-   eligible, accepted candidates after policy validation.
+   eligible, accepted candidates after policy validation. R6 does not change R5
+   extraction or policy behavior to widen what becomes promotable; the governing
+   spec records which allow-list reasons currently have no R5 producer and
+   remain forward-compatible entries.
 2. **Feature gate defaults off.** `MEMORY_RETRIEVAL_ENABLED` defaults to false.
    When disabled, bound and unbound chat behavior remains R4 behavior.
 3. **Bound conversations only.** R6 memory retrieval requires a
@@ -54,7 +59,9 @@ The decision has ten rules.
    memory.
 4. **Orchestration composes answer context.** `ConversationOrchestrator` owns the
    answer-time composition of travel RAG context plus selected memory context.
-   RAG does not call memory services.
+   RAG does not call memory services. R6 may add a narrow, injectable
+   `RAGService` seam that returns travel retrieval context before generation so
+   orchestration can compose memory without constructing vector-store clients.
 5. **Travel citations stay travel citations.** Memory records are not source
    citations. Selected memory IDs and selection reasons are exposed through
    memory trace fields and evaluation artifacts, not citation objects.
@@ -68,6 +75,12 @@ The decision has ten rules.
    policy ranking. Chroma remains travel knowledge only.
 9. **Corrections outrank older inferences.** Explicit corrections and newer
    direct statements suppress older inferred records within the same scope.
+   Suppression is resolved once at promotion time from scope identity and record
+   age only, never from text similarity or model inference, and is stored as
+   record status so retrieval reads it instead of re-deriving it. When the
+   target is ambiguous, every candidate target is suppressed, because losing
+   retrieval recall is recoverable and letting an older inference outrank a
+   newer correction is a hard-gate failure.
 10. **Evaluation controls rollout.** R6 may be delivered with the feature gate
     off. Turning it on by default requires memory evaluation evidence that
     satisfies the approved gates.
@@ -121,17 +134,27 @@ RAG remains focused on travel knowledge. Selected.
 3. The orchestrator becomes responsible for one more coordination step.
 4. R6 cannot justify default-on personalization unless the evaluation report
    passes the approved memory gates.
+5. Promotion coverage is narrower than the allow-list vocabulary. The delivered
+   R5 extractor produces only preference, constraint, and correction candidates
+   that reach `accepted`, so `profile_fact` and `decision` memory exist in R6
+   only through seeded evaluation fixtures. Widening coverage means changing R5
+   extraction under its own approved change.
+6. Correction targeting is coarse. Without a link field from R5, an ambiguous
+   correction suppresses every older active target in the same scope, which can
+   suppress an unrelated record. A later milestone can narrow this only by
+   adding explicit correction targets during extraction.
 
 ## Migration
 
-R6 is additive to the local application database. It may upgrade the memory
-module schema from R5 version 1 to version 2 through one explicit reviewed
-schema step that adds answer-eligible memory record and retrieval trace tables.
-It must not introduce a general migration framework.
+R6 is additive to the local application database. It registers answer-eligible
+memory record and retrieval trace tables as a separate `memory_records` schema
+module at version 1. R5's `memory` schema module remains at version 1,
+preserving ADR 0004's fail-closed version guarantee and avoiding a general
+migration framework.
 
-If R5 has not been delivered, R6 implementation stops. If an existing memory
-module schema is neither the expected R5 version nor an empty database, R6 fails
-closed and returns a controlled infrastructure error.
+If R5 has not been delivered, R6 implementation stops. If an existing
+`memory_records` module schema has an unexpected version, R6 fails closed and
+returns a controlled infrastructure error.
 
 Rollback disables `MEMORY_RETRIEVAL_ENABLED`, removes orchestration memory
 composition, removes R6 routes or commands, and leaves promoted records as inert
@@ -143,7 +166,8 @@ answer behavior without touching travel RAG collections.
 R6 validation must prove:
 
 1. feature-gate-off chat responses preserve R4 behavior;
-2. `backend/rag` and RAG evaluation do not import `backend.memory`;
+2. `backend/rag` and RAG evaluation do not import `backend.memory`, and
+   `backend/memory` does not import `backend.rag` or `backend.orchestration`;
 3. only active, in-scope, non-sensitive records can be selected;
 4. deleted, tombstoned, archived, expired, superseded, and
    deletion-requested records are never selected;
