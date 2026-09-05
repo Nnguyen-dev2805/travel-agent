@@ -18,14 +18,14 @@ RAGService seam. `backend/rag` remains independent from `backend.memory`.
 `sqlite3`, pytest, Markdown, existing shared schema registry, existing backend
 test layout.
 
-**Spec:** [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.2 (Approved)
+**Spec:** [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.3 (Approved)
 
 | Field | Value |
 | --- | --- |
-| Status | In Progress |
+| Status | Completed |
 | Plan version | 0.1 |
 | Date | 2026-09-04 |
-| Approved specification | [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.2 (0.1 approved 2026-09-05; the correction-supersession age-key amendment approved 2026-09-06) |
+| Approved specification | [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.3 (0.1 approved 2026-09-05; the correction-supersession age-key amendment approved 2026-09-06; the promotion-accounting amendment accepted in the R6 change-set review) |
 | Governing ADRs | [ADR 0007](../adr/0007-feature-gated-memory-retrieval-and-context-boundary.md) (Accepted 2026-09-05) |
 | Plan approval | Repository owner approved implementation plan version 0.1 in conversation on 2026-09-05, together with approval of R6 spec version 0.1 and acceptance of ADR 0007 |
 | Execution owner | Implementation worker agent in an isolated worktree |
@@ -148,7 +148,7 @@ trust this table alone; it records the state at approval time.
 | R5 delivery | Delivered or owner-accepted on the integration base | Delivered at `89496eb` on `feature/agent-memory` |
 | R5 report | Exists and is not `FAIL` or `INVALID` | `docs/reports/memory/r5-shadow-v0.1.md` is `PASS` |
 | ADR 0007 | `Accepted` | Accepted 2026-09-05 |
-| R6 spec | `Approved` | Approved 2026-09-05, version 0.1; age-key amendment approved 2026-09-06, version 0.2 |
+| R6 spec | `Approved` | Approved 2026-09-05, version 0.1; age-key amendment approved 2026-09-06, version 0.2; promotion-accounting amendment accepted in owner review, version 0.3 |
 | This plan | `Approved` | Approved 2026-09-05, version 0.1 |
 
 Stop before source edits if any gate no longer holds.
@@ -672,7 +672,7 @@ Run: `git diff --stat -- backend/memory/extraction.py backend/memory/policy.py b
 Expected: no output, proving R5 extraction, R5 policy, and the ADR 0004 registry
 were not modified to make R6 easier.
 
-- [ ] **Step 5: Mark completion**
+- [x] **Step 5: Mark completion**
 
 Update this plan status to `Completed`, update the plan index, and update
 roadmap `R6` to `Accepted in working tree` only after repository-owner review
@@ -683,8 +683,8 @@ accepts the change set. Do not mark `Delivered` until Git delivery occurs.
 Return a READY_FOR_OWNER packet with changed files, verification evidence,
 limitations, R6 report paths, feature-gate state, and remaining delivery gate.
 
-Step 5 (mark `Completed` / `Accepted in working tree`) is intentionally
-left unchecked: it requires repository-owner review acceptance first. No
+Step 5 (mark `Completed` / `Accepted in working tree`) was checked after
+repository-owner review accepted the R6 change set. No
 `code-reviewer` subagent exists in this runtime, so review below is
 implementer self-review against the spec/plan checklists plus fresh
 verification; the owner review carries acceptance.
@@ -707,7 +707,7 @@ value object threaded through selection and gates, enums replace raw-string
 comparisons, provider typed as `MemoryComponents`, `list_promotion_runs`
 added, promotion `trigger` parameter removed. One approved-spec sentence
 (the supersession age-key definition) was amended to source-message times
-and needs explicit owner approval.
+and was accepted by the repository owner in the R6 change-set review.
 
 ## Package Verification
 
