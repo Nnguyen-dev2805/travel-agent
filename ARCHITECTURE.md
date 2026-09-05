@@ -40,6 +40,8 @@ Use these Package 3 architecture documents for deeper review:
 | Memory routes | Trigger manual shadow extraction runs and list run/candidate evidence for a workspace or conversation; construct no RAG, embedding, or model-provider dependency | `backend/app/api/memory.py`, `backend/app/schemas/memory.py` |
 | Memory module | Owns `MemoryCandidate` and `MemoryExtractionRun` contracts, deterministic rule-based extraction, policy decisions, service use cases, and the storage interface | `backend/memory/models.py`, `backend/memory/extraction.py`, `backend/memory/policy.py`, `backend/memory/service.py`, `backend/memory/repository.py` |
 | Memory evaluation | Replays tracked synthetic fixtures end to end and writes a shadow report with result state and hard-gate evidence | `backend/memory/evaluation/runner.py`, `backend/memory/evaluation/cli.py` |
+| Memory promotion and retrieval | Promotes eligible accepted candidates into `mem_` records with supersession, and selects in-scope active records by deterministic lexical ranking | `backend/memory/promotion.py`, `backend/memory/retrieval.py` |
+| Feature-gated chat memory | Bound turns compose selected memory with RAG context only when `MEMORY_RETRIEVAL_ENABLED` is true; gate-off and unbound turns keep R4/R5 behavior exactly | `backend/orchestration/conversation_orchestrator.py`, `backend/orchestration/memory_context.py` |
 | Shared schema registry | Owns the `PRAGMA user_version` store marker and the `schema_versions` table, registers or verifies one module's schema version, and fails closed on unknown ownership or an unsupported version | `backend/storage/schema_registry.py` |
 | Shared local application store | One local SQLite file at `APP_DB_PATH` holding trip workspace, conversation, and message records with per-module schema versions | `backend/workspaces/sqlite_repository.py`, `backend/conversations/sqlite_repository.py` |
 | RAG generation service | Embeds the user message, retrieves Chroma context, builds the model prompt, calls the configured external model endpoint, and formats citations | `backend/rag/generation/rag_service.py` |
@@ -226,6 +228,7 @@ not be exposed publicly.
 | Caller to conversation routes | Conversation routes are unauthenticated. Conversations inherit scope from their parent workspace and carry no owner field, so `R4` claims no cross-user or cross-workspace isolation beyond deterministic repository filtering. The public append route accepts only `user` and `system_event`, so a caller cannot forge an assistant turn. These routes must not be exposed publicly |
 | Caller to memory routes | Memory routes are unauthenticated and inherit workspace scope through the parent conversation. The trigger route always creates a `manual` run and rejects any caller-supplied `trigger`. These routes must not be exposed publicly |
 | Memory candidate evidence to callers and reports | Candidate `text` is excluded from HTTP responses; reports carry identifiers, counts, controlled reason codes, and redacted summaries only. Secret-like spans are redacted before persistence, and raw message content is never logged |
+| Feature-gated memory answers | Memory records enter prompts only for bound turns with the gate enabled; memory is never a citation, the public request carries no memory toggle, and selected IDs/reasons travel in controlled trace metadata only |
 | Local process to model provider | User message and retrieved travel context leave the local process for the configured external model endpoint |
 | Local files, model cache, and vector store | Data, Chroma state, and model cache are local development assets, not isolated production stores |
 | Local application database | The SQLite file at `APP_DB_PATH` holds user-entered trip content and full message content as local development state, with no production retention, backup, restore, or deletion contract |
@@ -244,7 +247,11 @@ not be exposed publicly.
   accepts no `workspace_id`.
 - Workspace identity is server-generated and prefixed `tw_`; conversation identity
   is prefixed `cv_` and message identity `ms_`. Memory extraction-run identity
-  is prefixed `mer_` and candidate identity `mc_`.
+  is prefixed `mer_` and candidate identity `mc_`. Memory record identity is
+  prefixed `mem_`, promotion-run identity `mpr_`, and retrieval-trace identity
+  `mtr_`. Memory retrieval stays behind `MEMORY_RETRIEVAL_ENABLED=false` by
+  default; records live in a separate `memory_records` schema module at
+  version 1 while R5 `memory` stays at version 1.
 - Message order within a conversation is a stored `sequence` integer starting at
   `1`, unique per conversation, assigned by the adapter inside the write
   transaction and never supplied by a caller.
@@ -280,9 +287,13 @@ not be exposed publicly.
 - No user, trip, or memory identifier exists in the bounded chat request
   contract. `conversation_id` is the only implemented identifier, and it is
   optional.
-- No answer-eligible agent memory exists yet. `R5` persists shadow candidates
-  and measures extraction quality, but implements no `MemoryRecord` promotion,
-  no memory retrieval, and no personalization in answers.
+- Answer-eligible memory exists only behind the default-off feature gate.
+  `R6` promotes measured candidates, retrieves in-scope active records, and
+  evaluates against a memory-disabled baseline, but implements no default-on
+  personalization, no vector memory store, no deletion API, and no
+  authenticated identity. Promotion covers only the three allow-list reasons
+  with an R5 producer; `profile_fact` and `decision` records exist solely
+  through seeded evaluation fixtures.
 - Trip workspace and conversation records exist as local backend components, but
   there is no authenticated user, workspace-aware chat, itinerary state, planner
   behavior, workspace or conversation UI, or workspace lifecycle transition.

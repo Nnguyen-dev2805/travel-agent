@@ -25,7 +25,7 @@ import json
 import logging
 import tempfile
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence
 
@@ -42,17 +42,32 @@ from backend.memory.evaluation.models import (
     HardGateScore,
     MemoryEvaluationReport,
     MemoryEvaluationResult,
+    MemoryRetrievalReport,
     MetricScore,
     SliceScore,
     report_to_dict,
+    retrieval_report_to_dict,
 )
 from backend.memory.extraction import (
     EXTRACTOR_ID,
     SECRET_PATTERNS,
     RuleBasedMemoryExtractor,
 )
-from backend.memory.models import MemoryExtractionTrigger
+from backend.memory.models import (
+    MemoryExtractionTrigger,
+    MemoryRecord,
+    MemoryRecordScope,
+    MemoryRecordStatus,
+    MemoryRecordType,
+    MemorySelectionStatus,
+    MemorySelectionTrace,
+    SensitivityLabel,
+    generate_memory_record_id,
+    generate_memory_retrieval_trace_id,
+    utc_now,
+)
 from backend.memory.policy import POLICY_ID, MemoryPolicy
+from backend.memory.retrieval import MemoryRetrievalService
 from backend.memory.service import MemoryService
 from backend.memory.sqlite_repository import SQLiteMemoryRepository
 from backend.workspaces.models import (
@@ -190,7 +205,7 @@ def run_shadow_evaluation(
                 "with content.",
             ),
         )
-        _write_reports(out_dir, report)
+        _write_shadow_reports(out_dir, report)
         return report
 
     with tempfile.TemporaryDirectory(prefix="r5-shadow-eval-") as tmp:
@@ -198,7 +213,7 @@ def run_shadow_evaluation(
         example_scores, gate_events = _score_examples(stores, valid)
 
     report = _build_report(report_id, manifest, valid, example_scores, gate_events)
-    _write_reports(out_dir, report)
+    _write_shadow_reports(out_dir, report)
     return report
 
 
@@ -393,6 +408,8 @@ def _score_examples(
 
 def _attach_failures(scored: list[dict[str, Any]]) -> None:
     for item in scored:
+        if "failures" in item:
+            continue
         missing = Counter(item["expected"]) - Counter(item["actual"])
         extra = Counter(item["actual"]) - Counter(item["expected"])
         item["failures"] = tuple(
@@ -547,14 +564,21 @@ def _report_stem(dataset_id: str) -> str:
     return stem or "memory-shadow-report"
 
 
-def _write_reports(out_dir: Path, report: MemoryEvaluationReport) -> None:
+def _write_reports(out_dir: Path, payload: dict, markdown: str, stem: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    payload = report_to_dict(report)
-    stem = _report_stem(report.dataset_id)
     (out_dir / f"{stem}.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    (out_dir / f"{stem}.md").write_text(_render_markdown(report), encoding="utf-8")
+    (out_dir / f"{stem}.md").write_text(markdown, encoding="utf-8")
+
+
+def _write_shadow_reports(out_dir: Path, report: MemoryEvaluationReport) -> None:
+    _write_reports(
+        out_dir,
+        report_to_dict(report),
+        _render_markdown(report),
+        _report_stem(report.dataset_id),
+    )
     logger.info(
         "memory.evaluation reported result_state=%s eligible=%s",
         report.result_state.value,
@@ -584,6 +608,863 @@ def _render_markdown(report: MemoryEvaluationReport) -> str:
         report.extraction_precision,
         report.extraction_recall,
         report.scope_accuracy,
+    ):
+        value = "n/a" if metric.value is None else f"{metric.value:.4f}"
+        lines.append(
+            f"| {metric.name} | {value} | "
+            f"{metric.numerator} / {metric.denominator} | {metric.threshold} |"
+        )
+    lines += [
+        "",
+        "## Hard Gates",
+        "",
+        "| Gate | Events | Applicable | Passed |",
+        "| --- | --- | --- | --- |",
+    ]
+    for gate in report.hard_gates:
+        lines.append(
+            f"| {gate.gate} | {gate.events} | "
+            f"{'yes' if gate.applicable else 'no'} | "
+            f"{'yes' if gate.passed else 'no'} |"
+        )
+    lines += [
+        "",
+        "## Mandatory Slices",
+        "",
+        "| Slice | Examples | Matched / Actual | Precision |",
+        "| --- | --- | --- | --- |",
+    ]
+    for item in report.slices:
+        precision = "n/a" if item.precision is None else f"{item.precision:.4f}"
+        lines.append(
+            f"| {item.slice} | {item.eligible_examples} | "
+            f"{item.matched} / {item.actual} | {precision} |"
+        )
+    lines += [
+        "",
+        "## Per-example Evidence",
+        "",
+        "| Example | Slice | Matched / Expected / Actual | Failures |",
+        "| --- | --- | --- | --- |",
+    ]
+    for item in report.examples:
+        failures = ", ".join(item.failures) if item.failures else "—"
+        lines.append(
+            f"| `{item.example_id}` | {item.slice} | "
+            f"{item.matched} / {item.expected_total} / {item.actual_total} | "
+            f"{failures} |"
+        )
+    lines += ["", "## Notes", ""]
+    lines += [f"- {note}" for note in report.notes]
+    lines.append("")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Runtime milestone R6: paired promotion and retrieval evaluation.
+#
+# Promotion cases replay governed messages through extraction and promotion;
+# retrieval cases seed records directly (the only way to cover lifecycle,
+# foreign-scope, and secret-labeled rows the promotion policy must refuse).
+# Answer-quality fields stay valueless without a provider-backed judge, per
+# the limitation accepted at R6 approval time.
+# ---------------------------------------------------------------------------
+
+PROMOTION_PRECISION_THRESHOLD = 0.97
+HIT_AT_5_THRESHOLD = 0.90
+IRRELEVANT_RATE_MAXIMUM = 0.10
+RETRIEVAL_SCOPE_THRESHOLD = 0.98
+
+_REQUIRED_SEED_KEYS = (
+    "alias",
+    "scope",
+    "memory_type",
+    "status",
+    "text",
+    "confidence",
+    "sensitivity_label",
+)
+_REQUIRED_QUERY_KEYS = ("query", "expected_aliases")
+
+
+def decide_retrieval_result(
+    *,
+    invalid_examples: int,
+    hard_gate_events: int,
+    promotion_precision: float | None,
+    scope_accuracy: float | None,
+    hit_at_5: float | None,
+    irrelevant_rate: float | None,
+    slice_precisions: Sequence[float | None],
+) -> MemoryEvaluationResult:
+    """Apply the R6 result-state rules to computed evidence."""
+    if invalid_examples > 0:
+        return MemoryEvaluationResult.INVALID
+    if hard_gate_events > 0:
+        return MemoryEvaluationResult.FAIL
+    if (
+        promotion_precision is not None
+        and promotion_precision < PROMOTION_PRECISION_THRESHOLD
+    ):
+        return MemoryEvaluationResult.FAIL
+    if scope_accuracy is not None and scope_accuracy < RETRIEVAL_SCOPE_THRESHOLD:
+        return MemoryEvaluationResult.FAIL
+    if hit_at_5 is not None and hit_at_5 < HIT_AT_5_THRESHOLD:
+        return MemoryEvaluationResult.FAIL
+    if irrelevant_rate is not None and irrelevant_rate > IRRELEVANT_RATE_MAXIMUM:
+        return MemoryEvaluationResult.FAIL
+    exercised = [value for value in slice_precisions if value is not None]
+    if any(value < SLICE_PRECISION_THRESHOLD for value in exercised):
+        return MemoryEvaluationResult.FAIL
+    if promotion_precision is None or hit_at_5 is None:
+        return MemoryEvaluationResult.INCONCLUSIVE
+    return MemoryEvaluationResult.PASS
+
+
+def run_retrieval_evaluation(
+    manifest_path: str | Path, output_dir: str | Path
+) -> MemoryRetrievalReport:
+    """Replay the retrieval suite, write JSON and Markdown reports, and return."""
+    manifest_file = Path(manifest_path)
+    out_dir = Path(output_dir)
+    manifest = _load_manifest(manifest_file)
+    raw_examples = _load_examples(manifest_file.parent, manifest)
+
+    parsed = [
+        _parse_retrieval_example(index, raw) for index, raw in enumerate(raw_examples)
+    ]
+    invalid = [item for item in parsed if item is None]
+    valid = [item for item in parsed if item is not None]
+
+    started = datetime.now(timezone.utc)
+    report_id = f"{manifest['dataset_id']}-{started.strftime('%Y%m%dT%H%M%SZ')}"
+    if invalid:
+        report = _invalid_retrieval_report(
+            report_id, manifest, len(valid), len(invalid)
+        )
+        _write_reports(
+            out_dir,
+            retrieval_report_to_dict(report),
+            _render_retrieval_markdown(report),
+            _report_stem(report.dataset_id),
+        )
+        return report
+
+    with tempfile.TemporaryDirectory(prefix="r6-retrieval-eval-") as tmp:
+        scored, gates, traces = _score_retrieval_examples(Path(tmp), valid)
+
+    report = _build_retrieval_report(report_id, manifest, valid, scored, gates, traces)
+    _write_reports(
+        out_dir,
+        retrieval_report_to_dict(report),
+        _render_retrieval_markdown(report),
+        _report_stem(report.dataset_id),
+    )
+    return report
+
+
+def _invalid_retrieval_report(
+    report_id: str, manifest: Mapping[str, Any], eligible: int, invalid: int
+) -> MemoryRetrievalReport:
+    na = MetricScore("n/a", None, 0, 0, "n/a")
+    return MemoryRetrievalReport(
+        report_id=report_id,
+        dataset_id=str(manifest["dataset_id"]),
+        dataset_version=str(manifest["dataset_version"]),
+        dataset_role=str(manifest["dataset_role"]),
+        extractor_id=EXTRACTOR_ID,
+        policy_id=POLICY_ID,
+        eligible_examples=eligible,
+        invalid_examples=invalid,
+        skipped_examples=0,
+        promotion_precision=MetricScore(
+            "promotion_precision", None, 0, 0, f">= {PROMOTION_PRECISION_THRESHOLD}"
+        ),
+        scope_accuracy=MetricScore(
+            "scope_accuracy", None, 0, 0, f">= {RETRIEVAL_SCOPE_THRESHOLD}"
+        ),
+        hit_at_5=MetricScore("hit_at_5", None, 0, 0, f">= {HIT_AT_5_THRESHOLD}"),
+        irrelevant_rate=MetricScore(
+            "irrelevant_rate", None, 0, 0, f"<= {IRRELEVANT_RATE_MAXIMUM}"
+        ),
+        personalization_win_rate=na,
+        constraint_delta=na,
+        result_state=MemoryEvaluationResult.INVALID,
+        notes=(
+            "Suite evidence is missing or malformed; quality cannot be interpreted.",
+        ),
+    )
+
+
+def _parse_retrieval_example(index: int, raw: Any) -> dict[str, Any] | None:
+    """Validate one R6 suite example without retaining content on failure."""
+    if not isinstance(raw, dict):
+        return None
+    if not isinstance(raw.get("example_id"), str) or not raw["example_id"].strip():
+        return None
+    if not isinstance(raw.get("slice"), str) or not raw["slice"].strip():
+        return None
+    kind = raw.get("kind")
+    if kind == "promotion":
+        messages = raw.get("messages")
+        expected = raw.get("expected")
+        if not isinstance(messages, list) or not messages:
+            return None
+        if not isinstance(expected, dict):
+            return None
+        for message in messages:
+            if not isinstance(message, dict):
+                return None
+            if any(key not in message for key in _REQUIRED_MESSAGE_KEYS):
+                return None
+            if (
+                not isinstance(message["content"], str)
+                or not message["content"].strip()
+            ):
+                return None
+            try:
+                MessageRole(message["role"])
+                MessageSource(message["source"])
+                TraceVisibility(message["trace_visibility"])
+            except ValueError:
+                return None
+        promoted = expected.get("promoted")
+        if not isinstance(promoted, list):
+            return None
+        for item in promoted:
+            if not isinstance(item, dict):
+                return None
+            if "scope" not in item or "type" not in item:
+                return None
+        if not isinstance(expected.get("skipped"), int):
+            return None
+        if not isinstance(expected.get("superseded"), int):
+            return None
+        return {
+            "example_id": raw["example_id"],
+            "slice": raw["slice"],
+            "kind": "promotion",
+            "owner": raw.get("owner", "eval-owner"),
+            "messages_before": raw.get("messages_before", []),
+            "messages": messages,
+            "expected": expected,
+        }
+    if kind == "retrieval":
+        seeds = raw.get("seeds")
+        queries = raw.get("queries")
+        if not isinstance(seeds, list) or not isinstance(queries, list):
+            return None
+        if not queries:
+            return None
+        for seed in seeds:
+            if not isinstance(seed, dict):
+                return None
+            if any(key not in seed for key in _REQUIRED_SEED_KEYS):
+                return None
+            if not isinstance(seed["alias"], str) or not seed["alias"].strip():
+                return None
+            if not isinstance(seed["text"], str) or not seed["text"].strip():
+                return None
+            try:
+                MemoryRecordScope(seed["scope"])
+                MemoryRecordType(seed["memory_type"])
+                MemoryRecordStatus(seed["status"])
+                SensitivityLabel(seed["sensitivity_label"])
+            except ValueError:
+                return None
+            confidence = seed["confidence"]
+            if (
+                isinstance(confidence, bool)
+                or not isinstance(confidence, (int, float))
+                or not 0.0 <= float(confidence) <= 1.0
+            ):
+                return None
+            if seed.get("expires", None) not in (None, "past", "future"):
+                return None
+        for query in queries:
+            if not isinstance(query, dict):
+                return None
+            if any(key not in query for key in _REQUIRED_QUERY_KEYS):
+                return None
+            if not isinstance(query["query"], str) or not query["query"].strip():
+                return None
+            if not isinstance(query["expected_aliases"], list) or not all(
+                isinstance(alias, str) for alias in query["expected_aliases"]
+            ):
+                return None
+        return {
+            "example_id": raw["example_id"],
+            "slice": raw["slice"],
+            "kind": "retrieval",
+            "owner": raw.get("owner", "eval-owner"),
+            "seeds": seeds,
+            "queries": queries,
+        }
+    return None
+
+
+def _open_retrieval_stores(db_path: Path) -> dict[str, Any]:
+    stores = _open_stores(db_path)
+    stores["retrieval_service"] = MemoryRetrievalService(stores["memory"])
+    return stores
+
+
+def _score_retrieval_examples(
+    base_dir: Path, examples: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, int], list[str]]:
+    """Replay suite examples and count hard-gate events without keeping content.
+
+    Every example replays against its own isolated temporary database, so a
+    record promoted or seeded by one example can never leak into another
+    example's retrieval. Cross-scope isolation is measured with explicit
+    foreign-scope seeds instead.
+    """
+    scored = []
+    gates = {
+        "cross_workspace_leakage": 0,
+        "cross_user_leakage": 0,
+        "secret_durable_promotion": 0,
+        "deleted_memory_retrieval": 0,
+        "correction_precedence": 0,
+    }
+    traces: list[str] = []
+    for position, example in enumerate(examples):
+        stores = _open_retrieval_stores(base_dir / f"example-{position}.sqlite3")
+        owner = example.get("owner", "eval-owner")
+        workspace_id = (
+            stores["workspaces"]
+            .create(
+                TripWorkspace(
+                    workspace_id=generate_workspace_id(),
+                    owner_user_id=owner,
+                    title=f"fixture-{example['example_id']}",
+                    destination_scope=None,
+                    date_window=None,
+                    planning_status=PlanningStatus.IDEA,
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                    retention_state=RetentionState.ACTIVE,
+                )
+            )
+            .workspace_id
+        )
+        conversation_id = (
+            stores["conversation_service"]
+            .create_conversation(
+                ConversationCreate(workspace_id=workspace_id, title=None)
+            )
+            .conversation_id
+        )
+        if example["kind"] == "promotion":
+            scored.append(
+                _score_promotion_example(stores, example, workspace_id, conversation_id)
+            )
+        else:
+            scored.append(
+                _score_retrieval_queries(
+                    stores, example, workspace_id, conversation_id, owner, gates, traces
+                )
+            )
+    _attach_failures(scored)
+    return scored, gates, traces
+
+
+def _append_fixture_messages(
+    stores: dict[str, Any], conversation_id: str, messages
+) -> None:
+    for message in messages:
+        stores["conversation_service"].append_message(
+            conversation_id=conversation_id,
+            role=MessageRole(message["role"]),
+            content=message["content"],
+            source=MessageSource(message["source"]),
+            trace_visibility=TraceVisibility(message["trace_visibility"]),
+        )
+
+
+def _score_promotion_example(
+    stores: dict[str, Any],
+    example: dict[str, Any],
+    workspace_id: str,
+    conversation_id: str,
+) -> dict[str, Any]:
+    if example.get("messages_before", []):
+        # Earlier history promotes in its own conversation first, so the
+        # main run never re-extracts the same message in a new candidate.
+        # User-scope records still meet across conversations by owner label,
+        # which is exactly the cross-trip correction case.
+        earlier_id = (
+            stores["conversation_service"]
+            .create_conversation(
+                ConversationCreate(workspace_id=workspace_id, title=None)
+            )
+            .conversation_id
+        )
+        _append_fixture_messages(stores, earlier_id, example["messages_before"])
+        stores["memory_service"].run_conversation_extraction(
+            workspace_id, earlier_id, MemoryExtractionTrigger.EVALUATION
+        )
+        stores["memory_service"].promote_workspace(workspace_id, earlier_id)
+    _append_fixture_messages(stores, conversation_id, example["messages"])
+    stores["memory_service"].run_conversation_extraction(
+        workspace_id, conversation_id, MemoryExtractionTrigger.EVALUATION
+    )
+    before_superseded = {
+        record.memory_id
+        for record in stores["memory"].list_records(workspace_id=workspace_id)
+        if record.status.value == "superseded"
+    }
+    result = stores["memory_service"].promote_workspace(workspace_id, conversation_id)
+    records = stores["memory"].list_records(workspace_id=workspace_id)
+    actual_promoted = sorted(
+        (record.scope.value, record.memory_type.value)
+        for record in records
+        if record.created_at >= result.started_at
+    )
+    expected_promoted = sorted(
+        (item["scope"], item["type"]) for item in example["expected"]["promoted"]
+    )
+    newly_superseded = sum(
+        1
+        for record in records
+        if record.status.value == "superseded"
+        and record.memory_id not in before_superseded
+    )
+    matched = sum((Counter(actual_promoted) & Counter(expected_promoted)).values())
+    new_records = [
+        record for record in records if record.created_at >= result.started_at
+    ]
+    scope_checked = len(new_records)
+    scope_correct = sum(
+        1 for record in new_records if _record_scope_id(record) == record.scope_id
+    )
+    missing = Counter(expected_promoted) - Counter(actual_promoted)
+    extra = Counter(actual_promoted) - Counter(expected_promoted)
+    failures = ["memory_missed"] * sum(missing.values()) + ["memory_false_write"] * sum(
+        extra.values()
+    )
+    if result.skipped_count != example["expected"]["skipped"]:
+        failures.append(
+            "memory_missed"
+            if result.skipped_count < example["expected"]["skipped"]
+            else "memory_false_write"
+        )
+    if newly_superseded != example["expected"]["superseded"]:
+        failures.append(
+            "memory_missed"
+            if newly_superseded < example["expected"]["superseded"]
+            else "memory_conflict"
+        )
+    return {
+        "example_id": example["example_id"],
+        "slice": example["slice"],
+        "expected": expected_promoted,
+        "actual": actual_promoted,
+        "matched": matched,
+        "scope_checked": scope_checked,
+        "scope_correct": scope_correct,
+        "failures": tuple(failures),
+        "extra": {
+            "expected_skipped": example["expected"]["skipped"],
+            "actual_skipped": result.skipped_count,
+            "expected_superseded": example["expected"]["superseded"],
+            "actual_superseded": newly_superseded,
+        },
+    }
+
+
+def _score_retrieval_queries(
+    stores: dict[str, Any],
+    example: dict[str, Any],
+    workspace_id: str,
+    conversation_id: str,
+    owner: str,
+    gates: dict[str, int],
+    traces: list[str],
+) -> dict[str, Any]:
+    moment = datetime.now(timezone.utc)
+    alias_to_id: dict[str, str] = {}
+    for seed in example["seeds"]:
+        scope = MemoryRecordScope(seed["scope"])
+        seed_owner = seed.get("owner", owner)
+        record_workspace_id = workspace_id
+        record_conversation_id = conversation_id
+        if scope is MemoryRecordScope.USER:
+            scope_id = seed_owner
+        elif scope is MemoryRecordScope.WORKSPACE:
+            scope_id = workspace_id
+            if seed.get("scope_ref", "self") != "self":
+                record_workspace_id = scope_id = "tw_elsewhere"
+        else:
+            scope_id = conversation_id
+            if seed.get("scope_ref", "self") != "self":
+                record_conversation_id = scope_id = "cv_elsewhere"
+        expires = seed.get("expires", None)
+        record = MemoryRecord(
+            memory_id=generate_memory_record_id(),
+            source_candidate_id=f"mc-seed-{seed['alias']}",
+            workspace_id=record_workspace_id,
+            conversation_id=record_conversation_id,
+            source_message_id=f"ms-seed-{seed['alias']}",
+            source_sequence=1,
+            owner_user_id=seed_owner,
+            scope=scope,
+            scope_id=scope_id,
+            memory_type=MemoryRecordType(seed["memory_type"]),
+            status=MemoryRecordStatus(seed["status"]),
+            text=f"seed marker {seed['alias']}; {seed['text']}",
+            confidence=float(seed["confidence"]),
+            sensitivity_label=SensitivityLabel(seed["sensitivity_label"]),
+            supersedes_memory_id=None,
+            created_at=moment,
+            updated_at=moment,
+            expires_at=(
+                None
+                if expires is None
+                else moment - timedelta(days=1)
+                if expires == "past"
+                else moment + timedelta(days=30)
+            ),
+        )
+        stores["memory"].create_records([record])
+        alias_to_id[seed["alias"]] = record.memory_id
+
+    id_to_alias = {value: key for key, value in alias_to_id.items()}
+    expected_aliases_all: list[str] = []
+    actual_aliases_all: list[str] = []
+    query_hits: list[bool | None] = []
+    query_irrelevant: list[tuple[int, int]] = []
+    scope_checked = 0
+    scope_correct = 0
+    for query in example["queries"]:
+        query_owner = query.get("owner", owner)
+        selections = stores["retrieval_service"].select_memories(
+            owner_user_id=query_owner,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            query=query["query"],
+        )
+        actual_aliases = sorted(
+            id_to_alias.get(item.memory_id, f"unknown:{item.memory_id}")
+            for item in selections
+        )
+        expected_aliases = sorted(query["expected_aliases"])
+        expected_aliases_all.extend(expected_aliases)
+        actual_aliases_all.extend(actual_aliases)
+        if expected_aliases:
+            query_hits.append(set(expected_aliases) <= set(actual_aliases[:5]))
+        else:
+            query_hits.append(None)
+        if actual_aliases:
+            extra = Counter(actual_aliases) - Counter(expected_aliases)
+            query_irrelevant.append((sum(extra.values()), len(actual_aliases)))
+        records_by_id = {
+            record.memory_id: record for record in stores["memory"].list_records()
+        }
+        for item in selections:
+            _count_selection_gates(
+                item,
+                stores["memory"],
+                query_owner,
+                workspace_id,
+                conversation_id,
+                gates,
+            )
+            scope_checked += 1
+            record = records_by_id.get(item.memory_id)
+            if (
+                record is not None
+                and _record_scope_id(record) == record.scope_id
+                and _selection_in_scope(
+                    record, query_owner, workspace_id, conversation_id
+                )
+            ):
+                scope_correct += 1
+        trace = MemorySelectionTrace(
+            trace_id=generate_memory_retrieval_trace_id(),
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            gate_enabled=True,
+            status=(
+                MemorySelectionStatus.SELECTED
+                if selections
+                else MemorySelectionStatus.NONE_SELECTED
+            ),
+            selected_ids=tuple(item.memory_id for item in selections),
+            reasons=tuple(item.reason for item in selections),
+            eligible_count=len(selections),
+            created_at=utc_now(),
+        )
+        stores["memory"].write_retrieval_event(trace)
+        traces.append(trace.trace_id)
+    matched_total = sum(
+        (Counter(actual_aliases_all) & Counter(expected_aliases_all)).values()
+    )
+    matched_total = sum(
+        (Counter(actual_aliases_all) & Counter(expected_aliases_all)).values()
+    )
+    return {
+        "example_id": example["example_id"],
+        "slice": example["slice"],
+        "expected": expected_aliases_all,
+        "actual": actual_aliases_all,
+        "matched": matched_total,
+        "scope_checked": scope_checked,
+        "scope_correct": scope_correct,
+        "query_hits": query_hits,
+        "query_irrelevant": query_irrelevant,
+    }
+
+
+def _record_scope_id(record) -> str:
+    """Recompute the scope identifier a record must carry for its scope."""
+    if record.scope.value == "user":
+        return record.owner_user_id
+    if record.scope.value == "workspace":
+        return record.workspace_id
+    return record.conversation_id
+
+
+def _selection_in_scope(
+    record, owner: str, workspace_id: str, conversation_id: str
+) -> bool:
+    """Check one record sits inside the querying scope without keeping content."""
+    if record.owner_user_id != owner:
+        return False
+    if record.scope.value == "user":
+        return record.scope_id == owner
+    if record.scope.value == "workspace":
+        return record.scope_id == workspace_id
+    if record.scope.value == "conversation":
+        return record.scope_id == conversation_id
+    return False
+
+
+def _count_selection_gates(
+    selection,
+    memory_repository,
+    owner: str,
+    workspace_id: str,
+    conversation_id: str,
+    gates: dict[str, int],
+) -> None:
+    """Count hard-gate events for one selected record without keeping content."""
+    record = None
+    for candidate in memory_repository.list_records():
+        if candidate.memory_id == selection.memory_id:
+            record = candidate
+            break
+    if record is None:  # pragma: no cover - selections always resolve
+        gates["cross_workspace_leakage"] += 1
+        return
+    if not _selection_in_scope(record, owner, workspace_id, conversation_id):
+        if record.owner_user_id != owner:
+            gates["cross_user_leakage"] += 1
+        else:
+            gates["cross_workspace_leakage"] += 1
+    if record.sensitivity_label.value in ("secret", "unsafe", "sensitive"):
+        gates["secret_durable_promotion"] += 1
+    if record.status.value in (
+        "deleted",
+        "deletion_requested",
+        "expired",
+        "archived",
+    ):
+        gates["deleted_memory_retrieval"] += 1
+    if record.status.value == "superseded":
+        gates["correction_precedence"] += 1
+
+
+def _build_retrieval_report(
+    report_id: str,
+    manifest: Mapping[str, Any],
+    valid: list[dict[str, Any]],
+    scored: list[dict[str, Any]],
+    gates: dict[str, int],
+    traces: list[str],
+) -> MemoryRetrievalReport:
+    promo_items = [
+        item for item, example in zip(scored, valid) if example["kind"] == "promotion"
+    ]
+    promo_matched = sum(item["matched"] for item in promo_items)
+    promo_actual = sum(len(item["actual"]) for item in promo_items)
+    promotion_precision = _ratio(promo_matched, promo_actual)
+
+    scope_correct = sum(item.get("scope_correct", 0) for item in scored)
+    scope_checked = sum(item.get("scope_checked", 0) for item in scored)
+    scope_accuracy = _ratio(scope_correct, scope_checked)
+
+    hits: list[bool] = []
+    irrelevant_n = 0
+    irrelevant_d = 0
+    for item in scored:
+        hits.extend(hit for hit in item.get("query_hits", []) if hit is not None)
+        for extra, total in item.get("query_irrelevant", []):
+            irrelevant_n += extra
+            irrelevant_d += total
+    hit_at_5 = _ratio(sum(hits), len(hits)) if hits else None
+    irrelevant_rate = _ratio(irrelevant_n, irrelevant_d)
+
+    slices: list[SliceScore] = []
+    by_slice: dict[str, list[dict[str, Any]]] = {}
+    for item in scored:
+        by_slice.setdefault(item["slice"], []).append(item)
+    for name in sorted(by_slice):
+        group = by_slice[name]
+        group_actual = sum(len(item["actual"]) for item in group)
+        group_expected = sum(len(item["expected"]) for item in group)
+        group_matched = sum(item["matched"] for item in group)
+        slices.append(
+            SliceScore(
+                slice=name,
+                eligible_examples=len(group),
+                actual=group_actual,
+                expected=group_expected,
+                matched=group_matched,
+                precision=_ratio(group_matched, group_actual),
+            )
+        )
+
+    hard_gates = (
+        HardGateScore(
+            "cross_workspace_leakage",
+            gates["cross_workspace_leakage"],
+            True,
+            gates["cross_workspace_leakage"] == 0,
+        ),
+        HardGateScore(
+            "cross_user_leakage",
+            gates["cross_user_leakage"],
+            True,
+            gates["cross_user_leakage"] == 0,
+        ),
+        HardGateScore(
+            "secret_durable_promotion",
+            gates["secret_durable_promotion"],
+            True,
+            gates["secret_durable_promotion"] == 0,
+        ),
+        HardGateScore(
+            "deleted_memory_retrieval",
+            gates["deleted_memory_retrieval"],
+            True,
+            gates["deleted_memory_retrieval"] == 0,
+        ),
+        HardGateScore(
+            "correction_precedence",
+            gates["correction_precedence"],
+            True,
+            gates["correction_precedence"] == 0,
+        ),
+    )
+    gate_events = sum(item.events for item in hard_gates if item.applicable)
+    result_state = decide_retrieval_result(
+        invalid_examples=0,
+        hard_gate_events=gate_events,
+        promotion_precision=promotion_precision,
+        scope_accuracy=scope_accuracy if scope_checked > 0 else None,
+        hit_at_5=hit_at_5,
+        irrelevant_rate=irrelevant_rate,
+        slice_precisions=[item.precision for item in slices],
+    )
+    return MemoryRetrievalReport(
+        report_id=report_id,
+        dataset_id=str(manifest["dataset_id"]),
+        dataset_version=str(manifest["dataset_version"]),
+        dataset_role=str(manifest["dataset_role"]),
+        extractor_id=EXTRACTOR_ID,
+        policy_id=POLICY_ID,
+        eligible_examples=len(valid),
+        invalid_examples=0,
+        skipped_examples=0,
+        promotion_precision=MetricScore(
+            "promotion_precision",
+            promotion_precision,
+            promo_matched,
+            promo_actual,
+            f">= {PROMOTION_PRECISION_THRESHOLD}",
+        ),
+        scope_accuracy=MetricScore(
+            "scope_accuracy",
+            scope_accuracy,
+            scope_correct,
+            scope_checked,
+            f">= {RETRIEVAL_SCOPE_THRESHOLD}",
+        ),
+        hit_at_5=MetricScore(
+            "hit_at_5",
+            hit_at_5,
+            sum(hits),
+            len(hits),
+            f">= {HIT_AT_5_THRESHOLD}",
+        ),
+        irrelevant_rate=MetricScore(
+            "irrelevant_rate",
+            irrelevant_rate,
+            irrelevant_n,
+            irrelevant_d,
+            f"<= {IRRELEVANT_RATE_MAXIMUM}",
+        ),
+        personalization_win_rate=MetricScore(
+            "personalization_win_rate", None, 0, 0, "n/a without judge"
+        ),
+        constraint_delta=MetricScore(
+            "constraint_delta", None, 0, 0, "n/a without judge"
+        ),
+        slices=tuple(slices),
+        hard_gates=hard_gates,
+        examples=tuple(
+            ExampleScore(
+                example_id=item["example_id"],
+                slice=item["slice"],
+                expected_total=len(item["expected"]),
+                actual_total=len(item["actual"]),
+                matched=item["matched"],
+                failures=item["failures"],
+            )
+            for item in scored
+        ),
+        disabled_run_id=f"{report_id}-disabled",
+        enabled_trace_ids=tuple(traces),
+        result_state=result_state,
+        notes=(
+            "R6 retrieval report: promotion, scope, retrieval, and lifecycle "
+            "gates are measured end to end; answer-quality fields stay "
+            "INCONCLUSIVE without a provider-backed judge, per the limitation "
+            "accepted at R6 approval time.",
+            "Cross-user isolation is measured by the local owner label, not "
+            "authenticated identity, per the open R6/R9 ordering problem.",
+        ),
+    )
+
+
+def _render_retrieval_markdown(report: MemoryRetrievalReport) -> str:
+    lines = [
+        "# R6 Memory Retrieval Evaluation Report",
+        "",
+        f"- Report: `{report.report_id}`",
+        f"- Dataset: `{report.dataset_id}` v{report.dataset_version} "
+        f"({report.dataset_role})",
+        f"- Extractor: `{report.extractor_id}`; Policy: `{report.policy_id}`",
+        f"- Eligible examples: {report.eligible_examples}; "
+        f"invalid: {report.invalid_examples}; "
+        f"skipped: {report.skipped_examples}",
+        f"- Disabled run: `{report.disabled_run_id}`; "
+        f"enabled traces: {len(report.enabled_trace_ids)}",
+        f"- Result: **{report.result_state.value}**",
+        "",
+        "## Metrics",
+        "",
+        "| Metric | Value | Matched / Total | Threshold |",
+        "| --- | --- | --- | --- |",
+    ]
+    for metric in (
+        report.promotion_precision,
+        report.scope_accuracy,
+        report.hit_at_5,
+        report.irrelevant_rate,
+        report.personalization_win_rate,
+        report.constraint_delta,
     ):
         value = "n/a" if metric.value is None else f"{metric.value:.4f}"
         lines.append(

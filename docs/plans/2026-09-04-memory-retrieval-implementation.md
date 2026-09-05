@@ -524,20 +524,20 @@ turn. Settings use an `_env_flag` helper so parsing is unit-testable
 
 - Produces paired memory-disabled and memory-enabled evaluation outputs.
 
-- [ ] **Step 1: Write failing evaluation tests**
+- [x] **Step 1: Write failing evaluation tests**
 
 Cover valid report output, selected memory IDs/reasons, memory Hit@5,
 irrelevant-memory rate, hard-gate zero counts, `INCONCLUSIVE` answer-quality
 state when no provider-backed judge is configured, and `INVALID` for malformed
 fixtures.
 
-- [ ] **Step 2: Run evaluation tests for RED**
+- [x] **Step 2: Run evaluation tests for RED**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_retrieval_evaluation_runner.py -q`
 
 Expected: tests fail because R6 evaluation paths do not exist.
 
-- [ ] **Step 3: Implement evaluation runner and fixtures**
+- [x] **Step 3: Implement evaluation runner and fixtures**
 
 Create synthetic tracked fixtures covering mandatory memory retrieval slices:
 explicit preferences, inferred preferences, workspace decisions, user-global
@@ -545,7 +545,13 @@ preferences, transient info, ambiguous candidates, corrections, deletion or
 tombstone ineligibility, staleness, cross-scope isolation, secret-like content,
 and relevant memory help.
 
-- [ ] **Step 4: Run R6 evaluation**
+- [x] **Step 4: Run R6 evaluation**
+
+Report `r6-retrieval-v0.1` (`docs/reports/memory/`): **PASS** over 20
+eligible examples; promotion precision, scope accuracy, and Hit@5 `1.0`,
+irrelevant rate `0.0`, applicable hard gates `0` events; personalization
+and constraint delta `INCONCLUSIVE` without a provider-backed judge, per
+the limitation accepted at approval time.
 
 Run: `./.venv/bin/python -m backend.memory.evaluation.cli run-retrieval --suite r6-retrieval-v0.1`
 
@@ -553,16 +559,26 @@ Expected: JSON and Markdown reports are written under `docs/reports/memory/`.
 If no answer judge is configured, answer-quality fields are `INCONCLUSIVE` and
 no personalization win claim is made.
 
-- [ ] **Step 5: Run evaluation tests for GREEN**
+- [x] **Step 5: Run evaluation tests for GREEN**
+
+GREEN: `12 passed` (`test_memory_retrieval_evaluation_runner.py`).
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_retrieval_evaluation_runner.py -q`
 
 Expected: all evaluation tests pass.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: report numbers match JSON artifacts, hard gates are visible, and no raw
 message or memory content is leaked beyond controlled synthetic fixture text.
+
+Checkpoint: every example replays in its own isolated database (a shared DB
+let user-scope records leak across examples and masked a real design
+question); supersession fixtures use a separate earlier conversation because
+re-extracting the same message in a new candidate is a new promotion unit by
+the approved duplicate rule; per-example DBs keep cross-scope measurement to
+explicit foreign seeds; `decide` checks quality FAILs before missing-evidence
+INCONCLUSIVE so absent evidence never masks a failure.
 
 ## Task 8: Documentation and Boundary Verification
 
@@ -582,7 +598,7 @@ message or memory content is leaked beyond controlled synthetic fixture text.
 - Consumes: completed source changes and fresh verification
 - Produces: truthful current-state documentation and final handoff evidence
 
-- [ ] **Step 1: Update documentation**
+- [x] **Step 1: Update documentation**
 
 Document:
 
@@ -598,7 +614,11 @@ Document:
 - evaluation limitations and report path;
 - roadmap R6 status and evidence.
 
-- [ ] **Step 2: Run import-boundary checks**
+- [x] **Step 2: Run import-boundary checks**
+
+All four plan greps return no matches: RAG imports no memory, RAG has no
+`from`/`import backend.memory`, memory imports no RAG or orchestration, and
+memory has no Chroma dependency.
 
 Run:
 
@@ -612,7 +632,11 @@ grep -R "chromadb" -n backend/memory
 Expected: all commands return no matches. The final command proves no memory
 Chroma dependency.
 
-- [ ] **Step 3: Run full backend verification**
+- [x] **Step 3: Run full backend verification**
+
+`914 passed`, `compileall` exit `0`, `git diff --check` clean, status holds
+only intentional R6 files (`834` baseline + `80` R6: 29 Task 2-3, 31 Task
+4-5, 8 Task 6, 12 Task 7).
 
 Run:
 
@@ -626,7 +650,13 @@ git status --short --untracked-files=all
 Expected: tests pass, compileall exits 0, whitespace check is clean, and status
 contains only intentional R6 files.
 
-- [ ] **Step 4: Scope review**
+- [x] **Step 4: Scope review**
+
+Change set holds only File Responsibility Map files: no frontend, auth,
+vector memory, deletion API, planner state, Chroma memory writes,
+unapproved RAG dependency, or Git delivery action. `git diff --stat` on
+`backend/memory/extraction.py`, `backend/memory/policy.py`, and
+`backend/storage/schema_registry.py` is empty.
 
 Review changed files against the File Responsibility Map. Confirm no frontend,
 auth, vector memory, deletion API, planner state, Chroma memory writes,
@@ -646,10 +676,16 @@ Update this plan status to `Completed`, update the plan index, and update
 roadmap `R6` to `Accepted in working tree` only after repository-owner review
 accepts the change set. Do not mark `Delivered` until Git delivery occurs.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Return a READY_FOR_OWNER packet with changed files, verification evidence,
 limitations, R6 report paths, feature-gate state, and remaining delivery gate.
+
+Step 5 (mark `Completed` / `Accepted in working tree`) is intentionally
+left unchecked: it requires repository-owner review acceptance first. No
+`code-reviewer` subagent exists in this runtime, so review below is
+implementer self-review against the spec/plan checklists plus fresh
+verification; the owner review carries acceptance.
 
 ## Package Verification
 

@@ -310,6 +310,33 @@ Required conceptual fields:
 Memory records must be inspectable, correctable, and deletable by policy before
 the product can make production memory or privacy claims.
 
+#### Implemented MemoryRecord Fields (R6)
+
+Milestone `R6` implements this entity as a local backend record created only
+by promotion policy, with these implemented constraints:
+
+| Field | Implemented rule |
+| --- | --- |
+| `memory_id` | Server-generated opaque string prefixed `mem_`; never accepted from caller input |
+| `source_candidate_id` | Required R5 candidate identifier; unique per record, so re-promoting the same candidate is a governed duplicate skip |
+| `workspace_id`, `conversation_id`, `source_message_id` | Required provenance, verified against existing records at promotion time |
+| `source_sequence` | Stored R5 candidate sequence copied forward; pairs with `created_at` as the correction-supersession age key |
+| `owner_user_id` | Local owner label copied from the workspace; not authentication |
+| `scope` | `user`, `workspace`, or `conversation` |
+| `scope_id` | Owner label for `user`, workspace id for `workspace`, conversation id for `conversation`; bound to its scope inside the contract |
+| `memory_type` | `preference`, `constraint`, `profile_fact`, `episode`, `decision`, or `correction`; promotion reaches only the three reasons with an R5 producer |
+| `status` | `active`, `superseded`, `expired`, `archived`, `deletion_requested`, or `deleted`; retrieval selects `active` only |
+| `text` | Normalized memory text, at most 500 characters, never logged |
+| `confidence` | Floating-point value in `[0.0, 1.0]`; promotion requires at least `0.75` |
+| `sensitivity_label` | Full label vocabulary at contract level; promotion accepts `none` or `personal` only |
+| `supersedes_memory_id` | Optional older `mem_` record suppressed by a correction; derived at promotion time from scope identity and record age, never from text similarity |
+| `created_at`, `updated_at` | Server-generated timezone-aware UTC timestamps |
+| `expires_at` | Optional UTC timestamp; expired records are ineligible for retrieval |
+
+`R6` designs no deletion API, edit UI, vector memory store, or default-on
+retrieval. Records live in the `memory_records` schema module at version 1
+beside the unchanged R5 `memory` module.
+
 ## Memory Candidate Records
 
 `MemoryCandidate` is a proposed memory before promotion to a durable

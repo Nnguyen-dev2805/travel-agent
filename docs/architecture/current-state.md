@@ -410,6 +410,47 @@ These routes are unauthenticated and must not be exposed publicly. `R5` claims
 no cross-user isolation and no deletion path. Candidate evidence is local
 development state only.
 
+## Implemented Memory Retrieval
+
+Milestone `R6` promotes eligible accepted candidates into answer-eligible
+`MemoryRecord` rows and retrieves in-scope active records for bound chat
+turns, but only when the server-side `MEMORY_RETRIEVAL_ENABLED` gate is true.
+The gate defaults to false, and gate-off behavior is byte-for-byte R4/R5
+behavior.
+
+| Route | Behavior |
+| --- | --- |
+| `POST /api/v1/workspaces/{workspace_id}/memory/promotions?conversation_id=<id>` | Returns `201` with promoted counts, skip reasons, and created record ids; accepts an empty body or `{}` only |
+| `POST /api/v1/chat` with `conversation_id` and gate enabled | Returns the R4/R5 response plus an additive `memory` object with `enabled`, `status`, `selected_memory_ids`, and `selection_reasons` |
+
+Implemented rules:
+
+1. `memory_id`, `promotion_run_id`, and `trace_id` are server-generated with
+   the prefixes `mem_`, `mpr_`, and `mtr_`.
+2. Promotion accepts only `accepted` candidates with promotable scope, type,
+   confidence at or above `0.75`, `none`/`personal` sensitivity, resolved
+   provenance, and an allow-listed reason. Everything else becomes a
+   controlled skip reason and writes nothing.
+3. A promoted correction suppresses older same-scope non-correction records
+   by the `(created_at, source_sequence)` age key; suppression is stored as
+   record status once, at promotion time.
+4. Retrieval selects only `active`, unexpired, non-sensitive records whose
+   scope matches the querying owner, workspace, or conversation, ranked by
+   deterministic lexical overlap with active corrections always eligible.
+5. The orchestrator prepends a controlled memory section to travel RAG
+   context; travel citations are preserved and memory never becomes a
+   citation.
+6. A retrieval failure degrades to an ungated answer with a `skipped` trace
+   rather than failing the turn.
+7. Answer-eligible records live in the `memory_records` schema module at
+   version 1; the R5 `memory` module stays at version 1. No memory data
+   reaches Chroma or any vector store.
+
+These routes are unauthenticated and must not be exposed publicly. `R6`
+claims no authenticated identity, no deletion path, and no default-on
+personalization. Answer-quality claims remain `INCONCLUSIVE` without a
+provider-backed judge.
+
 ## RAG Module Shape
 
 `RAGService` currently owns several responsibilities behind one method:
@@ -480,12 +521,12 @@ the configured environment, and mutate persistent Chroma state under
 | Travel datasets | Indexing reads processed paths or legacy fallback paths | Dataset quality and freshness are not established by Package 3 |
 | Application environment | Backend loads `.env` if present | `.env.example` is empty and no secret values are documented |
 
-There is no implemented user profile store, answer-eligible memory store,
-planner state store, or evaluation trace store in the bounded online
-architecture. The shared local store holds trip container records,
-conversations, messages, and shadow memory candidate evidence only. No
-conversation, message, or candidate record is written to Chroma or any vector
-database, and no candidate is used in answers.
+There is no implemented user profile store, planner state store, or online
+evaluation trace store in the bounded online architecture. The shared local
+store holds trip container records, conversations, messages, shadow memory
+candidate evidence, and answer-eligible memory records with promotion and
+retrieval traces. No conversation, message, candidate, or record is written
+to Chroma or any vector database, and candidates never enter answers.
 
 ## Current Tests and Verification Signals
 
@@ -505,10 +546,10 @@ correctness, production readiness, privacy guarantees, or complete test health.
 
 Current gaps:
 
-1. No implemented answer-time memory read path.
-2. No durable answer-eligible memory write path. `R5` persists shadow
-   candidates and measures extraction quality, but implements no
-   `MemoryRecord` promotion.
+1. Answer-time memory reads exist only behind the default-off feature gate.
+2. Durable answer-eligible memory writes exist only through governed
+   promotion. `R6` implements no default-on personalization, no vector
+   memory store, and no deletion or edit path.
 3. No implemented user identity or authentication; workspace and conversation
    routes are unauthenticated and `owner_user_id` is a local scope label only.
 4. No implemented conversation summarization: `summary` has no column and no

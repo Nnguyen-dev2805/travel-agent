@@ -1,0 +1,374 @@
+{
+  "code_identity": {
+    "extractor_id": "rule-based-v1",
+    "policy_id": "policy-v1"
+  },
+  "counts": {
+    "eligible_examples": 20,
+    "invalid_examples": 0,
+    "skipped_examples": 0
+  },
+  "dataset": {
+    "dataset_id": "r6-retrieval-v0.1",
+    "dataset_role": "benchmark",
+    "dataset_version": "0.1"
+  },
+  "disabled_run_id": "r6-retrieval-v0.1-20260905T025818Z-disabled",
+  "enabled_trace_ids": [
+    "mtr_74f2e7c38d96494bb7b14a1c94e27210",
+    "mtr_d6eb8d9a44264b8d8ea303fb5762ed24",
+    "mtr_e5cf128a2c524742bae9f94925a1499b",
+    "mtr_bc59afa9a08845679b86899ae148ec91",
+    "mtr_7b4f68d2bd5d45a8afa92e95aa924952",
+    "mtr_ddeff557e0ce400fa46d4821c5b9f41b",
+    "mtr_f6a4eac4af524a82bcccbd9b05756df0",
+    "mtr_b6994418fa1b4fca97a0e8f34c486b9b",
+    "mtr_3cdbe40209044a8595cd1b61006f3f6d",
+    "mtr_4dcb9af1a5334975b846c27e936e56f3",
+    "mtr_a679aff0ea6443088f6260f6882cd592",
+    "mtr_0379b76e0c2848e1823aae56df511c5b",
+    "mtr_f64739f28a3a4da9be847d393121f25c"
+  ],
+  "hard_gates": [
+    {
+      "applicable": true,
+      "events": 0,
+      "gate": "cross_workspace_leakage",
+      "passed": true
+    },
+    {
+      "applicable": true,
+      "events": 0,
+      "gate": "cross_user_leakage",
+      "passed": true
+    },
+    {
+      "applicable": true,
+      "events": 0,
+      "gate": "secret_durable_promotion",
+      "passed": true
+    },
+    {
+      "applicable": true,
+      "events": 0,
+      "gate": "deleted_memory_retrieval",
+      "passed": true
+    },
+    {
+      "applicable": true,
+      "events": 0,
+      "gate": "correction_precedence",
+      "passed": true
+    }
+  ],
+  "mandatory_slices": [
+    {
+      "actual": 0,
+      "eligible_examples": 1,
+      "expected": 0,
+      "matched": 0,
+      "precision": null,
+      "slice": "ambiguous"
+    },
+    {
+      "actual": 3,
+      "eligible_examples": 3,
+      "expected": 3,
+      "matched": 3,
+      "precision": 1.0,
+      "slice": "correction"
+    },
+    {
+      "actual": 0,
+      "eligible_examples": 3,
+      "expected": 0,
+      "matched": 0,
+      "precision": null,
+      "slice": "cross-scope"
+    },
+    {
+      "actual": 0,
+      "eligible_examples": 1,
+      "expected": 0,
+      "matched": 0,
+      "precision": null,
+      "slice": "deletion"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "explicit-preference"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "inferred-preference"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 2,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "relevant-help"
+    },
+    {
+      "actual": 0,
+      "eligible_examples": 2,
+      "expected": 0,
+      "matched": 0,
+      "precision": null,
+      "slice": "secret-like"
+    },
+    {
+      "actual": 0,
+      "eligible_examples": 1,
+      "expected": 0,
+      "matched": 0,
+      "precision": null,
+      "slice": "staleness"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 2,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "transient"
+    },
+    {
+      "actual": 1,
+      "eligible_examples": 1,
+      "expected": 1,
+      "matched": 1,
+      "precision": 1.0,
+      "slice": "user-global"
+    },
+    {
+      "actual": 2,
+      "eligible_examples": 2,
+      "expected": 2,
+      "matched": 2,
+      "precision": 1.0,
+      "slice": "workspace-decision"
+    }
+  ],
+  "metrics": {
+    "constraint_delta": {
+      "denominator": 0,
+      "name": "constraint_delta",
+      "numerator": 0,
+      "threshold": "n/a without judge",
+      "value": null
+    },
+    "hit_at_5": {
+      "denominator": 6,
+      "name": "hit_at_5",
+      "numerator": 6,
+      "threshold": ">= 0.9",
+      "value": 1.0
+    },
+    "irrelevant_rate": {
+      "denominator": 6,
+      "name": "irrelevant_rate",
+      "numerator": 0,
+      "threshold": "<= 0.1",
+      "value": 0.0
+    },
+    "personalization_win_rate": {
+      "denominator": 0,
+      "name": "personalization_win_rate",
+      "numerator": 0,
+      "threshold": "n/a without judge",
+      "value": null
+    },
+    "promotion_precision": {
+      "denominator": 4,
+      "name": "promotion_precision",
+      "numerator": 4,
+      "threshold": ">= 0.97",
+      "value": 1.0
+    },
+    "scope_accuracy": {
+      "denominator": 10,
+      "name": "scope_accuracy",
+      "numerator": 10,
+      "threshold": ">= 0.98",
+      "value": 1.0
+    }
+  },
+  "notes": [
+    "R6 retrieval report: promotion, scope, retrieval, and lifecycle gates are measured end to end; answer-quality fields stay INCONCLUSIVE without a provider-backed judge, per the limitation accepted at R6 approval time.",
+    "Cross-user isolation is measured by the local owner label, not authenticated identity, per the open R6/R9 ordering problem."
+  ],
+  "per_example": [
+    {
+      "actual_total": 1,
+      "example_id": "r6p-pref-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "explicit-preference"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r6p-constraint-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "workspace-decision"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r6p-correction-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "correction"
+    },
+    {
+      "actual_total": 0,
+      "example_id": "r6p-ambiguous-001",
+      "expected_total": 0,
+      "failures": [],
+      "matched": 0,
+      "slice": "ambiguous"
+    },
+    {
+      "actual_total": 0,
+      "example_id": "r6p-secret-001",
+      "expected_total": 0,
+      "failures": [],
+      "matched": 0,
+      "slice": "secret-like"
+    },
+    {
+      "actual_total": 0,
+      "example_id": "r6p-transient-001",
+      "expected_total": 0,
+      "failures": [],
+      "matched": 0,
+      "slice": "transient"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r6p-supersede-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "correction"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r6r-hit-user-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "user-global"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r6r-hit-workspace-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "workspace-decision"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r6r-inferred-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "inferred-preference"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r6r-episode-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "transient"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r6r-correction-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "correction"
+    },
+    {
+      "actual_total": 0,
+      "example_id": "r6r-deleted-001",
+      "expected_total": 0,
+      "failures": [],
+      "matched": 0,
+      "slice": "deletion"
+    },
+    {
+      "actual_total": 0,
+      "example_id": "r6r-stale-001",
+      "expected_total": 0,
+      "failures": [],
+      "matched": 0,
+      "slice": "staleness"
+    },
+    {
+      "actual_total": 0,
+      "example_id": "r6r-cross-ws-001",
+      "expected_total": 0,
+      "failures": [],
+      "matched": 0,
+      "slice": "cross-scope"
+    },
+    {
+      "actual_total": 0,
+      "example_id": "r6r-cross-conv-001",
+      "expected_total": 0,
+      "failures": [],
+      "matched": 0,
+      "slice": "cross-scope"
+    },
+    {
+      "actual_total": 0,
+      "example_id": "r6r-cross-user-001",
+      "expected_total": 0,
+      "failures": [],
+      "matched": 0,
+      "slice": "cross-scope"
+    },
+    {
+      "actual_total": 0,
+      "example_id": "r6r-secret-store-001",
+      "expected_total": 0,
+      "failures": [],
+      "matched": 0,
+      "slice": "secret-like"
+    },
+    {
+      "actual_total": 0,
+      "example_id": "r6r-no-memory-001",
+      "expected_total": 0,
+      "failures": [],
+      "matched": 0,
+      "slice": "relevant-help"
+    },
+    {
+      "actual_total": 1,
+      "example_id": "r6r-multi-001",
+      "expected_total": 1,
+      "failures": [],
+      "matched": 1,
+      "slice": "relevant-help"
+    }
+  ],
+  "report_id": "r6-retrieval-v0.1-20260905T025818Z",
+  "result_state": "PASS"
+}

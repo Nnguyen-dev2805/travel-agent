@@ -1,0 +1,10 @@
+{
+  "dataset_id": "r6-retrieval-v0.1",
+  "dataset_version": "0.1",
+  "dataset_role": "benchmark",
+  "description": "Deterministic R6 retrieval benchmark: promotion cases replay governed R5 messages, retrieval cases seed records directly. All identities are synthetic; the secret-like marker is artificial.",
+  "created": "2026-09-06",
+  "reviewer": "repository-owner",
+  "examples_file": "examples.jsonl",
+  "protocol": "docs/evaluation/memory-evaluation.md"
+}

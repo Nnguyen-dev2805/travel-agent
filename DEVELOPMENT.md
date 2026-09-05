@@ -35,6 +35,9 @@ local untracked `.env` only when a local workflow needs environment values.
 | `VITE_API_URL` | Frontend API client and Docker Compose frontend service | Browser-to-backend API origin | No secret by itself | Defaults to `http://localhost:8000` |
 | `APP_DB_PATH` | Backend settings, the local workspace adapter, the local conversation adapter, and the local memory adapter | Local trip workspace, conversation, and memory routes | No secret by itself | Defaults to `data/app/travel_agent.sqlite3`; one shared local SQLite file per ADR 0004; local development state only |
 | `WORKSPACE_DB_PATH` | Backend settings only | Nothing new; kept so an existing local environment still works | No secret by itself | **Deprecated alias for `APP_DB_PATH`.** Used only when `APP_DB_PATH` is unset, and logs one deprecation warning naming the variable without its value |
+| `MEMORY_RETRIEVAL_ENABLED` | Backend settings and chat orchestration | Enabling R6 memory retrieval for bound chat turns | No secret by itself | Defaults to `false`. With it disabled, chat behavior remains R4/R5 behavior |
+| `MEMORY_PROMOTION_MIN_CONFIDENCE` | Backend settings and promotion policy | Minimum candidate confidence eligible for promotion | No secret by itself | Defaults to `0.75` |
+| `MEMORY_MAX_SELECTED` | Backend settings and memory retrieval | Maximum memory records selected per bound chat turn | No secret by itself | Defaults to `5` |
 
 Do not print, paste, or commit real credential values in logs, examples,
 issues, screenshots, terminal output, or documentation.
@@ -351,6 +354,36 @@ Rules:
 5. Requires no credential, model, or Chroma state. Writes the local SQLite
    file at `APP_DB_PATH`.
 
+### Local Memory Retrieval
+
+`R6` promotes measured candidates and retrieves records for bound chat
+turns, but only when `MEMORY_RETRIEVAL_ENABLED` is true. The gate defaults
+to false.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/workspaces/<workspace_id>/memory/promotions \
+  -H 'Content-Type: application/json' -d '{}'
+MEMORY_RETRIEVAL_ENABLED=true python -m uvicorn backend.app.main:app --reload
+```
+
+Rules:
+
+1. Promotion accepts only eligible accepted candidates; everything else
+   becomes a controlled skip reason. Corrections suppress older same-scope
+   records, erring toward forgetting on ambiguity.
+2. Gate-off and unbound turns keep exact R4/R5 behavior and resolve no
+   memory storage. Gate-on bound turns report selected memory IDs and
+   reasons in an additive `memory` object; memory never becomes a citation.
+3. Retrieval selects `active`, unexpired, non-sensitive records in matching
+   scope only. Deleted, expired, superseded, secret-like, and out-of-scope
+   records are never selected.
+4. Answer-quality claims stay `INCONCLUSIVE` without a provider-backed
+   judge; run the retrieval evaluation command for measured gates.
+
+```bash
+python -m backend.memory.evaluation.cli run-retrieval --suite r6-retrieval-v0.1
+```
+
 ## Command Contract
 
 | Category | Working directory | Command | Claim | Writes | Network | Status |
@@ -369,6 +402,8 @@ Rules:
 | Bound chat turn | repository root | opt-in chat request to `/api/v1/chat` carrying `conversation_id` | A chat turn is persisted and reports its persistence outcome | Local SQLite file at `APP_DB_PATH`, possible logs/cache state | Yes, because generation still calls the model provider | Opt-in, not default CI |
 | Local memory routes | repository root | `curl` requests to `/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/memory/extractions` and `/api/v1/workspaces/{workspace_id}/memory/...` while the backend runs | Shadow candidates can be extracted and inspected locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
 | Local memory evaluation | repository root | `python -m backend.memory.evaluation.cli run-shadow --fixture docs/evaluation/fixtures/memory/r5-shadow-v0.1/manifest.json --output-dir docs/reports/memory` | Shadow report with result state and hard-gate evidence | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
+| Local memory promotion | repository root | `curl` request to `/api/v1/workspaces/{workspace_id}/memory/promotions` while the backend runs | Eligible candidates become active records with skip reasons | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
+| Local memory retrieval evaluation | repository root | `python -m backend.memory.evaluation.cli run-retrieval --suite r6-retrieval-v0.1` | Retrieval report with paired metrics, hard-gate evidence, and `INCONCLUSIVE` answer-quality fields | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
 | RAG and memory evaluation | repository root | later approved evaluation command | Approved metric-specific quality claim | Evaluation outputs | Depends on later plan | Future milestone |
 
 ## Opt-in Data and Model Operations
@@ -401,6 +436,9 @@ the approved task that owns their inputs, side effects, and evidence.
 | Memory trigger or list returns `409` | The conversation or run does not belong to the requested workspace | Re-check the workspace/conversation/run identifiers; filters never cross workspace scope |
 | Memory trigger returns `422` on body | A caller-supplied `trigger` or unknown field was submitted | Send an empty body or `{}`; the route always creates a `manual` run |
 | Memory run shows `completed_with_rejections` | At least one candidate was rejected, marked for user action, or invalid | Read the candidate `reason` codes; this is the normal shadow outcome, not a failure |
+| Promotion promotes nothing | No eligible accepted candidates, or the same candidates were already promoted | Read the skip reasons; re-promoting is a governed duplicate skip, not a failure |
+| Bound chat has no `memory` key | The feature gate is off or the turn is unbound | Set `MEMORY_RETRIEVAL_ENABLED=true` for a bound turn; gate-off behavior is intentionally identical to R4/R5 |
+| Bound chat reports `skipped` | Memory storage or retrieval failed for the turn | The reply is still valid RAG output; check that `APP_DB_PATH` is writable, then re-read the trace |
 | A deprecation warning names `WORKSPACE_DB_PATH` | `APP_DB_PATH` is unset and the deprecated alias is being honored | Set `APP_DB_PATH` instead; the alias is retained only for compatibility |
 
 When normal setup has already failed and the problem needs diagnosis or

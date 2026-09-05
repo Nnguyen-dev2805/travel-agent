@@ -10,15 +10,19 @@ from backend.memory.evaluation.models import (
     HardGateScore,
     MemoryEvaluationReport,
     MemoryEvaluationResult,
+    MemoryRetrievalReport,
     MetricScore,
     SliceScore,
     report_to_dict,
+    retrieval_report_to_dict,
 )
 from backend.memory.evaluation.runner import (
     MemoryEvaluationError,
     count_secret_promotions,
     count_workspace_leaks,
     decide_result_state,
+    decide_retrieval_result,
+    run_retrieval_evaluation,
     run_shadow_evaluation,
 )
 
@@ -28,11 +32,15 @@ __all__ = [
     "MemoryEvaluationError",
     "MemoryEvaluationReport",
     "MemoryEvaluationResult",
+    "MemoryRetrievalReport",
     "MetricScore",
     "SliceScore",
     "count_secret_promotions",
     "count_workspace_leaks",
     "decide_result_state",
+    "decide_retrieval_result",
     "report_to_dict",
+    "retrieval_report_to_dict",
+    "run_retrieval_evaluation",
     "run_shadow_evaluation",
 ]
