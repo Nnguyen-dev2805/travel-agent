@@ -29,7 +29,7 @@ Use these Package 3 architecture documents for deeper review:
 | Component | Current responsibility | Evidence |
 | --- | --- | --- |
 | React/Vite client | Sends a chat `message` to the backend API and renders the returned response | `frontend/src/services/api.js`, `frontend/package.json` |
-| FastAPI application | Mounts `/health`, `/api/v1/chat`, `/api/v1/workspaces`, and the `/api/v1` conversation routes, configures local CORS, and attempts RAG pre-warm during startup | `backend/app/main.py` |
+| FastAPI application | Mounts `/health`, `/api/v1/chat`, `/api/v1/workspaces`, the `/api/v1` conversation routes, memory routes, and planner routes, configures local CORS, and attempts RAG pre-warm during startup | `backend/app/main.py` |
 | Health route | Returns service health metadata for local inspection | `backend/app/api/health.py` |
 | Chat route | Validates one stripped message, logs a message prefix, delegates one turn to the conversation orchestrator, and returns reply/model/citations plus an optional `conversation` object | `backend/app/api/chat.py`, `backend/app/schemas/chat.py` |
 | Workspace routes | Create, retrieve, and list local trip workspace records behind the workspace service; construct no RAG, embedding, or model-provider dependency | `backend/app/api/workspaces.py`, `backend/app/schemas/workspaces.py` |
@@ -42,8 +42,10 @@ Use these Package 3 architecture documents for deeper review:
 | Memory evaluation | Replays tracked synthetic fixtures end to end and writes a shadow report with result state and hard-gate evidence | `backend/memory/evaluation/runner.py`, `backend/memory/evaluation/cli.py` |
 | Memory promotion and retrieval | Promotes eligible accepted candidates into `mem_` records with supersession, and selects in-scope active records by deterministic lexical ranking | `backend/memory/promotion.py`, `backend/memory/retrieval.py` |
 | Feature-gated chat memory | Bound turns compose selected memory with RAG context only when `MEMORY_RETRIEVAL_ENABLED` is true; gate-off and unbound turns keep R4/R5 behavior exactly | `backend/orchestration/conversation_orchestrator.py`, `backend/orchestration/memory_context.py` |
+| Planner routes | Create, read, accept, archive, decide, and inspect planner state behind `PlannerService`; construct no RAG, embedding, memory, or model-provider dependency | `backend/app/api/planner.py`, `backend/app/schemas/planner.py` |
+| Planner module | Owns `ItineraryVersion`, `TripDecision`, and `PlannerOperation` contracts, lifecycle use cases, operation evidence, the storage interface, and deterministic state evaluation | `backend/planner/models.py`, `backend/planner/service.py`, `backend/planner/repository.py`, `backend/planner/evaluation/runner.py` |
 | Shared schema registry | Owns the `PRAGMA user_version` store marker and the `schema_versions` table, registers or verifies one module's schema version, and fails closed on unknown ownership or an unsupported version | `backend/storage/schema_registry.py` |
-| Shared local application store | One local SQLite file at `APP_DB_PATH` holding trip workspace, conversation, and message records with per-module schema versions | `backend/workspaces/sqlite_repository.py`, `backend/conversations/sqlite_repository.py` |
+| Shared local application store | One local SQLite file at `APP_DB_PATH` holding trip workspace, conversation, message, memory, and planner records with per-module schema versions | `backend/workspaces/sqlite_repository.py`, `backend/conversations/sqlite_repository.py`, `backend/planner/sqlite_repository.py` |
 | RAG generation service | Embeds the user message, retrieves Chroma context, builds the model prompt, calls the configured external model endpoint, and formats citations | `backend/rag/generation/rag_service.py` |
 | Vector embedder | Lazily loads `BAAI/bge-m3` when sentence-transformers is available, with a deterministic fallback when it is not installed | `backend/rag/embedding/embedder.py` |
 | Chroma vector store | Creates or opens persistent local Chroma collections under `data/chromadb` by default | `backend/rag/retrieval/vector_store.py` |

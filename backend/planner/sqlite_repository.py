@@ -23,6 +23,7 @@ from backend.planner.models import (
     ItineraryItemType,
     ItineraryStatus,
     ItineraryVersion,
+    ItineraryVersionDraft,
     PlannerOperation,
     PlannerOperationStatus,
     PlannerOperationType,
@@ -171,6 +172,40 @@ def _items_from_json(value: Any) -> tuple[ItineraryItem, ...]:
     return tuple(_item_from_json(entry) for entry in parsed)
 
 
+_INSERT_OPERATION = f"""
+INSERT INTO {OPERATION_TABLE} (operation_id, workspace_id, conversation_id,
+    operation_type, status, input_summary, result_itinerary_version_id,
+    result_decision_id, source_message_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+def _insert_operation(
+    connection: sqlite3.Connection, operation: PlannerOperation
+) -> None:
+    """Insert one operation row inside the caller's transaction."""
+    try:
+        connection.execute(
+            _INSERT_OPERATION,
+            (
+                operation.operation_id,
+                operation.workspace_id,
+                operation.conversation_id,
+                operation.operation_type.value,
+                operation.status.value,
+                operation.input_summary,
+                operation.result_itinerary_version_id,
+                operation.result_decision_id,
+                operation.source_message_id,
+                _to_iso(operation.created_at),
+            ),
+        )
+    except sqlite3.IntegrityError as error:
+        raise PlannerStorageError(
+            "A planner operation with this identity is already recorded."
+        ) from error
+
+
 class SQLitePlannerRepository:
     """Persist planner state in the shared local application database."""
 
@@ -236,51 +271,94 @@ class SQLitePlannerRepository:
                 "Could not open the local planner database."
             ) from error
 
-    def create_itinerary_version(self, version: ItineraryVersion) -> ItineraryVersion:
-        """Persist a version with the next workspace version number."""
-        import dataclasses
-
-        connection = self._connect()
+    @staticmethod
+    def _rollback(connection: sqlite3.Connection) -> None:
         try:
-            with connection:
-                row = connection.execute(
-                    f"SELECT COALESCE(MAX(version_number), 0) FROM {VERSION_TABLE} "
-                    "WHERE workspace_id = ?",
-                    (version.workspace_id,),
-                ).fetchone()
-                assigned = int(row[0]) + 1
+            connection.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+
+    def create_itinerary_version(
+        self,
+        draft: ItineraryVersionDraft,
+        itinerary_version_id: str,
+        operation: Optional[PlannerOperation] = None,
+    ) -> ItineraryVersion:
+        """Persist a version with the next workspace version number.
+
+        The version-number read, the version insert, and the operation
+        insert share one `BEGIN IMMEDIATE` transaction: the write lock
+        keeps two concurrent writers from reading the same maximum, and a
+        failed operation rolls the version back instead of leaving a plan
+        saved without its operation evidence.
+        """
+        if draft.created_at is None:
+            raise PlannerStorageError(
+                "A planner itinerary draft must carry a timestamp."
+            )
+        created_at = _to_iso(draft.created_at)
+        connection = self._connect()
+        connection.isolation_level = None
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                f"SELECT COALESCE(MAX(version_number), 0) FROM {VERSION_TABLE} "
+                "WHERE workspace_id = ?",
+                (draft.workspace_id,),
+            ).fetchone()
+            assigned = int(row[0]) + 1
+            try:
+                connection.execute(
+                    f"INSERT INTO {VERSION_TABLE} (itinerary_version_id, "
+                    "workspace_id, version_number, status, title, summary, "
+                    "items, created_from_operation_id, "
+                    "created_from_message_id, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        itinerary_version_id,
+                        draft.workspace_id,
+                        assigned,
+                        draft.status.value,
+                        draft.title,
+                        draft.summary,
+                        _items_to_json(draft.items),
+                        draft.created_from_operation_id,
+                        draft.created_from_message_id,
+                        created_at,
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                self._rollback(connection)
+                raise PlannerStorageError(
+                    "A planner itinerary version with this identity is "
+                    "already recorded."
+                ) from error
+            if operation is not None:
                 try:
-                    connection.execute(
-                        f"INSERT INTO {VERSION_TABLE} (itinerary_version_id, "
-                        "workspace_id, version_number, status, title, summary, "
-                        "items, created_from_operation_id, "
-                        "created_from_message_id, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (
-                            version.itinerary_version_id,
-                            version.workspace_id,
-                            assigned,
-                            version.status.value,
-                            version.title,
-                            version.summary,
-                            _items_to_json(version.items),
-                            version.created_from_operation_id,
-                            version.created_from_message_id,
-                            _to_iso(version.created_at),
-                        ),
-                    )
-                except sqlite3.IntegrityError as error:
-                    raise PlannerStorageError(
-                        "A planner itinerary version with this identity is "
-                        "already recorded."
-                    ) from error
+                    _insert_operation(connection, operation)
+                except PlannerStorageError as error:
+                    self._rollback(connection)
+                    raise error
+            connection.execute("COMMIT")
         except sqlite3.Error as error:
+            self._rollback(connection)
             raise PlannerStorageError(
                 "Could not persist the planner itinerary version."
             ) from error
         finally:
             connection.close()
-        return dataclasses.replace(version, version_number=assigned)
+        return ItineraryVersion(
+            itinerary_version_id=itinerary_version_id,
+            workspace_id=draft.workspace_id,
+            version_number=assigned,
+            status=draft.status,
+            title=draft.title,
+            summary=draft.summary,
+            items=draft.items,
+            created_from_operation_id=draft.created_from_operation_id,
+            created_from_message_id=draft.created_from_message_id,
+            created_at=draft.created_at,
+        )
 
     def get_itinerary_version(
         self, workspace_id: str, itinerary_version_id: str
@@ -335,9 +413,17 @@ class SQLitePlannerRepository:
         return tuple(self._row_to_version(row) for row in rows)
 
     def accept_itinerary_version(
-        self, workspace_id: str, itinerary_version_id: str
+        self,
+        workspace_id: str,
+        itinerary_version_id: str,
+        operation: Optional[PlannerOperation] = None,
     ) -> ItineraryVersion:
-        """Accept one version, superseding prior accepted ones atomically."""
+        """Accept one version, superseding prior accepted ones atomically.
+
+        The supersede flip, the accept write, and the operation insert
+        share one transaction, so a failed operation leaves every status
+        untouched.
+        """
         target = self.get_itinerary_version(workspace_id, itinerary_version_id)
         if target.status is ItineraryStatus.ACCEPTED:
             return target
@@ -367,6 +453,8 @@ class SQLitePlannerRepository:
                         "The planner itinerary version does not exist in this "
                         "workspace."
                     )
+                if operation is not None:
+                    _insert_operation(connection, operation)
         except sqlite3.Error as error:
             raise PlannerStorageError(
                 "Could not accept the planner itinerary version."
@@ -380,8 +468,12 @@ class SQLitePlannerRepository:
         workspace_id: str,
         itinerary_version_id: str,
         status: ItineraryStatus,
+        operation: Optional[PlannerOperation] = None,
     ) -> ItineraryVersion:
-        """Set one version status without lifecycle reasoning."""
+        """Set one version status without lifecycle reasoning.
+
+        The status write and the operation insert share one transaction.
+        """
         connection = self._connect()
         try:
             with connection:
@@ -395,6 +487,8 @@ class SQLitePlannerRepository:
                         "The planner itinerary version does not exist in this "
                         "workspace."
                     )
+                if operation is not None:
+                    _insert_operation(connection, operation)
         except sqlite3.Error as error:
             raise PlannerStorageError(
                 "Could not update the planner itinerary version."
@@ -403,8 +497,15 @@ class SQLitePlannerRepository:
             connection.close()
         return self.get_itinerary_version(workspace_id, itinerary_version_id)
 
-    def create_decision(self, decision: TripDecision) -> TripDecision:
-        """Persist a decision, superseding its cited target atomically."""
+    def create_decision(
+        self, decision: TripDecision, operation: Optional[PlannerOperation] = None
+    ) -> TripDecision:
+        """Persist a decision, superseding its cited target atomically.
+
+        The target flip, the decision insert, and the operation insert
+        share one transaction, so a failed operation leaves every row
+        untouched.
+        """
         connection = self._connect()
         try:
             with connection:
@@ -447,6 +548,8 @@ class SQLitePlannerRepository:
                     raise PlannerStorageError(
                         "A planner decision with this identity is already recorded."
                     ) from error
+                if operation is not None:
+                    _insert_operation(connection, operation)
         except sqlite3.Error as error:
             if isinstance(error, PlannerRepositoryError):
                 raise
@@ -513,9 +616,16 @@ class SQLitePlannerRepository:
         return tuple(self._row_to_decision(row) for row in rows)
 
     def update_decision_status(
-        self, workspace_id: str, decision_id: str, status: DecisionStatus
+        self,
+        workspace_id: str,
+        decision_id: str,
+        status: DecisionStatus,
+        operation: Optional[PlannerOperation] = None,
     ) -> TripDecision:
-        """Set one decision status without lifecycle reasoning."""
+        """Set one decision status without lifecycle reasoning.
+
+        The status write and the operation insert share one transaction.
+        """
         connection = self._connect()
         try:
             with connection:
@@ -528,6 +638,8 @@ class SQLitePlannerRepository:
                     raise PlannerNotFoundError(
                         "The planner decision does not exist in this workspace."
                     )
+                if operation is not None:
+                    _insert_operation(connection, operation)
         except sqlite3.Error as error:
             raise PlannerStorageError(
                 "Could not update the planner decision."
@@ -541,30 +653,7 @@ class SQLitePlannerRepository:
         connection = self._connect()
         try:
             with connection:
-                try:
-                    connection.execute(
-                        f"INSERT INTO {OPERATION_TABLE} (operation_id, "
-                        "workspace_id, conversation_id, operation_type, "
-                        "status, input_summary, result_itinerary_version_id, "
-                        "result_decision_id, source_message_id, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (
-                            operation.operation_id,
-                            operation.workspace_id,
-                            operation.conversation_id,
-                            operation.operation_type.value,
-                            operation.status.value,
-                            operation.input_summary,
-                            operation.result_itinerary_version_id,
-                            operation.result_decision_id,
-                            operation.source_message_id,
-                            _to_iso(operation.created_at),
-                        ),
-                    )
-                except sqlite3.IntegrityError as error:
-                    raise PlannerStorageError(
-                        "A planner operation with this identity is already recorded."
-                    ) from error
+                _insert_operation(connection, operation)
         except sqlite3.Error as error:
             raise PlannerStorageError(
                 "Could not persist the planner operation."

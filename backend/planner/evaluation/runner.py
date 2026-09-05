@@ -47,10 +47,9 @@ from backend.planner.models import (
     ItineraryItem,
     ItineraryItemType,
     ItineraryStatus,
-    ItineraryVersion,
+    ItineraryVersionDraft,
     TripDecision,
     generate_decision_id,
-    generate_itinerary_version_id,
 )
 from backend.planner.repository import PlannerNotFoundError
 from backend.planner.service import PlannerService
@@ -166,10 +165,8 @@ def _run_action(ctx: _ExampleContext, action: dict[str, Any]) -> None:
     if op == "create_itinerary":
         stored = service.create_itinerary_version(
             ctx.workspace_a,
-            ItineraryVersion(
-                itinerary_version_id=generate_itinerary_version_id(),
+            ItineraryVersionDraft(
                 workspace_id=ctx.workspace_a,
-                version_number=1,
                 status=ItineraryStatus(action.get("status", "draft")),
                 title=action.get("title"),
                 summary=action.get("summary"),

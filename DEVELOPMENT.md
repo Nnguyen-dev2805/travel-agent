@@ -384,6 +384,30 @@ Rules:
 python -m backend.memory.evaluation.cli run-retrieval --suite r6-retrieval-v0.1
 ```
 
+### Local Planner State
+
+`R7` stores itinerary versions, trip decisions, and operation evidence
+through explicit planner routes. Chat never writes planner state.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/workspaces/<workspace_id>/planner/itineraries \
+  -H 'Content-Type: application/json' -d '{"title": "Hà Nội 3 ngày", "items": []}'
+curl http://localhost:8000/api/v1/workspaces/<workspace_id>/planner/operations
+```
+
+Rules:
+
+1. Planner writes happen only through planner routes; versions are
+   immutable and numbered contiguously per workspace.
+2. Accepting a version supersedes prior accepted versions in the same
+   workspace. Rejected decisions stay listable.
+3. Every successful write logs one append-only operation row; failed
+   requests log none.
+
+```bash
+python -m backend.planner.evaluation.cli run-state --suite r7-state-v0.1
+```
+
 ## Command Contract
 
 | Category | Working directory | Command | Claim | Writes | Network | Status |
@@ -404,6 +428,8 @@ python -m backend.memory.evaluation.cli run-retrieval --suite r6-retrieval-v0.1
 | Local memory evaluation | repository root | `python -m backend.memory.evaluation.cli run-shadow --fixture docs/evaluation/fixtures/memory/r5-shadow-v0.1/manifest.json --output-dir docs/reports/memory` | Shadow report with result state and hard-gate evidence | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
 | Local memory promotion | repository root | `curl` request to `/api/v1/workspaces/{workspace_id}/memory/promotions` while the backend runs | Eligible candidates become active records with skip reasons | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
 | Local memory retrieval evaluation | repository root | `python -m backend.memory.evaluation.cli run-retrieval --suite r6-retrieval-v0.1` | Retrieval report with paired metrics, hard-gate evidence, and `INCONCLUSIVE` answer-quality fields | Markdown and JSON reports | Local `git` process for the dirty-tree signal only; no network | Deterministic; writes reports only |
+| Local planner routes | repository root | `curl` requests to `/api/v1/workspaces/{workspace_id}/planner/...` while the backend runs | Itineraries, decisions, and operations can be written and inspected locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
+| Local planner evaluation | repository root | `python -m backend.planner.evaluation.cli run-state --suite r7-state-v0.1` | Planner report with versioning, lifecycle, isolation, and operation gates | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
 | RAG and memory evaluation | repository root | later approved evaluation command | Approved metric-specific quality claim | Evaluation outputs | Depends on later plan | Future milestone |
 
 ## Opt-in Data and Model Operations

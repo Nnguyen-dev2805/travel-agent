@@ -16,7 +16,7 @@ from backend.planner.models import (
     ItineraryItem,
     ItineraryItemType,
     ItineraryStatus,
-    ItineraryVersion,
+    ItineraryVersionDraft,
     PlannerOperation,
     PlannerOperationStatus,
     PlannerOperationType,
@@ -62,23 +62,6 @@ def _item(**overrides) -> ItineraryItem:
     }
     payload.update(overrides)
     return ItineraryItem(**payload)
-
-
-def _version(**overrides) -> ItineraryVersion:
-    payload = {
-        "itinerary_version_id": generate_itinerary_version_id(),
-        "workspace_id": "tw_planner",
-        "version_number": 1,
-        "status": ItineraryStatus.DRAFT,
-        "title": "Hà Nội 3 ngày",
-        "summary": None,
-        "items": (_item(),),
-        "created_from_operation_id": None,
-        "created_from_message_id": None,
-        "created_at": MOMENT,
-    }
-    payload.update(overrides)
-    return ItineraryVersion(**payload)
 
 
 def _decision(**overrides) -> TripDecision:
@@ -129,7 +112,7 @@ def test_schema_registers_planner_state_version_1(tmp_path: Path):
 
 def test_schema_initialization_is_idempotent(tmp_path: Path):
     first = _repo(tmp_path)
-    first.create_itinerary_version(_version())
+    first.create_itinerary_version(_draft(), generate_itinerary_version_id())
 
     second = _repo(tmp_path)
 
@@ -150,7 +133,7 @@ def test_schema_mismatch_fails_closed(tmp_path: Path):
 
 def test_itinerary_round_trip(tmp_path: Path):
     repo = _repo(tmp_path)
-    stored = repo.create_itinerary_version(_version())
+    stored = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
 
     fetched = repo.get_itinerary_version("tw_planner", stored.itinerary_version_id)
 
@@ -160,10 +143,12 @@ def test_itinerary_round_trip(tmp_path: Path):
 
 def test_version_numbers_are_contiguous_per_workspace(tmp_path: Path):
     repo = _repo(tmp_path)
-    first = repo.create_itinerary_version(_version())
-    second = repo.create_itinerary_version(_version())
-    third = repo.create_itinerary_version(_version())
-    other = repo.create_itinerary_version(_version(workspace_id="tw_other"))
+    first = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
+    second = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
+    third = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
+    other = repo.create_itinerary_version(
+        _draft(workspace_id="tw_other"), generate_itinerary_version_id()
+    )
 
     assert (first.version_number, second.version_number, third.version_number) == (
         1,
@@ -175,9 +160,11 @@ def test_version_numbers_are_contiguous_per_workspace(tmp_path: Path):
 
 def test_accept_supersedes_prior_accepted_in_same_workspace(tmp_path: Path):
     repo = _repo(tmp_path)
-    first = repo.create_itinerary_version(_version())
-    second = repo.create_itinerary_version(_version())
-    other = repo.create_itinerary_version(_version(workspace_id="tw_other"))
+    first = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
+    second = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
+    other = repo.create_itinerary_version(
+        _draft(workspace_id="tw_other"), generate_itinerary_version_id()
+    )
     repo.accept_itinerary_version("tw_planner", first.itinerary_version_id)
     repo.accept_itinerary_version("tw_other", other.itinerary_version_id)
 
@@ -196,7 +183,7 @@ def test_accept_supersedes_prior_accepted_in_same_workspace(tmp_path: Path):
 
 def test_accept_is_idempotent_for_already_accepted(tmp_path: Path):
     repo = _repo(tmp_path)
-    stored = repo.create_itinerary_version(_version())
+    stored = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
     repo.accept_itinerary_version("tw_planner", stored.itinerary_version_id)
 
     again = repo.accept_itinerary_version("tw_planner", stored.itinerary_version_id)
@@ -206,7 +193,7 @@ def test_accept_is_idempotent_for_already_accepted(tmp_path: Path):
 
 def test_status_update_round_trip(tmp_path: Path):
     repo = _repo(tmp_path)
-    stored = repo.create_itinerary_version(_version())
+    stored = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
 
     archived = repo.update_itinerary_status(
         "tw_planner", stored.itinerary_version_id, ItineraryStatus.ARCHIVED
@@ -221,9 +208,11 @@ def test_status_update_round_trip(tmp_path: Path):
 
 def test_list_versions_is_newest_first_and_scoped(tmp_path: Path):
     repo = _repo(tmp_path)
-    first = repo.create_itinerary_version(_version())
-    second = repo.create_itinerary_version(_version())
-    repo.create_itinerary_version(_version(workspace_id="tw_other"))
+    first = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
+    second = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
+    repo.create_itinerary_version(
+        _draft(workspace_id="tw_other"), generate_itinerary_version_id()
+    )
 
     listed = repo.list_itinerary_versions("tw_planner")
 
@@ -273,7 +262,7 @@ def test_replacement_decision_rejects_cross_workspace_target(tmp_path: Path):
 
 def test_cross_workspace_ids_are_not_found(tmp_path: Path):
     repo = _repo(tmp_path)
-    stored = repo.create_itinerary_version(_version())
+    stored = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
     decision = repo.create_decision(_decision())
 
     with pytest.raises(PlannerNotFoundError):
@@ -303,3 +292,88 @@ def test_operation_rows_list_newest_first(tmp_path: Path):
 def test_repository_errors_share_a_common_base():
     assert issubclass(PlannerNotFoundError, PlannerRepositoryError)
     assert issubclass(PlannerStorageError, PlannerRepositoryError)
+
+
+def _draft(**overrides):
+    payload = {
+        "workspace_id": "tw_planner",
+        "status": ItineraryStatus.DRAFT,
+        "title": "Hà Nội 3 ngày",
+        "summary": None,
+        "items": (_item(),),
+        "created_from_operation_id": None,
+        "created_from_message_id": None,
+        "created_at": MOMENT,
+    }
+    payload.update(overrides)
+    return ItineraryVersionDraft(**payload)
+
+
+def _create_operation(**overrides):
+    payload = {
+        "operation_id": generate_operation_id(),
+        "workspace_id": "tw_planner",
+        "conversation_id": None,
+        "operation_type": PlannerOperationType.CREATE_ITINERARY,
+        "status": PlannerOperationStatus.APPLIED,
+        "input_summary": None,
+        "result_itinerary_version_id": None,
+        "result_decision_id": None,
+        "source_message_id": None,
+        "created_at": MOMENT,
+    }
+    payload.update(overrides)
+    return PlannerOperation(**payload)
+
+
+def test_failed_operation_rolls_back_itinerary_create(tmp_path: Path):
+    # The operation row shares the state-change transaction: when the
+    # operation insert fails, the itinerary version must not survive, and
+    # the version sequence must stay unpolluted.
+    repo = _repo(tmp_path)
+    repo.create_operation(_create_operation(operation_id="po_taken"))
+
+    with pytest.raises(PlannerStorageError):
+        repo.create_itinerary_version(
+            _draft(),
+            generate_itinerary_version_id(),
+            operation=_create_operation(operation_id="po_taken"),
+        )
+
+    assert repo.list_itinerary_versions("tw_planner") == ()
+    assert repo.list_operations("tw_planner")[0].operation_id == "po_taken"
+    retry = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
+    assert retry.version_number == 1
+
+
+def test_failed_operation_rolls_back_accept_flip(tmp_path: Path):
+    repo = _repo(tmp_path)
+    first = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
+    second = repo.create_itinerary_version(_draft(), generate_itinerary_version_id())
+    repo.accept_itinerary_version(
+        "tw_planner",
+        first.itinerary_version_id,
+        operation=_create_operation(
+            operation_type=PlannerOperationType.ACCEPT_ITINERARY
+        ),
+    )
+    repo.create_operation(_create_operation(operation_id="po_taken"))
+
+    with pytest.raises(PlannerStorageError):
+        repo.accept_itinerary_version(
+            "tw_planner",
+            second.itinerary_version_id,
+            operation=_create_operation(
+                operation_id="po_taken",
+                operation_type=PlannerOperationType.ACCEPT_ITINERARY,
+            ),
+        )
+
+    assert (
+        repo.get_itinerary_version("tw_planner", first.itinerary_version_id).status
+        is ItineraryStatus.ACCEPTED
+    )
+    assert (
+        repo.get_itinerary_version("tw_planner", second.itinerary_version_id).status
+        is ItineraryStatus.DRAFT
+    )

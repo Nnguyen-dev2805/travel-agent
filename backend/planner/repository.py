@@ -14,6 +14,7 @@ from backend.planner.models import (
     DecisionType,
     ItineraryStatus,
     ItineraryVersion,
+    ItineraryVersionDraft,
     PlannerOperation,
     TripDecision,
 )
@@ -43,13 +44,18 @@ class PlannerStorageError(PlannerRepositoryError):
 class PlannerRepository(Protocol):
     """Persistence boundary for trip planner state."""
 
-    def create_itinerary_version(self, version: ItineraryVersion) -> ItineraryVersion:
+    def create_itinerary_version(
+        self,
+        draft: ItineraryVersionDraft,
+        itinerary_version_id: str,
+        operation: Optional[PlannerOperation] = None,
+    ) -> ItineraryVersion:
         """Persist an itinerary version, assigning the next version number.
 
-        The incoming `version_number` is a placeholder: the repository
-        assigns `max(version_number) + 1` for the workspace inside the same
-        transaction, so successful creates stay contiguous per workspace and
-        failed requests allocate nothing.
+        The repository assigns `max(version_number) + 1` for the workspace
+        and writes the operation row inside the same transaction, so a
+        failed operation rolls the version back and successful creates stay
+        contiguous per workspace while failed requests allocate nothing.
 
         Raises:
             PlannerStorageError: Storage failed.
@@ -78,13 +84,17 @@ class PlannerRepository(Protocol):
         ...
 
     def accept_itinerary_version(
-        self, workspace_id: str, itinerary_version_id: str
+        self,
+        workspace_id: str,
+        itinerary_version_id: str,
+        operation: Optional[PlannerOperation] = None,
     ) -> ItineraryVersion:
         """Accept one version, superseding prior accepted ones atomically.
 
         Prior accepted versions in the same workspace become `superseded`
-        inside the same transaction. Accepting an already-accepted version
-        returns it unchanged. Other workspaces are untouched.
+        and the operation row is written inside the same transaction.
+        Accepting an already-accepted version returns it unchanged. Other
+        workspaces are untouched.
 
         Raises:
             PlannerNotFoundError: The version is missing or elsewhere.
@@ -93,12 +103,17 @@ class PlannerRepository(Protocol):
         ...
 
     def update_itinerary_status(
-        self, workspace_id: str, itinerary_version_id: str, status: ItineraryStatus
+        self,
+        workspace_id: str,
+        itinerary_version_id: str,
+        status: ItineraryStatus,
+        operation: Optional[PlannerOperation] = None,
     ) -> ItineraryVersion:
         """Set one version status without lifecycle reasoning.
 
         Lifecycle decisions belong to the planner service; this method only
-        performs the scoped write.
+        performs the scoped write and the operation row inside the same
+        transaction.
 
         Raises:
             PlannerNotFoundError: The version is missing or elsewhere.
@@ -106,11 +121,14 @@ class PlannerRepository(Protocol):
         """
         ...
 
-    def create_decision(self, decision: TripDecision) -> TripDecision:
+    def create_decision(
+        self, decision: TripDecision, operation: Optional[PlannerOperation] = None
+    ) -> TripDecision:
         """Persist a decision, superseding its cited target atomically.
 
         When `supersedes_decision_id` is set, the same-workspace target
-        becomes `superseded` inside the same transaction.
+        becomes `superseded` and the operation row is written inside the
+        same transaction.
 
         Raises:
             PlannerNotFoundError: The cited target is missing or elsewhere.
@@ -141,12 +159,17 @@ class PlannerRepository(Protocol):
         ...
 
     def update_decision_status(
-        self, workspace_id: str, decision_id: str, status: DecisionStatus
+        self,
+        workspace_id: str,
+        decision_id: str,
+        status: DecisionStatus,
+        operation: Optional[PlannerOperation] = None,
     ) -> TripDecision:
         """Set one decision status without lifecycle reasoning.
 
         Lifecycle decisions belong to the planner service; this method only
-        performs the scoped write.
+        performs the scoped write and the operation row inside the same
+        transaction.
 
         Raises:
             PlannerNotFoundError: The decision is missing or elsewhere.

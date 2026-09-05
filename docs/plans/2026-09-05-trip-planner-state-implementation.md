@@ -488,27 +488,27 @@ Expected: report is deterministic, local, and internally consistent.
 - Consumes: implemented planner API, service, repository, and evaluation report.
 - Produces: synchronized current-state and roadmap docs.
 
-- [ ] **Step 1: Update current-state architecture docs**
+- [x] **Step 1: Update current-state architecture docs**
 
 Document `backend/planner/`, planner routes, local SQLite schema module, and the
 explicit no-implicit-chat-write boundary.
 
-- [ ] **Step 2: Update data model**
+- [x] **Step 2: Update data model**
 
 Mark `ItineraryVersion` and `TripDecision` as implemented R7 records and add
 `PlannerOperation` as a new implemented R7 entity.
 
-- [ ] **Step 3: Update development guide**
+- [x] **Step 3: Update development guide**
 
 Add local planner API and evaluation commands. State that R7 is backend-only and
 local-development only.
 
-- [ ] **Step 4: Update roadmap evidence**
+- [x] **Step 4: Update roadmap evidence**
 
 Keep R7 as `In progress` until owner review accepts the implementation change
 set. Do not mark `Accepted in working tree` or `Delivered` early.
 
-- [ ] **Step 5: Run doc and boundary checks**
+- [x] **Step 5: Run doc and boundary checks**
 
 Run:
 
@@ -522,7 +522,7 @@ git diff --check
 Expected: each `grep` command exits `1` with no output; `git diff --check`
 exits `0`.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: docs describe implemented behavior only, roadmap state is not advanced
 past actual review state, and boundary checks are import-specific and ignore
@@ -541,7 +541,7 @@ Expected: docs and boundaries are ready for package verification.
 - Consumes: all R7 implementation tasks.
 - Produces: READY_FOR_OWNER packet and final local state.
 
-- [ ] **Step 1: Run full backend tests**
+- [x] **Step 1: Run full backend tests**
 
 Run:
 
@@ -552,7 +552,7 @@ Run:
 Expected: PASS, or disclose the exact blocked dependency if a known non-R7
 external path blocks full execution.
 
-- [ ] **Step 2: Run compileall**
+- [x] **Step 2: Run compileall**
 
 Run:
 
@@ -562,7 +562,7 @@ Run:
 
 Expected: exit `0`.
 
-- [ ] **Step 3: Run R7 evaluation**
+- [x] **Step 3: Run R7 evaluation**
 
 Run:
 
@@ -572,7 +572,7 @@ Run:
 
 Expected: `result_state=PASS`.
 
-- [ ] **Step 4: Run import-boundary checks**
+- [x] **Step 4: Run import-boundary checks**
 
 Run:
 
@@ -584,7 +584,7 @@ grep -R --include='*.py' -n "chromadb" backend/planner
 
 Expected: each command exits `1` with no output.
 
-- [ ] **Step 5: Run final Git checks**
+- [x] **Step 5: Run final Git checks**
 
 Run:
 
@@ -595,12 +595,12 @@ git status --short --untracked-files=all
 
 Expected: diff check clean; status contains only intentional R7 files.
 
-- [ ] **Step 6: Mark implementation ready for owner review**
+- [x] **Step 6: Mark implementation ready for owner review**
 
 Update this plan with verification evidence. Leave plan status `In Progress`
 until repository-owner review accepts the change set.
 
-- [ ] **Step 7: Review checkpoint**
+- [x] **Step 7: Review checkpoint**
 
 Review: full change set, verification evidence, report artifacts, and remaining
 delivery gate.
@@ -608,7 +608,7 @@ delivery gate.
 Expected: every task output is present, every required check has fresh evidence,
 and no Git delivery was performed.
 
-- [ ] **Step 8: Return READY_FOR_OWNER packet**
+- [x] **Step 8: Return READY_FOR_OWNER packet**
 
 Report changed files, test/evaluation evidence, limitations, import-boundary
 evidence, final status, and the remaining Git delivery gate.
@@ -650,8 +650,8 @@ production migration, no destructive cleanup, and no history rewrite.
 | Field | Value |
 | --- | --- |
 | Approval | ADR 0008 accepted, R7 spec v0.2 approved, and plan v0.2 approved by repository owner on 2026-09-05 |
-| Execution | Not started |
-| Verification | Not run |
+| Execution | Tasks 1-8 done in worktree `r7-planner` (base `3a53dfa`): contracts, repository, service, API routes, evaluation harness, docs, boundary checks, package verification |
+| Verification | `pytest backend/tests`: 985 passed + 1 known non-R7 failure (`test_chunker.py::test_loader_real_dataset` needs gitignored `data/processed/vietnam_travel_raw.jsonl` absent from fresh worktrees); `compileall` exit 0; `run-state --suite r7-state-v0.1` result `PASS` over 16 examples with 6/6 gates; import-boundary greps exit 1 with no output; `git diff --check` clean. Review-fix round: operation rows now commit in the same repository transaction as their state change (atomicity tests included); version allocation uses `BEGIN IMMEDIATE`; itinerary creates take `ItineraryVersionDraft` |
 | Owner review | Pending |
 | Git delivery | Not authorized |
 

@@ -23,13 +23,12 @@ from backend.planner.models import (
     ItineraryItemType,
     ItineraryStatus,
     ItineraryVersion,
+    ItineraryVersionDraft,
     PlannerOperationType,
     TripDecision,
     generate_decision_id,
-    generate_itinerary_version_id,
-    generate_operation_id,
 )
-from backend.planner.repository import PlannerNotFoundError
+from backend.planner.repository import PlannerNotFoundError, PlannerStorageError
 from backend.planner.service import (
     PlannerConflictError,
     PlannerScopeMismatchError,
@@ -57,24 +56,45 @@ class FakeConversationRepository:
 
 
 class FakePlannerRepository:
-    """In-memory planner store mirroring the repository protocol."""
+    """In-memory planner store mirroring the repository protocol.
 
-    def __init__(self):
+    Writes apply state and operation evidence together: when the
+    operation store is set to fail, nothing is stored, mirroring the
+    atomic repository transaction.
+    """
+
+    def __init__(self, fail_operations=False):
         self.versions = {}
         self.decisions = {}
         self.operations = []
+        self.fail_operations = fail_operations
 
-    def create_itinerary_version(self, version):
+    def _store_operation(self, operation):
+        if operation is None:
+            return
+        if self.fail_operations:
+            raise PlannerStorageError("operation store unavailable")
+        self.operations.append(operation)
+
+    def create_itinerary_version(self, draft, itinerary_version_id, operation=None):
         numbers = [
             item.version_number
             for item in self.versions.values()
-            if item.workspace_id == version.workspace_id
+            if item.workspace_id == draft.workspace_id
         ]
-        import dataclasses
-
-        stored = dataclasses.replace(
-            version, version_number=(max(numbers) + 1) if numbers else 1
+        stored = ItineraryVersion(
+            itinerary_version_id=itinerary_version_id,
+            workspace_id=draft.workspace_id,
+            version_number=(max(numbers) + 1) if numbers else 1,
+            status=draft.status,
+            title=draft.title,
+            summary=draft.summary,
+            items=draft.items,
+            created_from_operation_id=draft.created_from_operation_id,
+            created_from_message_id=draft.created_from_message_id,
+            created_at=draft.created_at,
         )
+        self._store_operation(operation)
         self.versions[stored.itinerary_version_id] = stored
         return stored
 
@@ -96,44 +116,50 @@ class FakePlannerRepository:
             and (status is None or item.status is status)
         )
 
-    def accept_itinerary_version(self, workspace_id, itinerary_version_id):
+    def accept_itinerary_version(
+        self, workspace_id, itinerary_version_id, operation=None
+    ):
         import dataclasses
 
         target = self.get_itinerary_version(workspace_id, itinerary_version_id)
         if target.status is ItineraryStatus.ACCEPTED:
             return target
-        for item in self.versions.values():
-            if (
-                item.workspace_id == workspace_id
-                and item.status is ItineraryStatus.ACCEPTED
-            ):
-                self.versions[item.itinerary_version_id] = dataclasses.replace(
-                    item, status=ItineraryStatus.SUPERSEDED
-                )
-        self.versions[target.itinerary_version_id] = dataclasses.replace(
-            target, status=ItineraryStatus.ACCEPTED
-        )
-        return self.versions[target.itinerary_version_id]
+        flipped = [
+            (key, dataclasses.replace(item, status=ItineraryStatus.SUPERSEDED))
+            for key, item in self.versions.items()
+            if item.workspace_id == workspace_id
+            and item.status is ItineraryStatus.ACCEPTED
+        ]
+        accepted = dataclasses.replace(target, status=ItineraryStatus.ACCEPTED)
+        self._store_operation(operation)
+        for key, item in flipped:
+            self.versions[key] = item
+        self.versions[target.itinerary_version_id] = accepted
+        return accepted
 
-    def update_itinerary_status(self, workspace_id, itinerary_version_id, status):
+    def update_itinerary_status(
+        self, workspace_id, itinerary_version_id, status, operation=None
+    ):
         import dataclasses
 
         target = self.get_itinerary_version(workspace_id, itinerary_version_id)
-        self.versions[target.itinerary_version_id] = dataclasses.replace(
-            target, status=status
-        )
-        return self.versions[target.itinerary_version_id]
+        updated = dataclasses.replace(target, status=status)
+        self._store_operation(operation)
+        self.versions[target.itinerary_version_id] = updated
+        return updated
 
-    def create_decision(self, decision):
+    def create_decision(self, decision, operation=None):
         import dataclasses
 
+        superseded = None
         if decision.supersedes_decision_id is not None:
             target = self.decisions.get(decision.supersedes_decision_id)
             if target is None or target.workspace_id != decision.workspace_id:
                 raise PlannerNotFoundError("missing target")
-            self.decisions[target.decision_id] = dataclasses.replace(
-                target, status=DecisionStatus.SUPERSEDED
-            )
+            superseded = dataclasses.replace(target, status=DecisionStatus.SUPERSEDED)
+        self._store_operation(operation)
+        if superseded is not None:
+            self.decisions[superseded.decision_id] = superseded
         self.decisions[decision.decision_id] = decision
         return decision
 
@@ -152,12 +178,14 @@ class FakePlannerRepository:
             and (decision_type is None or item.decision_type is decision_type)
         )
 
-    def update_decision_status(self, workspace_id, decision_id, status):
+    def update_decision_status(self, workspace_id, decision_id, status, operation=None):
         import dataclasses
 
         target = self.get_decision(workspace_id, decision_id)
-        self.decisions[target.decision_id] = dataclasses.replace(target, status=status)
-        return self.decisions[target.decision_id]
+        updated = dataclasses.replace(target, status=status)
+        self._store_operation(operation)
+        self.decisions[target.decision_id] = updated
+        return updated
 
     def create_operation(self, operation):
         self.operations.append(operation)
@@ -212,9 +240,7 @@ def _item(**overrides):
 
 def _draft(**overrides):
     payload = {
-        "itinerary_version_id": generate_itinerary_version_id(),
         "workspace_id": "tw_planner",
-        "version_number": 1,
         "status": ItineraryStatus.DRAFT,
         "title": "Hà Nội 3 ngày",
         "summary": None,
@@ -224,7 +250,7 @@ def _draft(**overrides):
         "created_at": MOMENT,
     }
     payload.update(overrides)
-    return ItineraryVersion(**payload)
+    return ItineraryVersionDraft(**payload)
 
 
 def _decision_draft(**overrides):
@@ -244,8 +270,8 @@ def _decision_draft(**overrides):
     return TripDecision(**payload)
 
 
-def _service(workspaces=None, conversations=()):
-    planner = FakePlannerRepository()
+def _service(workspaces=None, conversations=(), fail_operations=False):
+    planner = FakePlannerRepository(fail_operations=fail_operations)
     service = PlannerService(
         planner_repository=planner,
         workspace_repository=FakeWorkspaceRepository(
@@ -254,6 +280,22 @@ def _service(workspaces=None, conversations=()):
         conversation_repository=FakeConversationRepository(conversations),
     )
     return service, planner
+
+
+def test_failed_operation_leaves_no_state_behind():
+    # The version and its operation commit together: when the operation
+    # store fails, the service propagates the failure and no version,
+    # decision, or flip survives.
+    service, planner = _service(fail_operations=True)
+
+    with pytest.raises(PlannerStorageError):
+        service.create_itinerary_version("tw_planner", _draft())
+    with pytest.raises(PlannerStorageError):
+        service.record_decision("tw_planner", _decision_draft())
+
+    assert planner.list_itinerary_versions("tw_planner") == ()
+    assert planner.list_decisions("tw_planner") == ()
+    assert planner.list_operations("tw_planner") == ()
 
 
 def test_create_requires_existing_workspace():

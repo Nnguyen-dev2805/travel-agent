@@ -239,10 +239,12 @@ archive, deletion, tombstoning, redaction, sharing, import, export, or full-text
 search. Content is stored, never logged, and never returned in an error body.
 
 Every other entity and relationship in this document remains conceptual. Memory
-records, itinerary versions, trip decisions, context bundles, and evaluation
-traces are not implemented. Memory candidates are implemented as shadow
-evaluation evidence since `R5`; the promotion edge from `MemoryCandidate` to
-`MemoryRecord` remains target direction with no stored consumer yet.
+records, context bundles, and evaluation traces are not implemented. Memory
+candidates are implemented as shadow evaluation evidence since `R5`; the
+promotion edge from `MemoryCandidate` to `MemoryRecord` remains target
+direction with no stored consumer yet. Itinerary versions and trip decisions
+are implemented as `R7` planner records, with `PlannerOperation` as a new
+implemented `R7` entity described under Trip Planning Records.
 
 Physical storage for `R4` is the same shared local SQLite file as `R3`, with
 `('conversations', 1)` recorded in the per-module `schema_versions` registry per
@@ -283,6 +285,15 @@ Conceptual fields:
 
 Rejected options are first-class decision evidence because they help future
 planning avoid repeated bad suggestions.
+
+Implemented in `R7`: `ItineraryVersion` and `TripDecision` are stored planner
+records with the fields above (plus `summary`, `created_from_operation_id`,
+`supersedes_decision_id`, and `updated_at` bounds), and `PlannerOperation` is
+a new implemented entity recording one append-only row per successful
+state-changing planner write (`operation_id`, `workspace_id`, optional
+`conversation_id`, `operation_type`, `status`, optional `input_summary`,
+result ids, optional `source_message_id`, `created_at`). See
+`backend/planner/models.py` for the exact contracts.
 
 ## Memory Records
 

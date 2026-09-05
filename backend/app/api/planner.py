@@ -41,11 +41,10 @@ from backend.planner.models import (
     DecisionType,
     ItineraryItem,
     ItineraryStatus,
-    ItineraryVersion,
+    ItineraryVersionDraft,
     PlannerValidationError,
     TripDecision,
     generate_decision_id,
-    generate_itinerary_version_id,
 )
 from backend.planner.repository import (
     PlannerNotFoundError,
@@ -120,14 +119,11 @@ def create_itinerary(
     service: PlannerService = Depends(get_planner_service),
 ) -> ItineraryVersionResponse:
     """Create a draft or proposed itinerary version."""
-    moment = _utc_now()
     try:
         stored = service.create_itinerary_version(
             workspace_id=workspace_id,
-            draft=ItineraryVersion(
-                itinerary_version_id=generate_itinerary_version_id(),
+            draft=ItineraryVersionDraft(
                 workspace_id=workspace_id,
-                version_number=1,
                 status=request.status,
                 title=request.title,
                 summary=request.summary,
@@ -145,7 +141,6 @@ def create_itinerary(
                     )
                     for item in request.items
                 ),
-                created_at=moment,
             ),
             conversation_id=request.conversation_id,
             source_message_id=request.source_message_id,

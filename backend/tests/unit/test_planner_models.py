@@ -17,6 +17,7 @@ from backend.planner.models import (
     ItineraryItemType,
     ItineraryStatus,
     ItineraryVersion,
+    ItineraryVersionDraft,
     PlannerOperation,
     PlannerOperationStatus,
     PlannerOperationType,
@@ -95,6 +96,34 @@ def _operation(**overrides):
     }
     payload.update(overrides)
     return PlannerOperation(**payload)
+
+
+def _draft(**overrides):
+    payload = {
+        "workspace_id": "tw_planner",
+        "status": ItineraryStatus.DRAFT,
+        "title": "Hà Nội 3 ngày",
+        "summary": None,
+        "items": (),
+        "created_from_operation_id": None,
+        "created_from_message_id": None,
+        "created_at": MOMENT,
+    }
+    payload.update(overrides)
+    return ItineraryVersionDraft(**payload)
+
+
+def test_draft_carries_no_identity_or_version_number():
+    draft = _draft()
+
+    assert not hasattr(draft, "itinerary_version_id")
+    assert not hasattr(draft, "version_number")
+    assert draft.workspace_id == "tw_planner"
+    assert draft.created_at == MOMENT
+    with pytest.raises(PlannerValidationError):
+        _draft(workspace_id="   ")
+    with pytest.raises(PlannerValidationError):
+        _draft(status="flying")
 
 
 def test_generated_ids_use_governed_prefixes():

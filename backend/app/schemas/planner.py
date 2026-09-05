@@ -20,6 +20,7 @@ from backend.planner.models import (
     ItineraryStatus,
     ItineraryVersion,
     PlannerOperation,
+    PlannerOperationStatus,
     PlannerOperationType,
     TripDecision,
 )
@@ -171,7 +172,7 @@ class PlannerOperationResponse(BaseModel):
     workspace_id: str
     conversation_id: Optional[str]
     operation_type: PlannerOperationType
-    status: str
+    status: PlannerOperationStatus
     input_summary: Optional[str]
     result_itinerary_version_id: Optional[str]
     result_decision_id: Optional[str]
@@ -185,7 +186,7 @@ class PlannerOperationResponse(BaseModel):
             workspace_id=operation.workspace_id,
             conversation_id=operation.conversation_id,
             operation_type=operation.operation_type,
-            status=operation.status.value,
+            status=operation.status,
             input_summary=operation.input_summary,
             result_itinerary_version_id=operation.result_itinerary_version_id,
             result_decision_id=operation.result_decision_id,

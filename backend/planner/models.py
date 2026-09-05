@@ -280,6 +280,72 @@ class ItineraryItem:
 
 
 @dataclass(frozen=True)
+class ItineraryVersionDraft:
+    """An itinerary version ready to persist, before storage assigns its number.
+
+    `version_number` is absent because the repository allocates it inside
+    the write transaction, and `itinerary_version_id` is absent because the
+    service generates it. Mirrors the conversation `MessageDraft` pattern.
+    """
+
+    workspace_id: str
+    status: ItineraryStatus = ItineraryStatus.DRAFT
+    title: str | None = None
+    summary: str | None = None
+    items: tuple[ItineraryItem, ...] = field(default_factory=tuple)
+    created_from_operation_id: str | None = None
+    created_from_message_id: str | None = None
+    created_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "workspace_id", require_text(self.workspace_id, "workspace_id")
+        )
+        object.__setattr__(
+            self, "status", _coerce_enum(self.status, "status", ItineraryStatus)
+        )
+        object.__setattr__(
+            self,
+            "title",
+            _normalize_optional_text(self.title, "title", _TITLE_MAX_LENGTH),
+        )
+        object.__setattr__(
+            self,
+            "summary",
+            _normalize_optional_text(self.summary, "summary", _SUMMARY_MAX_LENGTH),
+        )
+        items = tuple(self.items)
+        for item in items:
+            if not isinstance(item, ItineraryItem):
+                raise PlannerValidationError(
+                    "Planner field 'items' must hold ItineraryItem entries."
+                )
+        object.__setattr__(self, "items", items)
+        object.__setattr__(
+            self,
+            "created_from_operation_id",
+            _normalize_optional_identity(
+                self.created_from_operation_id,
+                "created_from_operation_id",
+                OPERATION_ID_PREFIX,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "created_from_message_id",
+            _normalize_optional_identity(
+                self.created_from_message_id,
+                "created_from_message_id",
+                MESSAGE_ID_PREFIX,
+            ),
+        )
+        if self.created_at is not None:
+            object.__setattr__(
+                self, "created_at", _require_utc(self.created_at, "created_at")
+            )
+
+
+@dataclass(frozen=True)
 class ItineraryVersion:
     """One immutable itinerary snapshot inside a workspace."""
 
@@ -513,6 +579,7 @@ __all__ = [
     "ItineraryItemType",
     "ItineraryStatus",
     "ItineraryVersion",
+    "ItineraryVersionDraft",
     "PlannerOperation",
     "PlannerOperationStatus",
     "PlannerOperationType",

@@ -22,10 +22,12 @@ from backend.planner.models import (
     DecisionType,
     ItineraryStatus,
     ItineraryVersion,
+    ItineraryVersionDraft,
     PlannerOperation,
     PlannerOperationStatus,
     PlannerOperationType,
     TripDecision,
+    generate_itinerary_version_id,
     generate_operation_id,
     require_text,
 )
@@ -107,11 +109,18 @@ class PlannerService:
     def create_itinerary_version(
         self,
         workspace_id: str,
-        draft: ItineraryVersion,
+        draft: ItineraryVersionDraft,
         conversation_id: Optional[str] = None,
         source_message_id: Optional[str] = None,
     ) -> ItineraryVersion:
-        """Persist an itinerary draft and log the create operation."""
+        """Persist an itinerary draft with its create operation atomically.
+
+        The version row and the operation row commit in one repository
+        transaction: when the operation write fails, no version survives,
+        so the service never reports a failure for a plan it saved.
+        """
+        import dataclasses
+
         workspace_id = require_text(workspace_id, "workspace_id")
         self._require_scope(workspace_id, conversation_id)
         if draft.workspace_id != workspace_id:
@@ -122,17 +131,28 @@ class PlannerService:
             raise PlannerConflictError(
                 "An itinerary version can only be created as draft or proposed."
             )
-        stored = self._planner.create_itinerary_version(
-            self._with_provenance(draft, conversation_id, source_message_id)
+        moment = _utc_now()
+        stamped = dataclasses.replace(
+            draft,
+            created_from_message_id=(
+                source_message_id
+                if source_message_id is not None
+                else draft.created_from_message_id
+            ),
+            created_at=draft.created_at or moment,
         )
-        self._log_operation(
-            workspace_id=workspace_id,
-            conversation_id=conversation_id,
-            operation_type=PlannerOperationType.CREATE_ITINERARY,
-            source_message_id=source_message_id,
-            result_itinerary_version_id=stored.itinerary_version_id,
-            input_summary=(
-                f"version_number={stored.version_number} status={stored.status.value}"
+        version_id = generate_itinerary_version_id()
+        stored = self._planner.create_itinerary_version(
+            stamped,
+            version_id,
+            operation=self._build_operation(
+                workspace_id=workspace_id,
+                conversation_id=conversation_id,
+                operation_type=PlannerOperationType.CREATE_ITINERARY,
+                source_message_id=source_message_id,
+                result_itinerary_version_id=version_id,
+                input_summary=f"status={stamped.status.value}",
+                created_at=moment,
             ),
         )
         logger.info(
@@ -164,7 +184,7 @@ class PlannerService:
     def accept_itinerary_version(
         self, workspace_id: str, itinerary_version_id: str
     ) -> ItineraryVersion:
-        """Accept one version and log the accept operation."""
+        """Accept one version with its accept operation atomically."""
         workspace_id = require_text(workspace_id, "workspace_id")
         itinerary_version_id = require_text(
             itinerary_version_id, "itinerary_version_id"
@@ -178,21 +198,20 @@ class PlannerService:
                 f"An itinerary version with status '{current.status.value}' "
                 "cannot be accepted."
             )
+        if current.status is ItineraryStatus.ACCEPTED:
+            return current
+        moment = _utc_now()
         stored = self._planner.accept_itinerary_version(
-            workspace_id, itinerary_version_id
-        )
-        if stored.version_number == current.version_number and (
-            current.status is ItineraryStatus.ACCEPTED
-        ):
-            return stored
-        self._log_operation(
-            workspace_id=workspace_id,
-            conversation_id=None,
-            operation_type=PlannerOperationType.ACCEPT_ITINERARY,
-            source_message_id=None,
-            result_itinerary_version_id=stored.itinerary_version_id,
-            input_summary=(
-                f"version_number={stored.version_number} status={stored.status.value}"
+            workspace_id,
+            itinerary_version_id,
+            operation=self._build_operation(
+                workspace_id=workspace_id,
+                conversation_id=None,
+                operation_type=PlannerOperationType.ACCEPT_ITINERARY,
+                source_message_id=None,
+                result_itinerary_version_id=itinerary_version_id,
+                input_summary="status=accepted",
+                created_at=moment,
             ),
         )
         logger.info(
@@ -205,7 +224,7 @@ class PlannerService:
     def archive_itinerary_version(
         self, workspace_id: str, itinerary_version_id: str
     ) -> ItineraryVersion:
-        """Archive one version and log the archive operation."""
+        """Archive one version with its archive operation atomically."""
         workspace_id = require_text(workspace_id, "workspace_id")
         itinerary_version_id = require_text(
             itinerary_version_id, "itinerary_version_id"
@@ -219,17 +238,19 @@ class PlannerService:
                 f"An itinerary version with status '{current.status.value}' "
                 "cannot be archived."
             )
+        moment = _utc_now()
         stored = self._planner.update_itinerary_status(
-            workspace_id, itinerary_version_id, ItineraryStatus.ARCHIVED
-        )
-        self._log_operation(
-            workspace_id=workspace_id,
-            conversation_id=None,
-            operation_type=PlannerOperationType.ARCHIVE_ITINERARY,
-            source_message_id=None,
-            result_itinerary_version_id=stored.itinerary_version_id,
-            input_summary=(
-                f"version_number={stored.version_number} status={stored.status.value}"
+            workspace_id,
+            itinerary_version_id,
+            ItineraryStatus.ARCHIVED,
+            operation=self._build_operation(
+                workspace_id=workspace_id,
+                conversation_id=None,
+                operation_type=PlannerOperationType.ARCHIVE_ITINERARY,
+                source_message_id=None,
+                result_itinerary_version_id=itinerary_version_id,
+                input_summary="status=archived",
+                created_at=moment,
             ),
         )
         logger.info(
@@ -257,22 +278,24 @@ class PlannerService:
             raise PlannerConflictError(
                 "A decision can only be recorded as pending, accepted, or rejected."
             )
+        moment = _utc_now()
+        superseding = draft.supersedes_decision_id is not None
         stored = self._planner.create_decision(
-            self._with_decision_provenance(draft, source_message_id)
-        )
-        superseding = stored.supersedes_decision_id is not None
-        self._log_operation(
-            workspace_id=workspace_id,
-            conversation_id=conversation_id,
-            operation_type=(
-                PlannerOperationType.SUPERSEDE_DECISION
-                if superseding
-                else PlannerOperationType.RECORD_DECISION
-            ),
-            source_message_id=source_message_id,
-            result_decision_id=stored.decision_id,
-            input_summary=(
-                f"status={stored.status.value} type={stored.decision_type.value}"
+            self._with_decision_provenance(draft, source_message_id),
+            operation=self._build_operation(
+                workspace_id=workspace_id,
+                conversation_id=conversation_id,
+                operation_type=(
+                    PlannerOperationType.SUPERSEDE_DECISION
+                    if superseding
+                    else PlannerOperationType.RECORD_DECISION
+                ),
+                source_message_id=source_message_id,
+                result_decision_id=draft.decision_id,
+                input_summary=(
+                    f"status={draft.status.value} type={draft.decision_type.value}"
+                ),
+                created_at=moment,
             ),
         )
         logger.info(
@@ -301,14 +324,20 @@ class PlannerService:
                 f"A decision with status '{current.status.value}' cannot move "
                 f"to '{target.value}'."
             )
-        stored = self._planner.update_decision_status(workspace_id, decision_id, target)
-        self._log_operation(
-            workspace_id=workspace_id,
-            conversation_id=None,
-            operation_type=PlannerOperationType.UPDATE_DECISION_STATUS,
-            source_message_id=None,
-            result_decision_id=stored.decision_id,
-            input_summary=f"status={stored.status.value}",
+        moment = _utc_now()
+        stored = self._planner.update_decision_status(
+            workspace_id,
+            decision_id,
+            target,
+            operation=self._build_operation(
+                workspace_id=workspace_id,
+                conversation_id=None,
+                operation_type=PlannerOperationType.UPDATE_DECISION_STATUS,
+                source_message_id=None,
+                result_decision_id=decision_id,
+                input_summary=f"status={target.value}",
+                created_at=moment,
+            ),
         )
         logger.info(
             "planner.decision status workspace_id=%s status=%s",
@@ -352,23 +381,6 @@ class PlannerService:
             )
 
     @staticmethod
-    def _with_provenance(
-        draft: ItineraryVersion,
-        conversation_id: Optional[str],
-        source_message_id: Optional[str],
-    ) -> ItineraryVersion:
-        import dataclasses
-
-        return dataclasses.replace(
-            draft,
-            created_from_message_id=(
-                source_message_id
-                if source_message_id is not None
-                else draft.created_from_message_id
-            ),
-        )
-
-    @staticmethod
     def _with_decision_provenance(
         draft: TripDecision, source_message_id: Optional[str]
     ) -> TripDecision:
@@ -383,8 +395,8 @@ class PlannerService:
             ),
         )
 
-    def _log_operation(
-        self,
+    @staticmethod
+    def _build_operation(
         *,
         workspace_id: str,
         conversation_id: Optional[str],
@@ -393,18 +405,23 @@ class PlannerService:
         result_itinerary_version_id: Optional[str] = None,
         result_decision_id: Optional[str] = None,
         input_summary: Optional[str] = None,
+        created_at: Optional[datetime] = None,
     ) -> PlannerOperation:
-        return self._planner.create_operation(
-            PlannerOperation(
-                operation_id=generate_operation_id(),
-                workspace_id=workspace_id,
-                conversation_id=conversation_id,
-                operation_type=operation_type,
-                status=PlannerOperationStatus.APPLIED,
-                input_summary=input_summary,
-                result_itinerary_version_id=result_itinerary_version_id,
-                result_decision_id=result_decision_id,
-                source_message_id=source_message_id,
-                created_at=_utc_now(),
-            )
+        """Build the operation row the repository writes atomically.
+
+        The operation is returned, never persisted here: persistence
+        happens inside the same repository transaction as the state
+        change it describes.
+        """
+        return PlannerOperation(
+            operation_id=generate_operation_id(),
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            operation_type=operation_type,
+            status=PlannerOperationStatus.APPLIED,
+            input_summary=input_summary,
+            result_itinerary_version_id=result_itinerary_version_id,
+            result_decision_id=result_decision_id,
+            source_message_id=source_message_id,
+            created_at=created_at or _utc_now(),
         )
