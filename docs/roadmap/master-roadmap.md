@@ -35,15 +35,18 @@ to `feature/agent-memory` at `e590ca6` on 2026-09-04. It adds no authentication,
 no summarization, no deletion path, and no frontend work, so real browser traffic
 is still not persisted.
 
-Shadow memory extraction has implementation evidence and is under owner delivery
-review. `R5` has a backend-only memory candidate store, shadow evaluation path,
-full backend suite evidence, and a `PASS` shadow report from the
-`r5-shadow-memory` worktree. It is not marked delivered until the active branch
-merge is completed and accepted by the repository owner.
+Shadow memory extraction is delivered. `R5` has a backend-only memory candidate
+store, a shadow evaluation path, and a `PASS` shadow report. The repository
+owner accepted the change set after two review rounds and merged it into
+`feature/agent-memory` at `89496eb`. No memory candidate reaches a generated
+answer, which is the boundary ADR 0006 exists to hold.
 
-Memory retrieval governance is drafted but not executable. `R6` has proposed
-review artifacts for feature-gated memory retrieval, but implementation remains
-blocked until R5 is delivered and its shadow evaluation evidence is reviewed.
+Memory retrieval is approved and waiting for a worker. `R6` has an approved
+spec, an accepted ADR 0007, and an approved implementation plan, all as of
+2026-09-05. No R6 source exists yet. Two limitations were accepted at approval
+time: personalization and constraint-delta metrics will report `INCONCLUSIVE`
+until a provider-backed answer judge exists, and the `R9` ordering problem
+recorded in Dependency Rules is unresolved.
 
 User identity, layered memory, planner state, evaluation traces, production
 security policy, operational runbooks, license text, and open-source templates
@@ -93,11 +96,11 @@ work is no longer the active package; runtime milestones are.
 | `R2` | Evaluation Harness | Accepted in working tree | `D5`, `R0` | Repeatable local evaluation runner and traceable result format | Evaluation output can compare two runs | [R1/R2 spec v0.1](../specs/2026-09-01-rag-repair-and-evaluation-harness-design.md), [ADR 0001](../adr/0001-separate-online-rag-execution-from-config-driven-evaluation.md), [implementation plan v0.1](../plans/2026-09-01-rag-repair-and-evaluation-harness-implementation.md); repository owner accepted R1/R2 change set in conversation on 2026-09-03; [Task 7 candidate comparison](../reports/rag/rag-candidate-v0.1-comparison.md) (2026-09-04): D5 state=PASS, deltas 0.0; [baseline report](../reports/rag/rag-baseline-v0.1.md); canonical runs `rag-rag-current-runtime-v0.1-20260903T111946Z-6076d9e` / `rag-rag-structured-candidate-v0.1-20260904T011315Z-359a2ab`; R1/R2 plan completed 2026-09-04 |
 | `R3` | Trip Workspace Foundation | Delivered | `D3`, [ADR 0002](../adr/0002-trip-workspace-as-primary-product-container.md), [ADR 0003](../adr/0003-local-sqlite-workspace-storage-boundary-for-r3.md), `R0` | Workspace contracts, storage boundary, and minimal routes | Workspace records can be created and inspected behind approved interfaces | [R3 spec v0.1](../specs/2026-09-03-trip-workspace-foundation-design.md), [implementation plan v0.2](../plans/2026-09-03-trip-workspace-foundation-implementation.md); repository owner approved plan v0.2 on 2026-09-03; all six tasks complete with `427 passed` on base `6076d9e` and boundary checks clean; repository owner accepted the change set and merged `r3-trip-workspace` into `feature/agent-memory` at `2f632e2` on 2026-09-04; post-merge branch verification reports `447 passed` with clean boundary checks |
 | `R4` | Conversation Persistence | Delivered | `R3`, [ADR 0004](../adr/0004-shared-local-application-store-and-per-module-schema-registry.md), [ADR 0005](../adr/0005-conversation-orchestration-seam-and-optional-chat-binding.md) | Conversation and message storage behind an adapter, shared application store with per-module schema versions, orchestration seam, and optional chat conversation binding | Messages persist with retention and privacy boundaries named | [R4 spec v0.1](../specs/2026-09-04-conversation-persistence-design.md) approved 2026-09-04; [ADR 0004](../adr/0004-shared-local-application-store-and-per-module-schema-registry.md) and [ADR 0005](../adr/0005-conversation-orchestration-seam-and-optional-chat-binding.md) accepted 2026-09-04; [implementation plan v0.1](../plans/2026-09-04-conversation-persistence-implementation.md) approved 2026-09-04; all eight tasks executed on base `cb900e4`, then three `P1` review findings fixed, moving the recorded baseline of `447 passed` to `708 passed` with `compileall` exit `0`; import-boundary checks clean and the containment commands amended to code-level patterns that pass exactly; storage rollback evidence is the named registry test proving an R4 database presents `PRAGMA user_version = 1000`, which the pre-R4 workspace rule rejects; repository owner reviewed and accepted the change set on 2026-09-04; Git delivery completed on `feature/agent-memory` at `e590ca6` |
-| `R5` | Shadow Memory Extraction | In progress | `R2`, `R4`, [ADR 0006](../adr/0006-shadow-memory-candidate-store-and-policy-boundary.md) | Memory candidates extracted but not used in answers | Candidate precision, sensitivity, and scope quality are measured | [R5 spec v0.1](../specs/2026-09-04-shadow-memory-extraction-design.md) approved 2026-09-04; [ADR 0006](../adr/0006-shadow-memory-candidate-store-and-policy-boundary.md) accepted 2026-09-04; [implementation plan v0.1](../plans/2026-09-04-shadow-memory-extraction-implementation.md) approved 2026-09-04; Tasks 1-7 implemented in worktree `r5-shadow-memory` with the full backend suite passing and shadow report `r5-shadow-v0.1` at result `PASS`; owner review and Git delivery pending |
-| `R6` | Memory Retrieval | Blocked by gate | `R5`, proposed [ADR 0007](../adr/0007-feature-gated-memory-retrieval-and-context-boundary.md) | Feature-gated memory retrieval into bound chat context through orchestration-owned composition | Retrieval, scope, lifecycle, and safety evidence can be evaluated before any default-on personalization claim | [R6 spec v0.1](../specs/2026-09-04-memory-retrieval-design.md) and [implementation plan v0.1](../plans/2026-09-04-memory-retrieval-implementation.md) are in review; implementation waits for R5 delivery, R5 evaluation evidence, ADR 0007 acceptance, spec approval, and plan approval |
+| `R5` | Shadow Memory Extraction | Delivered | `R2`, `R4`, [ADR 0006](../adr/0006-shadow-memory-candidate-store-and-policy-boundary.md) | Memory candidates extracted but not used in answers | Candidate precision, sensitivity, and scope quality are measured | [R5 spec v0.1](../specs/2026-09-04-shadow-memory-extraction-design.md) approved 2026-09-04; [ADR 0006](../adr/0006-shadow-memory-candidate-store-and-policy-boundary.md) accepted 2026-09-04; [implementation plan v0.1](../plans/2026-09-04-shadow-memory-extraction-implementation.md) approved 2026-09-04; all eight tasks executed in worktree `r5-shadow-memory`, then six review findings fixed across two rounds, each with a regression test; the second round hardened the secret gate to scan accepted candidate content instead of trusting the sensitivity label, made a secret anywhere in a message taint every draft from it, and recorded correction precedence honestly as not applicable; shadow report [`r5-shadow-v0.1`](../reports/memory/r5-shadow-v0.1.md) is `PASS` over 13 eligible examples; repository owner accepted the change set and delivered R5 to `feature/agent-memory` at `89496eb`; delivered-base verification on 2026-09-05 reports `834 passed` with `compileall` exit `0` and all three import-boundary checks clean |
+| `R6` | Memory Retrieval | Ready for handoff | `R5`, [ADR 0007](../adr/0007-feature-gated-memory-retrieval-and-context-boundary.md) | Feature-gated memory retrieval into bound chat context through orchestration-owned composition | Retrieval, scope, lifecycle, and safety evidence can be evaluated before any default-on personalization claim | [R6 spec v0.1](../specs/2026-09-04-memory-retrieval-design.md) approved 2026-09-05; [ADR 0007](../adr/0007-feature-gated-memory-retrieval-and-context-boundary.md) accepted 2026-09-05; [implementation plan v0.1](../plans/2026-09-04-memory-retrieval-implementation.md) approved 2026-09-05; every Task 1 gate is satisfied on integration base `89496eb`, which verifies at `834 passed`; two limitations were accepted at approval time: personalization and constraint-delta metrics will report `INCONCLUSIVE` without a provider-backed judge, and the `R9` dependency ordering below remains unresolved; implementation not yet started |
 | `R7` | Trip Planner State | Blocked by gate | `R3`, `R4`, `R2` | Itinerary versions, trip decisions, and planner operations | Planner writes are explicit, reversible, and evaluated | Planner tests and trace samples |
 | `R8` | Observability and Operations | Blocked by gate | `R2`, `D6` | Logs, traces, runbooks, and operational review rhythm | Operators can diagnose degraded memory, retrieval, model, and planner paths | Runbook drills and trace examples |
-| `R9` | Security and Privacy Hardening | Blocked by gate | `D6`, `R3`, `R4`, `R6` | Authentication choice, memory deletion semantics, redaction, and access boundaries | Privacy-sensitive flows have tests and review evidence | Security review and deletion-flow evidence |
+| `R9` | Security and Privacy Hardening | Blocked by gate | `D6`, `R3`, `R4`, `R6` | Authentication choice, memory deletion semantics, redaction, and access boundaries | Privacy-sensitive flows have tests and review evidence | Security review and deletion-flow evidence; see the open ordering problem in Dependency Rules, because two memory hard gates need `R9` deliverables that `R6` cannot supply |
 | `R10` | Open-source Release Readiness | Blocked by gate | `D7`, `R0`, `R8`, `R9` | Contribution intake, license, notices, changelog, and release checklist | Public contribution and release workflow is reviewable | PR template, issue templates, license, notices, and release notes |
 
 ## Dependency Rules
@@ -117,6 +120,25 @@ work is no longer the active package; runtime milestones are.
    specs, plans, verification evidence, and owner-review state.
 8. Git staging, commit, push, PR, merge, and release remain repository-owner
    actions unless explicitly requested.
+
+### Open Ordering Problem: R6 and R9
+
+`R9` is listed as depending on `R6`, but two of the five zero-tolerance memory
+hard gates cannot be measured until `R9` deliverables exist:
+
+| Hard gate | Blocked by |
+| --- | --- |
+| Cross-user memory leakage | No authenticated identity. `owner_user_id` is a caller-supplied local scope label, so isolation can only be measured by label, not by identity |
+| Deleted-memory retrieval after confirmed deletion | No deletion or tombstone semantics exist for any record |
+
+The memory evaluation protocol forbids treating unobservable gates as zero
+events, so `R6` reports these as limited or fixture-seeded rather than as
+authenticated evidence. `R6` therefore cannot discharge `R9`'s privacy gate, and
+`R9` should not be read as waiting only on `R6`.
+
+Recording this is not a resolution. Changing the milestone order requires the
+normal specification and implementation-plan workflow under Roadmap Change Rules
+item 2.
 
 ## Documentation Package Roadmap
 

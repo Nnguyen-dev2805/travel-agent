@@ -22,7 +22,7 @@ test layout.
 
 | Field | Value |
 | --- | --- |
-| Status | In Progress |
+| Status | Completed |
 | Plan version | 0.1 |
 | Date | 2026-09-04 |
 | Approved specification | [Shadow Memory Extraction Design](../specs/2026-09-04-shadow-memory-extraction-design.md), version 0.1 (Approved 2026-09-04) |
@@ -632,6 +632,34 @@ the repository owner names the exact path and approves that cleanup.
 
 This plan version 0.1 was approved by the repository owner in conversation on
 2026-09-04 together with approval of R5 spec version 0.1 and acceptance of ADR
-0006. Implementation is authorized for an isolated worker following this plan.
-No Git staging, commit, push, merge, release, or destructive cleanup is
+0006. Implementation was authorized for an isolated worker following this plan.
+No Git staging, commit, push, merge, release, or destructive cleanup was
 authorized by approval of this file.
+
+All eight tasks executed in worktree `r5-shadow-memory`, then six review
+findings were fixed across two review rounds. Round one fixed three findings in
+the extraction, policy, and evaluation paths. Round two fixed three more: the
+secret gate no longer trusts the sensitivity label and scans accepted candidate
+content directly, a secret anywhere in a message taints every draft from it so a
+co-occurring signal cannot launder the raw value, and the shadow report records
+correction precedence honestly as not applicable rather than as a passing gate.
+Each fix carries a regression test.
+
+The repository owner accepted the change set and delivered R5 to
+`feature/agent-memory`. The merge is `89496eb`, whose first parent is `8ce3d40`.
+
+| Field | Value |
+| --- | --- |
+| Environment | Linked worktree `r5-shadow-memory`, primary-tree interpreter by absolute path, `data/processed` symlinked per Global Constraint 11 |
+| Base | `b9502ac` on branch `r5-shadow-memory`, baseline `708 passed` |
+| Delivered at | `89496eb` on `feature/agent-memory` |
+| Result on delivered base | `834 passed` in `23.17s`, `compileall` exit `0`, verified 2026-09-05 |
+| Interpreter | `./.venv/bin/python`, Python 3.14.5 |
+| Boundary checks | RAG imports no memory, RAG-evaluation tests import no memory, and memory imports no RAG or orchestration; all three return exit `1` on the delivered base |
+| Evaluation report | `docs/reports/memory/r5-shadow-v0.1.md` and `.json`, result `PASS`, 13 eligible examples |
+| Review rounds | Two rounds, six findings fixed, each with a regression test |
+
+The delivered figure is `834 passed` rather than the `827 passed` recorded in
+Task 8, because the second review round added seven regression tests. The
+focused R5 suite correspondingly moved from `119 passed` to `126 passed`, which
+accounts for the difference exactly.

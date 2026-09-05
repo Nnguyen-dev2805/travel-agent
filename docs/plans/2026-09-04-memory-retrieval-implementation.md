@@ -18,27 +18,28 @@ RAGService seam. `backend/rag` remains independent from `backend.memory`.
 `sqlite3`, pytest, Markdown, existing shared schema registry, existing backend
 test layout.
 
-**Spec:** [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.1 (In Review)
+**Spec:** [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.1 (Approved)
 
 | Field | Value |
 | --- | --- |
-| Status | In Review |
+| Status | Approved |
 | Plan version | 0.1 |
 | Date | 2026-09-04 |
-| Approved specification | Pending approval: [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.1 |
-| Governing ADRs | Pending acceptance: [ADR 0007](../adr/0007-feature-gated-memory-retrieval-and-context-boundary.md) |
-| Plan approval | Pending repository-owner approval |
-| Execution owner | Implementation worker agent in an isolated worktree after gates pass |
+| Approved specification | [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.1 (Approved 2026-09-05) |
+| Governing ADRs | [ADR 0007](../adr/0007-feature-gated-memory-retrieval-and-context-boundary.md) (Accepted 2026-09-05) |
+| Plan approval | Repository owner approved implementation plan version 0.1 in conversation on 2026-09-05, together with approval of R6 spec version 0.1 and acceptance of ADR 0007 |
+| Execution owner | Implementation worker agent in an isolated worktree |
 | Decision owner | Repository owner |
 | Scope | Runtime milestone R6 - memory record contracts, promotion, retrieval, feature-gated orchestration integration, API/evaluation traces, tests, reports, and docs |
 | Verification | `./.venv/bin/python -m pytest backend/tests`, `./.venv/bin/python -m compileall backend`, import-boundary `grep` checks, R6 memory evaluation report validation, `git diff --check`, `git status --short --untracked-files=all` |
 
 ## Global Constraints
 
-1. Do not implement R6 source code until R5 is delivered, ADR 0007 is accepted,
-   the R6 spec is approved, and this plan is approved by the repository owner.
-2. Execute R6 on `feature/agent-memory` at an owner-approved integration base
-   that includes R5 implementation and R5 verification evidence.
+1. Every approval gate in Task 1 Step 1 is satisfied as of 2026-09-05. The
+   worker still re-confirms each one before editing source, because a stale gate
+   claim is exactly the failure this step exists to catch.
+2. Execute R6 on `feature/agent-memory` at the owner-approved integration base
+   `89496eb`, which includes R5 implementation and R5 verification evidence.
 3. `MEMORY_RETRIEVAL_ENABLED` defaults to false. With the feature gate disabled,
    chat behavior must remain R4/R5 behavior.
 4. No frontend work. Do not modify `frontend/`.
@@ -131,15 +132,18 @@ test layout.
 
 - [ ] **Step 1: Confirm hard gates**
 
-Confirm:
+Re-read each source of truth and confirm the recorded state still holds. Do not
+trust this table alone; it records the state at approval time.
 
-- R5 status is delivered or owner-accepted on the selected integration base.
-- R5 report exists and is not `FAIL` or `INVALID`.
-- ADR 0007 status is `Accepted`.
-- R6 spec status is `Approved`.
-- This plan status is `Approved`.
+| Gate | Expected | Recorded at approval |
+| --- | --- | --- |
+| R5 delivery | Delivered or owner-accepted on the integration base | Delivered at `89496eb` on `feature/agent-memory` |
+| R5 report | Exists and is not `FAIL` or `INVALID` | `docs/reports/memory/r5-shadow-v0.1.md` is `PASS` |
+| ADR 0007 | `Accepted` | Accepted 2026-09-05 |
+| R6 spec | `Approved` | Approved 2026-09-05, version 0.1 |
+| This plan | `Approved` | Approved 2026-09-05, version 0.1 |
 
-Stop before source edits if any gate is missing.
+Stop before source edits if any gate no longer holds.
 
 - [ ] **Step 2: Inspect clean worktree**
 
@@ -152,7 +156,10 @@ them before deciding whether to continue.
 
 Run: `./.venv/bin/python -m pytest backend/tests -q`
 
-Expected: existing suite passes. Record exact count and duration in this plan.
+Expected: existing suite passes. The base `89496eb` measured `834 passed` with
+`compileall` exit `0` on 2026-09-05. Record the exact count and duration
+observed by this execution in this plan; investigate any difference before
+continuing.
 
 - [ ] **Step 4: Mark execution start**
 
@@ -614,6 +621,11 @@ cleanup.
 
 ## Completion Record
 
-Version 0.1 is in review. Implementation is blocked until R5 delivery evidence
-exists and the repository owner explicitly accepts ADR 0007, approves the R6
-spec, and approves this plan.
+Plan version 0.1 was approved by the repository owner in conversation on
+2026-09-05, together with approval of R6 spec version 0.1 and acceptance of ADR
+0007. Implementation is authorized for an isolated worker following this plan.
+
+No Git staging, commit, push, merge, release, or destructive cleanup is
+authorized by approval of this file. Execution evidence, the recorded baseline,
+and the final change set belong in this plan and in the repository-owner review
+that follows.

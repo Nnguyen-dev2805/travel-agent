@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
-| Date | 2026-09-04 |
+| Status | Accepted |
+| Date | 2026-09-05 |
 | Decision owners | Repository owner |
 | Scope | R6 memory promotion, memory retrieval, answer-time context composition, feature gating, evaluation traceability, and dependency direction between memory, orchestration, and RAG |
-| Governing spec | [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.1 (In Review) |
+| Governing spec | [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.1 (Approved) |
 | Superseded ADR | None |
 | Superseded by | None |
 

@@ -2,16 +2,16 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In Review |
+| Status | Approved |
 | Version | 0.1 |
 | Date | 2026-09-04 |
 | Change class | Level 3 - Architecture Design |
 | Decision owner | Repository owner |
 | Scope | Runtime milestone R6 - promotion of measured memory candidates into answer-eligible records, feature-gated memory retrieval for bound conversations, orchestration-owned context composition, traceable A/B evaluation, and privacy/scope/lifecycle guards |
 | Parent design | [Architecture Baseline Design](./2026-08-31-architecture-baseline-design.md), version 0.1; [Roadmap and Learning Design](./2026-08-31-roadmap-and-learning-design.md), version 0.1 |
-| Depends on | R5 delivered and accepted; [Shadow Memory Extraction Design](./2026-09-04-shadow-memory-extraction-design.md), version 0.1; [ADR 0006](../adr/0006-shadow-memory-candidate-store-and-policy-boundary.md); [ADR 0007](../adr/0007-feature-gated-memory-retrieval-and-context-boundary.md) proposed; [Memory Evaluation Protocol](../evaluation/memory-evaluation.md); [Security Policy](../../SECURITY.md) |
-| Architecture approval | Pending repository-owner review and ADR 0007 acceptance |
-| Implementation plan | [Memory Retrieval Implementation Plan](../plans/2026-09-04-memory-retrieval-implementation.md), version 0.1 (In Review) |
+| Depends on | R5 delivered on `feature/agent-memory` at `89496eb`; [Shadow Memory Extraction Design](./2026-09-04-shadow-memory-extraction-design.md), version 0.1; [ADR 0006](../adr/0006-shadow-memory-candidate-store-and-policy-boundary.md); [ADR 0007](../adr/0007-feature-gated-memory-retrieval-and-context-boundary.md) (Accepted 2026-09-05); [Memory Evaluation Protocol](../evaluation/memory-evaluation.md); [Security Policy](../../SECURITY.md) |
+| Architecture approval | Repository owner approved R6 spec version 0.1 in conversation on 2026-09-05, after a documentation review round that corrected the promotion allow-list against the delivered R5 vocabulary, replaced the `memory` schema version bump with a separate `memory_records` module, named the `RAGService` composition seam, and defined correction supersession |
+| Implementation plan | [Memory Retrieval Implementation Plan](../plans/2026-09-04-memory-retrieval-implementation.md), version 0.1 (Approved 2026-09-05) |
 | Related issue | None - R6 specification drafting was authorized by the repository owner in conversation on 2026-09-04 |
 | Superseded document | None |
 
@@ -137,9 +137,12 @@ developer to answer:
 
 1. R5 is implemented, verified, accepted by the repository owner, and delivered
    to the selected R6 integration base before R6 source implementation starts.
+   Satisfied: R5 merged into `feature/agent-memory` at `89496eb`, and the
+   delivered base verifies at `834 passed` with `compileall` exit `0`.
 2. R5 produces a valid shadow evaluation report. If that report is `FAIL`,
    `INVALID`, or missing required metrics, R6 implementation stops unless the
-   repository owner approves a revised spec.
+   repository owner approves a revised spec. Satisfied: `r5-shadow-v0.1` is
+   `PASS`.
 3. The R5 candidate schema remains compatible with this spec's promotion rules.
 4. The local SQLite application store remains the R6 storage target.
 5. Deterministic lexical retrieval is acceptable for R6 because the milestone
@@ -498,11 +501,13 @@ claims must be marked `INCONCLUSIVE`.
 
 R6 implementation starts only after:
 
-1. R5 is delivered on the selected integration base;
-2. R5 report is reviewed and not `FAIL` or `INVALID`;
-3. ADR 0007 is accepted;
-4. this spec is approved;
-5. the R6 implementation plan is approved.
+| Gate | State |
+| --- | --- |
+| R5 delivered on the selected integration base | Satisfied at `89496eb` on `feature/agent-memory` |
+| R5 report reviewed and not `FAIL` or `INVALID` | Satisfied; `r5-shadow-v0.1` is `PASS` |
+| ADR 0007 accepted | Satisfied 2026-09-05 |
+| This spec approved | Satisfied 2026-09-05, version 0.1 |
+| R6 implementation plan approved | Satisfied 2026-09-05, plan version 0.1 |
 
 The storage change is additive. R6 registers a new `memory_records` schema
 module at version 1 for answer-eligible records, promotion runs, and retrieval
@@ -538,6 +543,16 @@ unchanged.
 
 ## Approval Record
 
-Version 0.1 is in review. It is not approved for implementation until the
-repository owner explicitly accepts ADR 0007, approves this spec version, and
-approves the matching implementation plan.
+| Version | Approver role | Date | Authorization boundary |
+| --- | --- | --- | --- |
+| 0.1 | Repository owner | 2026-09-05 | Approved together with acceptance of ADR 0007 and approval of the matching implementation plan version 0.1. Approval followed a documentation review round that corrected the promotion allow-list against the delivered R5 `PolicyReason` vocabulary, recorded which allow-list reasons have no R5 producer, replaced the `memory` schema version bump with a separate `memory_records` module so ADR 0004 fail-closed behavior stays intact, named the `RAGService` composition seam, defined correction supersession, and added the reverse import-boundary check. This approval authorizes delegating backend-only R6 implementation to a worker following the approved plan. It does not authorize default-on memory retrieval, frontend work, authentication, deletion semantics, production deployment, Git delivery, or destructive cleanup |
+
+Two limitations were accepted knowingly at approval time:
+
+1. Personalization win rate and constraint satisfaction delta will report
+   `INCONCLUSIVE` because no provider-backed answer judge is configured, so R6
+   cannot by itself satisfy a personalization improvement claim.
+2. The roadmap still lists `R9` as depending on `R6`, while two of the five hard
+   memory gates depend on `R9` deliverables, namely authenticated identity and
+   deletion semantics. Resolving that ordering is a separate roadmap change and
+   is not part of R6.
