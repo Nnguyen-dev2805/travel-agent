@@ -22,7 +22,7 @@ schema registry, existing backend test layout.
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | In Progress |
 | Plan version | 0.2 |
 | Date | 2026-09-05 |
 | Approved specification | [Trip Planner State Design](../specs/2026-09-05-trip-planner-state-design.md), version 0.2, approved by repository owner on 2026-09-05 |
@@ -123,7 +123,7 @@ Do not implement this plan until all are true:
 - Produces: implementation worktree with documented base commit and R7 plan
   state moved to `In Progress`.
 
-- [ ] **Step 1: Confirm implementation base**
+- [x] **Step 1: Confirm implementation base**
 
 Run:
 
@@ -134,7 +134,7 @@ git log --oneline -5
 
 Expected: implementation worktree is clean and base includes R6 delivery.
 
-- [ ] **Step 2: Confirm approval gates**
+- [x] **Step 2: Confirm approval gates**
 
 Expected headers:
 
@@ -146,12 +146,12 @@ R7 plan v0.2: Approved
 
 Stop if any value is missing.
 
-- [ ] **Step 3: Move R7 docs into implementation state**
+- [x] **Step 3: Move R7 docs into implementation state**
 
 Update this plan status to `In Progress`, update `docs/plans/README.md`, and
 update roadmap `R7` from `Ready for handoff` to `In progress`.
 
-- [ ] **Step 4: Run baseline tests**
+- [x] **Step 4: Run baseline tests**
 
 Run:
 
@@ -161,7 +161,7 @@ Run:
 
 Expected: existing workspace, conversation, and memory contracts pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: approval gates, base commit, and R7 status edits.
 
@@ -180,14 +180,14 @@ implementation.
 - Produces: id helpers, enums, `ItineraryItem`, `ItineraryVersion`,
   `TripDecision`, `PlannerOperation`, and `PlannerValidationError`.
 
-- [ ] **Step 1: Write failing model tests**
+- [x] **Step 1: Write failing model tests**
 
 Create tests asserting generated ids use `uuid.uuid4().hex`-style prefixes,
 required text is stripped and validated, optional blank text becomes `None`,
 version/day/position values are positive, datetimes are UTC, itinerary items are
 typed, and decision `updated_at` is not earlier than `created_at`.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 
@@ -197,16 +197,16 @@ Run:
 
 Expected: FAIL because planner models do not exist.
 
-- [ ] **Step 3: Implement models**
+- [x] **Step 3: Implement models**
 
 Implement the dataclasses and enums using the validation style from
 `backend/workspaces/models.py` and `backend/conversations/models.py`.
 
-- [ ] **Step 4: Export contracts**
+- [x] **Step 4: Export contracts**
 
 Export stable domain classes and id helpers from `backend/planner/__init__.py`.
 
-- [ ] **Step 5: Run GREEN**
+- [x] **Step 5: Run GREEN**
 
 Run:
 
@@ -216,7 +216,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: model names, enum values, id prefixes, validation errors, and package
 exports.
