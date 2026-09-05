@@ -145,3 +145,4 @@ evidence.
 | 0005 | Conversation Orchestration Seam and Optional Chat Conversation Binding | Accepted | 2026-09-04 | [ADR 0005](./0005-conversation-orchestration-seam-and-optional-chat-binding.md) |
 | 0006 | Shadow Memory Candidate Store and Policy Boundary | Accepted | 2026-09-04 | [ADR 0006](./0006-shadow-memory-candidate-store-and-policy-boundary.md) |
 | 0007 | Feature-gated Memory Retrieval and Context Boundary | Accepted | 2026-09-05 | [ADR 0007](./0007-feature-gated-memory-retrieval-and-context-boundary.md) |
+| 0008 | Workspace-owned Planner State and Operation Log | Accepted | 2026-09-05 | [ADR 0008](./0008-workspace-owned-planner-state-and-operation-log.md) |
