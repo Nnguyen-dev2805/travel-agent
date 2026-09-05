@@ -25,6 +25,18 @@ from backend.planner.models import (
     generate_operation_id,
     require_text,
 )
+from backend.planner.repository import (
+    PlannerNotFoundError,
+    PlannerRepository,
+    PlannerRepositoryError,
+    PlannerStorageError,
+)
+from backend.planner.service import (
+    PlannerConflictError,
+    PlannerScopeMismatchError,
+    PlannerService,
+    PlannerServiceError,
+)
 
 __all__ = [
     "DECISION_ID_PREFIX",
@@ -36,9 +48,17 @@ __all__ = [
     "ItineraryItemType",
     "ItineraryStatus",
     "ItineraryVersion",
+    "PlannerNotFoundError",
     "PlannerOperation",
     "PlannerOperationStatus",
     "PlannerOperationType",
+    "PlannerConflictError",
+    "PlannerRepository",
+    "PlannerRepositoryError",
+    "PlannerScopeMismatchError",
+    "PlannerService",
+    "PlannerServiceError",
+    "PlannerStorageError",
     "PlannerValidationError",
     "TripDecision",
     "generate_decision_id",

@@ -236,7 +236,7 @@ or orchestration.
 - Produces: `PlannerRepository`, planner storage errors, and
   `SQLitePlannerRepository(db_path: Path | str)`.
 
-- [ ] **Step 1: Write failing repository tests**
+- [x] **Step 1: Write failing repository tests**
 
 Tests must cover schema registration, idempotent initialization, fail-closed
 schema mismatch, itinerary round trip, per-workspace contiguous version numbers,
@@ -244,7 +244,7 @@ accept supersession in the same workspace, archive transitions, decision
 round trip, replacement supersession, operation ordering, and cross-workspace
 not-found behavior.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 
@@ -254,23 +254,23 @@ Run:
 
 Expected: FAIL because repository code does not exist.
 
-- [ ] **Step 3: Implement repository protocol**
+- [x] **Step 3: Implement repository protocol**
 
 Define protocol methods with explicit tuple returns and no Pydantic dependency.
 
-- [ ] **Step 4: Implement SQLite schema**
+- [x] **Step 4: Implement SQLite schema**
 
 Create `planner_itinerary_versions`, `planner_trip_decisions`, and
 `planner_operations`. Store itinerary `items` as JSON through structured
 serialization from domain objects. Register `planner_state` through
 `register_module_schema`.
 
-- [ ] **Step 5: Implement atomic write helpers**
+- [x] **Step 5: Implement atomic write helpers**
 
 Use SQLite transactions for itinerary create, itinerary accept, itinerary
 archive, decision create/replacement, and decision status update.
 
-- [ ] **Step 6: Run GREEN**
+- [x] **Step 6: Run GREEN**
 
 Run:
 
@@ -280,7 +280,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 7: Review checkpoint**
+- [x] **Step 7: Review checkpoint**
 
 Review: SQL is isolated to `sqlite_repository.py`, schema version is
 `planner_state = 1`, temporary database tests cover failure and transaction
@@ -299,7 +299,7 @@ Expected: repository methods satisfy the protocol and keep workspace isolation.
   repository protocol, planner models.
 - Produces: `PlannerService` use cases named in the R7 spec.
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
 Use fakes for planner, workspace, and conversation repositories. Cover missing
 workspace, conversation mismatch, create itinerary next-version assignment,
@@ -307,7 +307,7 @@ accept supersession, archive conflicts, decision operation evidence,
 replacement supersession, invalid lifecycle transitions, and workspace-scoped
 list methods.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 
@@ -317,12 +317,12 @@ Run:
 
 Expected: FAIL because service code does not exist.
 
-- [ ] **Step 3: Implement service**
+- [x] **Step 3: Implement service**
 
 Keep validation and lifecycle decisions in `PlannerService`. Routes and SQLite
 serialization helpers must not decide business transitions.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run:
 
@@ -332,7 +332,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: every successful state-changing service method writes one operation row,
 invalid requests write no operation rows, and lifecycle transitions match the
