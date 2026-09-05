@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-09-05 |
 | Decision owners | Repository owner |
 | Scope | R8 local observability, readiness, diagnostic reports, structured event shape, and privacy-safe operational evidence |

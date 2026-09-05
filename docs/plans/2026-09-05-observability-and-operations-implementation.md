@@ -21,12 +21,12 @@ pytest, existing Markdown/JSON report style.
 
 | Field | Value |
 | --- | --- |
-| Status | In Review |
+| Status | Approved |
 | Plan version | 0.3 |
 | Date | 2026-09-05 |
-| Approved specification | Pending repository-owner approval of [Observability and Operations Design](../specs/2026-09-05-observability-and-operations-design.md), version 0.2 |
-| Governing ADRs | [ADR 0009](../adr/0009-privacy-safe-local-observability-boundary.md) (Proposed) |
-| Plan approval | Pending repository-owner approval |
+| Approved specification | [Observability and Operations Design](../specs/2026-09-05-observability-and-operations-design.md), version 0.2, approved by repository owner on 2026-09-05 |
+| Governing ADRs | [ADR 0009](../adr/0009-privacy-safe-local-observability-boundary.md) (Accepted) |
+| Plan approval | Approved by repository owner on 2026-09-05 |
 | Execution owner | Implementation worker agent in an isolated worktree |
 | Decision owner | Repository owner |
 | Scope | Runtime milestone R8 - observability contracts, request correlation, safe event logging, readiness diagnostics, ops API/CLI, deterministic operational evaluation, tests, reports, and docs |
@@ -132,7 +132,7 @@ Do not implement this plan until all are true:
 
 **Interfaces:**
 
-- Consumes: owner approvals for ADR 0009, R8 spec v0.2, and this plan v0.2.
+- Consumes: owner approvals for ADR 0009, R8 spec v0.2, and this plan v0.3.
 - Produces: implementation worktree with documented base commit and R8 plan
   state moved to `In Progress`.
 
@@ -155,7 +155,7 @@ Expected headers:
 ```text
 ADR 0009: Accepted
 R8 spec v0.2: Approved
-R8 plan v0.2: Approved
+R8 plan v0.3: Approved
 ```
 
 Stop if any value is missing.
@@ -864,7 +864,7 @@ because R8 adds no product data schema and no durable telemetry store.
 
 | Field | Value |
 | --- | --- |
-| Approval | Pending ADR 0009 acceptance, R8 spec v0.2 approval, and plan v0.2 approval |
+| Approval | ADR 0009 accepted, R8 spec v0.2 approved, and plan v0.3 approved by repository owner on 2026-09-05 |
 | Execution | Not started |
 | Verification | Not run |
 | Owner review | Pending |

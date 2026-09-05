@@ -146,4 +146,4 @@ evidence.
 | 0006 | Shadow Memory Candidate Store and Policy Boundary | Accepted | 2026-09-04 | [ADR 0006](./0006-shadow-memory-candidate-store-and-policy-boundary.md) |
 | 0007 | Feature-gated Memory Retrieval and Context Boundary | Accepted | 2026-09-05 | [ADR 0007](./0007-feature-gated-memory-retrieval-and-context-boundary.md) |
 | 0008 | Workspace-owned Planner State and Operation Log | Accepted | 2026-09-05 | [ADR 0008](./0008-workspace-owned-planner-state-and-operation-log.md) |
-| 0009 | Privacy-safe Local Observability Boundary | Proposed | 2026-09-05 | [ADR 0009](./0009-privacy-safe-local-observability-boundary.md) |
+| 0009 | Privacy-safe Local Observability Boundary | Accepted | 2026-09-05 | [ADR 0009](./0009-privacy-safe-local-observability-boundary.md) |

@@ -2,16 +2,16 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In Review |
+| Status | Approved |
 | Version | 0.2 |
 | Date | 2026-09-05 |
 | Change class | Level 3 - Architecture Design |
 | Decision owner | Repository owner |
 | Scope | Runtime milestone R8 - local privacy-safe observability contracts, request correlation, readiness diagnostics, operational evaluation, and runbook integration |
 | Parent design | [Architecture Baseline Design](./2026-08-31-architecture-baseline-design.md), version 0.1; [Operations and Security Design](./2026-08-31-operations-and-security-design.md), version 0.1; [Evaluation Protocols Design](./2026-08-31-evaluation-protocols-design.md), version 0.1 |
-| Depends on | `D6` accepted operations and security guidance; `R2` accepted evaluation harness vocabulary; `R6` delivered memory retrieval; `R7` delivered planner state on the active development branch at `57e70fe`; [ADR 0009](../adr/0009-privacy-safe-local-observability-boundary.md) (Proposed) |
-| Architecture approval | Pending repository-owner approval |
-| Implementation plan | [Observability and Operations Implementation Plan](../plans/2026-09-05-observability-and-operations-implementation.md), version 0.3 (In Review) |
+| Depends on | `D6` accepted operations and security guidance; `R2` accepted evaluation harness vocabulary; `R6` delivered memory retrieval; `R7` delivered planner state on the active development branch at `57e70fe`; [ADR 0009](../adr/0009-privacy-safe-local-observability-boundary.md) (Accepted) |
+| Architecture approval | Approved by repository owner on 2026-09-05 |
+| Implementation plan | [Observability and Operations Implementation Plan](../plans/2026-09-05-observability-and-operations-implementation.md), version 0.3 (Approved) |
 | Related issue | None - R8 documentation drafting was authorized by the repository owner in conversation on 2026-09-05 |
 | Superseded document | None |
 
@@ -491,4 +491,4 @@ the approved instrumentation surface.
 | Version | Decision owner | Date | Notes |
 | --- | --- | --- | --- |
 | 0.1 | Repository owner | 2026-09-05 | Drafted for R8 review. External review found false-positive verification commands, stale R7 delivery wording, missing R8/R9 scope transfer notes, missing `SECURITY.md` updates, and a middleware latency guardrail without evidence |
-| 0.2 | Repository owner | Pending | Addresses the R8 review feedback by tightening verification commands, marking R7 delivered locally, recording the narrow R9-adjacent prompt-log fix, keeping HTTP 500 body hardening out of scope, clarifying milestone-scoped ops evaluation, exposing `X-Request-ID`, and adding security/trust-boundary documentation requirements. Approval would authorize accepting ADR 0009 and preparing/approving the implementation plan. It would not authorize Git delivery, production deployment, external telemetry vendors, authentication, default public exposure, or frontend work |
+| 0.2 | Repository owner | 2026-09-05 | Addressed the R8 review feedback by tightening verification commands, marking R7 delivered locally, recording the narrow R9-adjacent prompt-log fix, keeping HTTP 500 body hardening out of scope, clarifying milestone-scoped ops evaluation, exposing `X-Request-ID`, and adding security/trust-boundary documentation requirements. Approval authorizes accepting ADR 0009 and approving the implementation plan. It does not authorize Git delivery, production deployment, external telemetry vendors, authentication, default public exposure, or frontend work |
