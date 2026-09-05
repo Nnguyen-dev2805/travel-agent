@@ -265,6 +265,8 @@ def promote_candidates(
     conversation_id: Optional[str] = Query(
         None, description="Promote only candidates for this conversation"
     ),
+    # Accepted but unread: the parameter exists so the schema rejects any
+    # caller-supplied field with 422. Promotion takes no per-request input.
     request: Optional[MemoryPromotionRequest] = None,
     service: MemoryService = Depends(get_memory_service),
 ) -> MemoryPromotionResultResponse:
@@ -273,7 +275,6 @@ def promote_candidates(
         result = service.promote_workspace(
             workspace_id=workspace_id,
             conversation_id=conversation_id,
-            trigger=MemoryExtractionTrigger.MANUAL,
         )
     except MemoryValidationError as error:
         logger.info("memory.promote rejected failure_class=validation")

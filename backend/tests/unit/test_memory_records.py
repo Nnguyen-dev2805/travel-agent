@@ -172,6 +172,7 @@ def test_governed_record_vocabularies():
         "provenance_unresolved",
         "reason_not_promotable",
         "duplicate_active_record",
+        "duplicate_superseded_record",
         "correction_supersedes_multiple",
     }
 
@@ -278,11 +279,13 @@ def test_promotion_result_carries_promoted_ids():
         promoted_count=1,
         skipped_count=0,
         skip_reasons=(),
+        multi_target_correction_count=0,
         promoted_memory_ids=("mem_one",),
         started_at=MOMENT,
         finished_at=MOMENT,
     )
     assert result.promoted_memory_ids == ("mem_one",)
+    assert result.multi_target_correction_count == 0
 
 
 def test_selection_score_must_be_finite_and_non_negative():

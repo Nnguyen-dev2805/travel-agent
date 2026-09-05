@@ -617,6 +617,12 @@ class PromotionSkipReason(str, Enum):
     PROVENANCE_UNRESOLVED = "provenance_unresolved"
     REASON_NOT_PROMOTABLE = "reason_not_promotable"
     DUPLICATE_ACTIVE_RECORD = "duplicate_active_record"
+    DUPLICATE_SUPERSEDED_RECORD = "duplicate_superseded_record"
+    # Legacy write-deprecated member: stored rows may still carry this value
+    # and must keep parsing, but promotion no longer emits it. A promoted
+    # multi-target correction reports its fan-out on
+    # `MemoryPromotionResult.multi_target_correction_count` instead, because a
+    # promoted candidate must never appear under a skip vocabulary.
     CORRECTION_SUPERSEDES_MULTIPLE = "correction_supersedes_multiple"
 
 
@@ -633,6 +639,32 @@ def generate_memory_promotion_run_id() -> str:
 def generate_memory_retrieval_trace_id() -> str:
     """Return a new opaque retrieval trace identifier with the governed prefix."""
     return f"{MEMORY_RETRIEVAL_TRACE_ID_PREFIX}{uuid.uuid4().hex}"
+
+
+@dataclass(frozen=True)
+class RetrievalScope:
+    """The owner, workspace, and conversation a retrieval turn resolves to.
+
+    The triple travels together through selection, scope matching, and gate
+    evidence so a fourth call site cannot transpose two identifiers.
+    """
+
+    owner_user_id: str
+    workspace_id: str
+    conversation_id: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "owner_user_id", require_text(self.owner_user_id, "owner_user_id")
+        )
+        object.__setattr__(
+            self, "workspace_id", require_text(self.workspace_id, "workspace_id")
+        )
+        object.__setattr__(
+            self,
+            "conversation_id",
+            require_text(self.conversation_id, "conversation_id"),
+        )
 
 
 def _require_score(value: Any, field_name: str) -> float:
@@ -774,6 +806,21 @@ class MemoryRecord:
             )
 
 
+def _validate_promotion_counts(
+    source: int, promoted: int, skipped: int
+) -> tuple[int, int, int]:
+    """Validate one promotion count triple shared by run and result."""
+    source = _require_count(source, "source_candidate_count")
+    promoted = _require_count(promoted, "promoted_count")
+    skipped = _require_count(skipped, "skipped_count")
+    if source != promoted + skipped:
+        raise MemoryValidationError(
+            "Memory field 'source_candidate_count' must equal "
+            "promoted_count + skipped_count."
+        )
+    return source, promoted, skipped
+
+
 @dataclass(frozen=True)
 class PromotionSkipCount:
     """One governed promotion outcome with its candidate count."""
@@ -823,9 +870,9 @@ class MemoryPromotionRun:
                 "conversation_id",
                 require_text(self.conversation_id, "conversation_id"),
             )
-        source = _require_count(self.source_candidate_count, "source_candidate_count")
-        promoted = _require_count(self.promoted_count, "promoted_count")
-        skipped = _require_count(self.skipped_count, "skipped_count")
+        source, promoted, skipped = _validate_promotion_counts(
+            self.source_candidate_count, self.promoted_count, self.skipped_count
+        )
         object.__setattr__(self, "source_candidate_count", source)
         object.__setattr__(self, "promoted_count", promoted)
         object.__setattr__(self, "skipped_count", skipped)
@@ -836,11 +883,6 @@ class MemoryPromotionRun:
                     "Memory field 'skip_reasons' must hold PromotionSkipCount entries."
                 )
         object.__setattr__(self, "skip_reasons", reasons)
-        if source != promoted + skipped:
-            raise MemoryValidationError(
-                "Memory field 'source_candidate_count' must equal "
-                "promoted_count + skipped_count."
-            )
         object.__setattr__(
             self, "started_at", _require_utc(self.started_at, "started_at")
         )
@@ -860,6 +902,7 @@ class MemoryPromotionResult:
     promoted_count: int
     skipped_count: int
     skip_reasons: tuple[PromotionSkipCount, ...]
+    multi_target_correction_count: int
     promoted_memory_ids: tuple[str, ...]
     started_at: datetime
     finished_at: datetime
@@ -883,9 +926,9 @@ class MemoryPromotionResult:
                 "conversation_id",
                 require_text(self.conversation_id, "conversation_id"),
             )
-        source = _require_count(self.source_candidate_count, "source_candidate_count")
-        promoted = _require_count(self.promoted_count, "promoted_count")
-        skipped = _require_count(self.skipped_count, "skipped_count")
+        source, promoted, skipped = _validate_promotion_counts(
+            self.source_candidate_count, self.promoted_count, self.skipped_count
+        )
         object.__setattr__(self, "source_candidate_count", source)
         object.__setattr__(self, "promoted_count", promoted)
         object.__setattr__(self, "skipped_count", skipped)
@@ -896,11 +939,13 @@ class MemoryPromotionResult:
                     "Memory field 'skip_reasons' must hold PromotionSkipCount entries."
                 )
         object.__setattr__(self, "skip_reasons", reasons)
-        if source != promoted + skipped:
-            raise MemoryValidationError(
-                "Memory field 'source_candidate_count' must equal "
-                "promoted_count + skipped_count."
-            )
+        object.__setattr__(
+            self,
+            "multi_target_correction_count",
+            _require_count(
+                self.multi_target_correction_count, "multi_target_correction_count"
+            ),
+        )
         promoted_ids = tuple(
             _require_identity(memory_id, "promoted_memory_ids", MEMORY_RECORD_ID_PREFIX)
             for memory_id in self.promoted_memory_ids

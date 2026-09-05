@@ -4,7 +4,7 @@
     "policy_id": "policy-v1"
   },
   "counts": {
-    "eligible_examples": 20,
+    "eligible_examples": 22,
     "invalid_examples": 0,
     "skipped_examples": 0
   },
@@ -13,22 +13,31 @@
     "dataset_role": "benchmark",
     "dataset_version": "0.1"
   },
-  "disabled_run_id": "r6-retrieval-v0.1-20260905T025818Z-disabled",
+  "disabled_run_id": "r6-retrieval-v0.1-20260905T083912Z-disabled",
   "enabled_trace_ids": [
-    "mtr_74f2e7c38d96494bb7b14a1c94e27210",
-    "mtr_d6eb8d9a44264b8d8ea303fb5762ed24",
-    "mtr_e5cf128a2c524742bae9f94925a1499b",
-    "mtr_bc59afa9a08845679b86899ae148ec91",
-    "mtr_7b4f68d2bd5d45a8afa92e95aa924952",
-    "mtr_ddeff557e0ce400fa46d4821c5b9f41b",
-    "mtr_f6a4eac4af524a82bcccbd9b05756df0",
-    "mtr_b6994418fa1b4fca97a0e8f34c486b9b",
-    "mtr_3cdbe40209044a8595cd1b61006f3f6d",
-    "mtr_4dcb9af1a5334975b846c27e936e56f3",
-    "mtr_a679aff0ea6443088f6260f6882cd592",
-    "mtr_0379b76e0c2848e1823aae56df511c5b",
-    "mtr_f64739f28a3a4da9be847d393121f25c"
+    "mtr_5c26a777009949dd8e5892b4807ce221",
+    "mtr_3479071939c34fa9895f2464d031959a",
+    "mtr_d37ca5154e0a443ab9ba2f75938ad4cb",
+    "mtr_62f0edf515af43fb8d87ead1185f8c46",
+    "mtr_9519d67a5aff4e41baa36ac22c746c23",
+    "mtr_f08ea8ec38b14bad9bac8eec9f04c5d7",
+    "mtr_d9fc060fe0b343e3aac574fe1d70f949",
+    "mtr_2df670750f9142a4b08d5fe32b8c7012",
+    "mtr_f0714deb41f645f9a9a482f6895db3a2",
+    "mtr_a2a73e3448134ef2ae57d94ca9b19088",
+    "mtr_96af52ce4d67488ca862f0a009c5a651",
+    "mtr_5efd78c4f793441f9aef6adcdb718a34",
+    "mtr_ecfbac2dd3424209816b7f7e00ec5829"
   ],
+  "environment": {
+    "dirty_working_tree": true,
+    "retrieval": {
+      "correction_bypass": true,
+      "max_selected_default": 5,
+      "min_confidence_default": 0.75,
+      "tokenizer": "unicode-word-lowercase"
+    }
+  },
   "hard_gates": [
     {
       "applicable": true,
@@ -66,96 +75,132 @@
       "actual": 0,
       "eligible_examples": 1,
       "expected": 0,
+      "hit_rate": null,
+      "irrelevant": null,
       "matched": 0,
       "precision": null,
+      "scope_accuracy": null,
       "slice": "ambiguous"
     },
     {
-      "actual": 3,
-      "eligible_examples": 3,
-      "expected": 3,
-      "matched": 3,
+      "actual": 7,
+      "eligible_examples": 5,
+      "expected": 7,
+      "hit_rate": 1.0,
+      "irrelevant": 0.0,
+      "matched": 7,
       "precision": 1.0,
+      "scope_accuracy": 1.0,
       "slice": "correction"
     },
     {
       "actual": 0,
       "eligible_examples": 3,
       "expected": 0,
+      "hit_rate": null,
+      "irrelevant": null,
       "matched": 0,
       "precision": null,
+      "scope_accuracy": null,
       "slice": "cross-scope"
     },
     {
       "actual": 0,
       "eligible_examples": 1,
       "expected": 0,
+      "hit_rate": null,
+      "irrelevant": null,
       "matched": 0,
       "precision": null,
+      "scope_accuracy": null,
       "slice": "deletion"
     },
     {
       "actual": 1,
       "eligible_examples": 1,
       "expected": 1,
+      "hit_rate": null,
+      "irrelevant": null,
       "matched": 1,
       "precision": 1.0,
+      "scope_accuracy": 1.0,
       "slice": "explicit-preference"
     },
     {
       "actual": 1,
       "eligible_examples": 1,
       "expected": 1,
+      "hit_rate": 1.0,
+      "irrelevant": 0.0,
       "matched": 1,
       "precision": 1.0,
+      "scope_accuracy": null,
       "slice": "inferred-preference"
     },
     {
       "actual": 1,
       "eligible_examples": 2,
       "expected": 1,
+      "hit_rate": 1.0,
+      "irrelevant": 0.0,
       "matched": 1,
       "precision": 1.0,
+      "scope_accuracy": null,
       "slice": "relevant-help"
     },
     {
       "actual": 0,
       "eligible_examples": 2,
       "expected": 0,
+      "hit_rate": null,
+      "irrelevant": null,
       "matched": 0,
       "precision": null,
+      "scope_accuracy": null,
       "slice": "secret-like"
     },
     {
       "actual": 0,
       "eligible_examples": 1,
       "expected": 0,
+      "hit_rate": null,
+      "irrelevant": null,
       "matched": 0,
       "precision": null,
+      "scope_accuracy": null,
       "slice": "staleness"
     },
     {
       "actual": 1,
       "eligible_examples": 2,
       "expected": 1,
+      "hit_rate": 1.0,
+      "irrelevant": 0.0,
       "matched": 1,
       "precision": 1.0,
+      "scope_accuracy": null,
       "slice": "transient"
     },
     {
       "actual": 1,
       "eligible_examples": 1,
       "expected": 1,
+      "hit_rate": 1.0,
+      "irrelevant": 0.0,
       "matched": 1,
       "precision": 1.0,
+      "scope_accuracy": null,
       "slice": "user-global"
     },
     {
       "actual": 2,
       "eligible_examples": 2,
       "expected": 2,
+      "hit_rate": 1.0,
+      "irrelevant": 0.0,
       "matched": 2,
       "precision": 1.0,
+      "scope_accuracy": 1.0,
       "slice": "workspace-decision"
     }
   ],
@@ -189,22 +234,23 @@
       "value": null
     },
     "promotion_precision": {
-      "denominator": 4,
+      "denominator": 8,
       "name": "promotion_precision",
-      "numerator": 4,
+      "numerator": 8,
       "threshold": ">= 0.97",
       "value": 1.0
     },
     "scope_accuracy": {
-      "denominator": 10,
+      "denominator": 8,
       "name": "scope_accuracy",
-      "numerator": 10,
+      "numerator": 8,
       "threshold": ">= 0.98",
       "value": 1.0
     }
   },
   "notes": [
     "R6 retrieval report: promotion, scope, retrieval, and lifecycle gates are measured end to end; answer-quality fields stay INCONCLUSIVE without a provider-backed judge, per the limitation accepted at R6 approval time.",
+    "The disabled branch executes the gate-off path over the identical query set, which selects nothing by definition; the paired comparison is enabled selections versus that empty baseline. No answer is generated on either branch without a provider.",
     "Cross-user isolation is measured by the local owner label, not authenticated identity, per the open R6/R9 ordering problem."
   ],
   "per_example": [
@@ -214,6 +260,12 @@
       "expected_total": 1,
       "failures": [],
       "matched": 1,
+      "selected_ids": [
+        "mem_80a154feffe841df84981db964821e27"
+      ],
+      "selection_reasons": [
+        "promoted"
+      ],
       "slice": "explicit-preference"
     },
     {
@@ -222,6 +274,12 @@
       "expected_total": 1,
       "failures": [],
       "matched": 1,
+      "selected_ids": [
+        "mem_6b89b6df949b4e36a3ee6cd02a980cda"
+      ],
+      "selection_reasons": [
+        "promoted"
+      ],
       "slice": "workspace-decision"
     },
     {
@@ -230,6 +288,12 @@
       "expected_total": 1,
       "failures": [],
       "matched": 1,
+      "selected_ids": [
+        "mem_9d85b1d79fa445fd8f912945d754dc81"
+      ],
+      "selection_reasons": [
+        "promoted"
+      ],
       "slice": "correction"
     },
     {
@@ -238,6 +302,8 @@
       "expected_total": 0,
       "failures": [],
       "matched": 0,
+      "selected_ids": [],
+      "selection_reasons": [],
       "slice": "ambiguous"
     },
     {
@@ -246,6 +312,8 @@
       "expected_total": 0,
       "failures": [],
       "matched": 0,
+      "selected_ids": [],
+      "selection_reasons": [],
       "slice": "secret-like"
     },
     {
@@ -254,6 +322,8 @@
       "expected_total": 0,
       "failures": [],
       "matched": 0,
+      "selected_ids": [],
+      "selection_reasons": [],
       "slice": "transient"
     },
     {
@@ -262,6 +332,44 @@
       "expected_total": 1,
       "failures": [],
       "matched": 1,
+      "selected_ids": [
+        "mem_e6ddbe762376454492191349f9413fee"
+      ],
+      "selection_reasons": [
+        "promoted"
+      ],
+      "slice": "correction"
+    },
+    {
+      "actual_total": 2,
+      "example_id": "r6p-sibling-001",
+      "expected_total": 2,
+      "failures": [],
+      "matched": 2,
+      "selected_ids": [
+        "mem_0e21aae7090748399efad47c9b7dcc4a",
+        "mem_51ca6f5c86e94979ab071d9b12696f2f"
+      ],
+      "selection_reasons": [
+        "promoted",
+        "promoted"
+      ],
+      "slice": "correction"
+    },
+    {
+      "actual_total": 2,
+      "example_id": "r6p-supersede-002",
+      "expected_total": 2,
+      "failures": [],
+      "matched": 2,
+      "selected_ids": [
+        "mem_ad5d6161b7f9405e93344878bb812dbb",
+        "mem_87d52d810dc14286b78c333534c90457"
+      ],
+      "selection_reasons": [
+        "promoted",
+        "promoted"
+      ],
       "slice": "correction"
     },
     {
@@ -270,6 +378,12 @@
       "expected_total": 1,
       "failures": [],
       "matched": 1,
+      "selected_ids": [
+        "mem_2ffb30abd9a24ab1b1f566fdf3e3a576"
+      ],
+      "selection_reasons": [
+        "lexical_match"
+      ],
       "slice": "user-global"
     },
     {
@@ -278,6 +392,12 @@
       "expected_total": 1,
       "failures": [],
       "matched": 1,
+      "selected_ids": [
+        "mem_105d898a4118455bb2ea94ca60f74c74"
+      ],
+      "selection_reasons": [
+        "lexical_match"
+      ],
       "slice": "workspace-decision"
     },
     {
@@ -286,6 +406,12 @@
       "expected_total": 1,
       "failures": [],
       "matched": 1,
+      "selected_ids": [
+        "mem_86534692e8ce428db23c83892f992b8f"
+      ],
+      "selection_reasons": [
+        "lexical_match"
+      ],
       "slice": "inferred-preference"
     },
     {
@@ -294,6 +420,12 @@
       "expected_total": 1,
       "failures": [],
       "matched": 1,
+      "selected_ids": [
+        "mem_3b0a6e8e1392412896195c7bf7cdaf00"
+      ],
+      "selection_reasons": [
+        "lexical_match"
+      ],
       "slice": "transient"
     },
     {
@@ -302,6 +434,12 @@
       "expected_total": 1,
       "failures": [],
       "matched": 1,
+      "selected_ids": [
+        "mem_24afd663080f4cd880d06bfb552ee797"
+      ],
+      "selection_reasons": [
+        "active_correction"
+      ],
       "slice": "correction"
     },
     {
@@ -310,6 +448,8 @@
       "expected_total": 0,
       "failures": [],
       "matched": 0,
+      "selected_ids": [],
+      "selection_reasons": [],
       "slice": "deletion"
     },
     {
@@ -318,6 +458,8 @@
       "expected_total": 0,
       "failures": [],
       "matched": 0,
+      "selected_ids": [],
+      "selection_reasons": [],
       "slice": "staleness"
     },
     {
@@ -326,6 +468,8 @@
       "expected_total": 0,
       "failures": [],
       "matched": 0,
+      "selected_ids": [],
+      "selection_reasons": [],
       "slice": "cross-scope"
     },
     {
@@ -334,6 +478,8 @@
       "expected_total": 0,
       "failures": [],
       "matched": 0,
+      "selected_ids": [],
+      "selection_reasons": [],
       "slice": "cross-scope"
     },
     {
@@ -342,6 +488,8 @@
       "expected_total": 0,
       "failures": [],
       "matched": 0,
+      "selected_ids": [],
+      "selection_reasons": [],
       "slice": "cross-scope"
     },
     {
@@ -350,6 +498,8 @@
       "expected_total": 0,
       "failures": [],
       "matched": 0,
+      "selected_ids": [],
+      "selection_reasons": [],
       "slice": "secret-like"
     },
     {
@@ -358,6 +508,8 @@
       "expected_total": 0,
       "failures": [],
       "matched": 0,
+      "selected_ids": [],
+      "selection_reasons": [],
       "slice": "relevant-help"
     },
     {
@@ -366,9 +518,15 @@
       "expected_total": 1,
       "failures": [],
       "matched": 1,
+      "selected_ids": [
+        "mem_c56d18a1b2fc4a72aa231da6a25cb179"
+      ],
+      "selection_reasons": [
+        "lexical_match"
+      ],
       "slice": "relevant-help"
     }
   ],
-  "report_id": "r6-retrieval-v0.1-20260905T025818Z",
+  "report_id": "r6-retrieval-v0.1-20260905T083912Z",
   "result_state": "PASS"
 }

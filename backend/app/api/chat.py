@@ -28,7 +28,10 @@ from backend.conversations.service import ConversationNotFoundError
 from backend.memory.repository import MemoryRepositoryError
 from backend.memory.retrieval import MemoryRetrievalService
 from backend.memory.sqlite_repository import SQLiteMemoryRepository
-from backend.orchestration.conversation_orchestrator import ConversationOrchestrator
+from backend.orchestration.conversation_orchestrator import (
+    ConversationOrchestrator,
+    MemoryComponents,
+)
 from backend.rag.generation import RAGService
 from backend.workspaces.repository import WorkspaceRepositoryError
 from backend.workspaces.sqlite_repository import SQLiteWorkspaceRepository
@@ -82,9 +85,11 @@ def get_memory_components():
             return None
         return workspace.owner_user_id if workspace is not None else None
 
-    return (
-        MemoryRetrievalService(memory, max_selected=settings.MEMORY_MAX_SELECTED),
-        resolve_owner,
+    return MemoryComponents(
+        retrieval_service=MemoryRetrievalService(
+            memory, max_selected=settings.MEMORY_MAX_SELECTED
+        ),
+        resolve_owner=resolve_owner,
     )
 
 
@@ -137,9 +142,11 @@ def chat_endpoint(
         memory = (
             ChatMemoryPayload(
                 enabled=outcome.memory.enabled,
-                status=outcome.memory.status,
+                status=outcome.memory.status.value,
                 selected_memory_ids=list(outcome.memory.selected_memory_ids),
-                selection_reasons=list(outcome.memory.selection_reasons),
+                selection_reasons=[
+                    reason.value for reason in outcome.memory.selection_reasons
+                ],
             )
             if outcome.memory is not None
             else None

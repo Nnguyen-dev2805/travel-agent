@@ -229,7 +229,7 @@ not be exposed publicly.
 | Caller to memory routes | Memory routes are unauthenticated and inherit workspace scope through the parent conversation. The trigger route always creates a `manual` run and rejects any caller-supplied `trigger`. These routes must not be exposed publicly |
 | Memory candidate evidence to callers and reports | Candidate `text` is excluded from HTTP responses; reports carry identifiers, counts, controlled reason codes, and redacted summaries only. Secret-like spans are redacted before persistence, and raw message content is never logged |
 | Feature-gated memory answers | Memory records enter prompts only for bound turns with the gate enabled; memory is never a citation, the public request carries no memory toggle, and selected IDs/reasons travel in controlled trace metadata only |
-| Local process to model provider | User message and retrieved travel context leave the local process for the configured external model endpoint |
+| Local process to model provider | User message, retrieved travel context, and — only for gate-enabled bound turns — selected memory record text leave the local process for the configured external model endpoint |
 | Local files, model cache, and vector store | Data, Chroma state, and model cache are local development assets, not isolated production stores |
 | Local application database | The SQLite file at `APP_DB_PATH` holds user-entered trip content and full message content as local development state, with no production retention, backup, restore, or deletion contract |
 | Retrieved travel content to prompt | Retrieved text is untrusted data and should not be treated as an instruction source |

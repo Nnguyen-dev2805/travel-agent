@@ -38,8 +38,10 @@ from backend.memory.models import (
     MemoryRecord,
     MemoryRecordScope,
     MemoryRecordStatus,
+    MemoryRecordType,
     MemoryRunStatus,
     MemorySourceMessage,
+    MemoryType,
     MemoryValidationError,
     PromotionSkipCount,
     PromotionSkipReason,
@@ -230,64 +232,57 @@ class MemoryService:
         )
         return persisted
 
-    def promote_workspace(
-        self,
-        workspace_id: str,
-        conversation_id: Optional[str] = None,
-        trigger: MemoryExtractionTrigger | str = MemoryExtractionTrigger.MANUAL,
-    ) -> MemoryPromotionResult:
-        """Promote eligible shadow candidates into answer-eligible records.
+    def _message_time(self, message_id: str, cache: dict):
+        """Return one source message's creation time, cached per promotion run.
 
-        Every candidate in scope is assessed; ineligible ones contribute
-        controlled skip reasons and write nothing. Promoted corrections
-        suppress their supersession targets, which the repository flips to
-        `superseded` in the same use case.
-
-        Raises:
-            MemoryValidationError: An identifier is blank or the trigger is
-                ungoverned.
-            WorkspaceNotFoundError: The workspace does not exist.
-            ConversationNotFoundError: The conversation does not exist.
-            MemoryScopeMismatchError: The conversation belongs elsewhere.
-            MemoryServiceError: Storage failed.
+        Only the timestamp leaves this method. The promotion policy must not
+        hold user message content, and one run commonly reaches the same
+        message from several candidates and records, so the cache also keeps
+        promotion to one read per message instead of one per reference.
         """
-        workspace_id = require_text(workspace_id, "workspace_id")
-        if conversation_id is not None:
-            conversation_id = require_text(conversation_id, "conversation_id")
-        resolved_trigger = self._coerce_trigger(trigger)
-        self._require_scope(workspace_id, conversation_id)
+        if message_id not in cache:
+            message = self._conversations.get_message(message_id)
+            cache[message_id] = message.created_at if message is not None else None
+        return cache[message_id]
 
-        workspace = self._workspaces.get(workspace_id)
-        assert workspace is not None  # checked by _require_scope
-        candidates = self._memory.list_candidates(
-            workspace_id=workspace_id, conversation_id=conversation_id
-        )
-        active_records = self._memory.list_records(
-            owner_user_id=workspace.owner_user_id,
-            status=MemoryRecordStatus.ACTIVE,
-        )
+    def _record_source_times(self, records, cache: dict) -> dict:
+        """Map source message ids to the times that order records by intent.
 
-        started_at = utc_now()
-        assessments = []
-        for candidate in candidates:
-            conversation = self._conversations.get(candidate.conversation_id)
-            message_exists = (
-                self._conversations.get_message(candidate.source_message_id) is not None
+        Falls back to record creation time when a source message cannot be
+        resolved; messages are never deleted in R6, so the fallback is
+        defensive rather than routine. Keying by source message (not record
+        id) keeps records created in this same run orderable by user intent.
+        """
+        times = {}
+        for record in records:
+            moment = self._message_time(record.source_message_id, cache)
+            times[record.source_message_id] = (
+                moment if moment is not None else record.created_at
             )
-            assessments.append(
-                self._promotion.assess(
-                    candidate,
-                    workspace=workspace,
-                    conversation=conversation,
-                    message_exists=message_exists,
-                    active_records=active_records,
-                )
-            )
+        return times
 
-        moment = utc_now()
-        created: list[MemoryRecord] = []
-        supersede_ids: list[str] = []
-        multi_target_corrections = 0
+    def _assess_candidate(
+        self,
+        candidate,
+        workspace,
+        active_records,
+        known_records,
+        record_source_times,
+        cache,
+    ):
+        return self._promotion.assess(
+            candidate,
+            workspace=workspace,
+            conversation=self._conversations.get(candidate.conversation_id),
+            message_created_at=self._message_time(candidate.source_message_id, cache),
+            active_records=active_records,
+            record_source_times=record_source_times,
+            known_records=known_records,
+        )
+
+    def _build_promoted_records(self, candidates, assessments, workspace, moment):
+        """Build records for promoted candidates; the caller persists them."""
+        created = []
         for candidate, assessment in zip(candidates, assessments):
             if assessment.outcome is not PromotionSkipReason.PROMOTED:
                 continue
@@ -303,7 +298,7 @@ class MemoryService:
                     owner_user_id=workspace.owner_user_id,
                     scope=MemoryRecordScope(candidate.proposed_scope.value),
                     scope_id=assessment.scope_id,
-                    memory_type=candidate.proposed_type.value,  # type: ignore[arg-type]
+                    memory_type=MemoryRecordType(candidate.proposed_type.value),
                     status=MemoryRecordStatus.ACTIVE,
                     text=candidate.text,
                     confidence=candidate.confidence,
@@ -318,6 +313,108 @@ class MemoryService:
                     expires_at=None,
                 )
             )
+        return created
+
+    def promote_workspace(
+        self,
+        workspace_id: str,
+        conversation_id: Optional[str] = None,
+    ) -> MemoryPromotionResult:
+        """Promote eligible shadow candidates into answer-eligible records.
+
+        Every candidate in scope is assessed; ineligible ones contribute
+        controlled skip reasons and write nothing. Non-correction candidates
+        promote first so a same-run correction observes them as supersession
+        targets; promoted corrections then suppress their targets, which the
+        repository flips to `superseded` in the same use case. A correction
+        never suppresses a sibling extracted from its own source message,
+        because one utterance carries one intent.
+
+        Raises:
+            MemoryValidationError: An identifier is blank.
+            WorkspaceNotFoundError: The workspace does not exist.
+            ConversationNotFoundError: The conversation does not exist.
+            MemoryScopeMismatchError: The conversation belongs elsewhere.
+            MemoryServiceError: Storage failed.
+        """
+        workspace_id = require_text(workspace_id, "workspace_id")
+        if conversation_id is not None:
+            conversation_id = require_text(conversation_id, "conversation_id")
+        self._require_scope(workspace_id, conversation_id)
+
+        workspace = self._workspaces.get(workspace_id)
+        assert workspace is not None  # checked by _require_scope
+        candidates = self._memory.list_candidates(
+            workspace_id=workspace_id, conversation_id=conversation_id
+        )
+        stored_records = self._memory.list_records(
+            owner_user_id=workspace.owner_user_id,
+        )
+        stored_active = tuple(
+            record
+            for record in stored_records
+            if record.status is MemoryRecordStatus.ACTIVE
+        )
+        started_at = utc_now()
+        message_times: dict = {}
+        for candidate in candidates:
+            self._message_time(candidate.source_message_id, message_times)
+        record_source_times = self._record_source_times(stored_active, message_times)
+        ordered = sorted(
+            candidates,
+            key=lambda item: (
+                item.created_at,
+                item.source_sequence,
+                item.candidate_id,
+            ),
+        )
+        plain = [
+            item for item in ordered if item.proposed_type is not MemoryType.CORRECTION
+        ]
+        corrections = [
+            item for item in ordered if item.proposed_type is MemoryType.CORRECTION
+        ]
+        assessments = [
+            self._assess_candidate(
+                item,
+                workspace,
+                stored_active,
+                stored_records,
+                record_source_times,
+                message_times,
+            )
+            for item in plain
+        ]
+        created = self._build_promoted_records(
+            plain, assessments, workspace, started_at
+        )
+        active_records = list(stored_active) + list(created)
+        known_records = list(stored_records) + list(created)
+        for item in created:
+            source_time = message_times.get(item.source_message_id)
+            if source_time is not None:
+                record_source_times[item.source_message_id] = source_time
+        correction_assessments = [
+            self._assess_candidate(
+                item,
+                workspace,
+                active_records,
+                known_records,
+                record_source_times,
+                message_times,
+            )
+            for item in corrections
+        ]
+        created.extend(
+            self._build_promoted_records(
+                corrections, correction_assessments, workspace, started_at
+            )
+        )
+        assessments.extend(correction_assessments)
+
+        supersede_ids: list[str] = []
+        multi_target_corrections = 0
+        for assessment in assessments:
             supersede_ids.extend(assessment.superseded_ids)
             if len(assessment.superseded_ids) > 1:
                 multi_target_corrections += 1
@@ -325,16 +422,15 @@ class MemoryService:
         if supersede_ids:
             self._memory.mark_records_superseded(supersede_ids)
 
+        # Only non-promoted assessments contribute skip reasons, so the
+        # reason counts always reconcile with `skipped_count`. A promoted
+        # multi-target correction reports its fan-out on the result instead.
         skip_counter: dict[PromotionSkipReason, int] = {}
         for assessment in assessments:
             if assessment.outcome is PromotionSkipReason.PROMOTED:
                 continue
             skip_counter[assessment.outcome] = (
                 skip_counter.get(assessment.outcome, 0) + 1
-            )
-        if multi_target_corrections:
-            skip_counter[PromotionSkipReason.CORRECTION_SUPERSEDES_MULTIPLE] = (
-                multi_target_corrections
             )
         skip_reasons = tuple(
             PromotionSkipCount(reason, skip_counter[reason])
@@ -368,6 +464,7 @@ class MemoryService:
             promoted_count=len(persisted_records),
             skipped_count=len(candidates) - len(persisted_records),
             skip_reasons=skip_reasons,
+            multi_target_correction_count=multi_target_corrections,
             promoted_memory_ids=tuple(record.memory_id for record in persisted_records),
             started_at=persisted_run.started_at,
             finished_at=persisted_run.finished_at,

@@ -36,13 +36,27 @@ from __future__ import annotations
 import dataclasses
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+)
 
 from backend.conversations.models import MessageRole, MessageSource
 from backend.conversations.repository import ConversationRepositoryError
-from backend.memory.models import MemorySelectionStatus
+from backend.memory.models import MemorySelectionReason, MemorySelectionStatus
 from backend.memory.repository import MemoryRepositoryError
-from backend.orchestration.memory_context import compose_memory_section
+from backend.memory.retrieval import MEMORY_MAX_SELECTED
+from backend.memory.service import MemoryServiceError
+from backend.orchestration.memory_context import (
+    compose_memory_section,
+    compose_turn_context,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from backend.conversations.service import ConversationService
@@ -73,19 +87,26 @@ class TurnPersistence:
     persisted: bool
 
 
+class MemoryComponents(NamedTuple):
+    """Resolved memory collaborators for one gate-enabled bound turn."""
+
+    retrieval_service: Any
+    resolve_owner: Callable[[str], Optional[str]]
+
+
 @dataclass(frozen=True)
 class TurnMemory:
     """What feature-gated memory retrieval decided for one bound turn.
 
     `None` on the outcome means memory was not in play at all: the turn was
     unbound or the gate was disabled. A present value carries controlled
-    identifiers and reasons only, never memory text.
+    identifiers and governed reasons only, never memory text.
     """
 
     enabled: bool
-    status: str
+    status: MemorySelectionStatus
     selected_memory_ids: Tuple[str, ...]
-    selection_reasons: Tuple[str, ...]
+    selection_reasons: Tuple[MemorySelectionReason, ...]
 
 
 @dataclass(frozen=True)
@@ -114,8 +135,8 @@ class ConversationOrchestrator:
         conversation_service_provider: Callable[[], "ConversationService"],
         top_k: int = DEFAULT_TOP_K,
         memory_enabled: bool = False,
-        memory_provider: Optional[Callable[[], Tuple[Any, Any]]] = None,
-        max_selected: int = 5,
+        memory_provider: Optional[Callable[[], Optional[MemoryComponents]]] = None,
+        max_selected: int = MEMORY_MAX_SELECTED,
     ) -> None:
         self._rag_service = rag_service
         self._conversation_service_provider = conversation_service_provider
@@ -230,7 +251,11 @@ class ConversationOrchestrator:
         """
         try:
             selections = self._select_memories(message, conversations, conversation_id)
-        except (MemoryRepositoryError, ConversationRepositoryError) as error:
+        except (
+            MemoryRepositoryError,
+            ConversationRepositoryError,
+            MemoryServiceError,
+        ) as error:
             logger.error(
                 "chat.turn memory_skipped conversation_id=%s failure_class=%s",
                 conversation_id,
@@ -238,7 +263,7 @@ class ConversationOrchestrator:
             )
             return self._generate(message), TurnMemory(
                 enabled=True,
-                status=MemorySelectionStatus.SKIPPED.value,
+                status=MemorySelectionStatus.SKIPPED,
                 selected_memory_ids=(),
                 selection_reasons=(),
             )
@@ -247,14 +272,15 @@ class ConversationOrchestrator:
         if not section:
             return self._generate(message), TurnMemory(
                 enabled=True,
-                status=MemorySelectionStatus.NONE_SELECTED.value,
+                status=MemorySelectionStatus.NONE_SELECTED,
                 selected_memory_ids=(),
                 selection_reasons=(),
             )
 
         bundle = self._rag_service.build_travel_context(message, top_k=self._top_k)
         composed = dataclasses.replace(
-            bundle, prompt_context=f"{section}\n\n{bundle.prompt_context}"
+            bundle,
+            prompt_context=compose_turn_context(bundle.prompt_context, selections),
         )
         generated = self._rag_service.generate_from_context(message, composed)
         logger.info(
@@ -264,21 +290,21 @@ class ConversationOrchestrator:
         )
         return generated, TurnMemory(
             enabled=True,
-            status=MemorySelectionStatus.SELECTED.value,
+            status=MemorySelectionStatus.SELECTED,
             selected_memory_ids=tuple(selection.memory_id for selection in selections),
-            selection_reasons=tuple(selection.reason.value for selection in selections),
+            selection_reasons=tuple(selection.reason for selection in selections),
         )
 
     def _select_memories(
         self, message: str, conversations: Any, conversation_id: str
     ) -> Tuple[Any, ...]:
         if self._memory_provider is None:
-            raise MemoryRepositoryError(
+            raise MemoryServiceError(
                 "Memory retrieval is enabled without a memory provider."
             )
         components = self._memory_provider()
         if components is None:
-            raise MemoryRepositoryError(
+            raise MemoryServiceError(
                 "Memory retrieval components could not be resolved."
             )
         retrieval_service, resolve_owner = components

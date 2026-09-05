@@ -740,6 +740,35 @@ class SQLiteMemoryRepository:
 
         return run
 
+    def list_promotion_runs(
+        self,
+        workspace_id: str | None = None,
+        conversation_id: str | None = None,
+    ) -> tuple[MemoryPromotionRun, ...]:
+        """Return promotion runs for the supplied filters, newest first."""
+        query = f"SELECT {_PROMOTION_RUN_COLUMNS} FROM {PROMOTION_RUN_TABLE} "
+        params: tuple[Any, ...] = ()
+        clauses: list[str] = []
+        if workspace_id is not None:
+            clauses.append("workspace_id = ?")
+            params += (workspace_id,)
+        if conversation_id is not None:
+            clauses.append("conversation_id = ?")
+            params += (conversation_id,)
+        if clauses:
+            query += "WHERE " + " AND ".join(clauses) + " "
+        query += "ORDER BY started_at DESC, promotion_run_id ASC"
+
+        connection = self._connect()
+        try:
+            rows = connection.execute(query, params).fetchall()
+        except sqlite3.Error as error:
+            raise MemoryStorageError("Could not list memory promotion runs.") from error
+        finally:
+            connection.close()
+
+        return tuple(self._row_to_promotion_run(row) for row in rows)
+
     def create_records(
         self, records: Sequence[MemoryRecord]
     ) -> tuple[MemoryRecord, ...]:

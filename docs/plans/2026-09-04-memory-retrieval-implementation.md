@@ -18,14 +18,14 @@ RAGService seam. `backend/rag` remains independent from `backend.memory`.
 `sqlite3`, pytest, Markdown, existing shared schema registry, existing backend
 test layout.
 
-**Spec:** [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.1 (Approved)
+**Spec:** [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.2 (Approved)
 
 | Field | Value |
 | --- | --- |
 | Status | In Progress |
 | Plan version | 0.1 |
 | Date | 2026-09-04 |
-| Approved specification | [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.1 (Approved 2026-09-05) |
+| Approved specification | [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.2 (0.1 approved 2026-09-05; the correction-supersession age-key amendment approved 2026-09-06) |
 | Governing ADRs | [ADR 0007](../adr/0007-feature-gated-memory-retrieval-and-context-boundary.md) (Accepted 2026-09-05) |
 | Plan approval | Repository owner approved implementation plan version 0.1 in conversation on 2026-09-05, together with approval of R6 spec version 0.1 and acceptance of ADR 0007 |
 | Execution owner | Implementation worker agent in an isolated worktree |
@@ -79,6 +79,7 @@ test layout.
 | File | Responsibility | Depends on |
 | --- | --- | --- |
 | `backend/memory/models.py` | Add R6 memory record, promotion, retrieval, and trace contracts while preserving R5 candidate contracts | R5 implementation, R6 spec |
+| `backend/memory/__init__.py` | Export stable R6 contracts alongside unchanged R5 exports, following the R5 package pattern | Memory modules |
 | `backend/memory/repository.py` | Add memory record, promotion run, and retrieval event repository protocols | Memory models |
 | `backend/memory/sqlite_repository.py` | Add `memory_records` schema module version 1 tables and queries while preserving R5 `memory` schema version 1 | Shared schema registry, R5 memory schema |
 | `backend/memory/promotion.py` | Candidate-to-record eligibility, duplicate detection, and skip reasons | Memory repository, R5 candidates |
@@ -95,6 +96,7 @@ test layout.
 | `backend/memory/evaluation/models.py` | R6 retrieval and A/B report value objects | Memory evaluation protocol |
 | `backend/memory/evaluation/runner.py` | Paired memory-disabled and memory-enabled evaluation runner | Memory service, deterministic fakes |
 | `backend/memory/evaluation/cli.py` | R6 memory evaluation command | Evaluation runner |
+| `backend/memory/evaluation/__init__.py` | Export stable R6 evaluation entry points, following the R5 package pattern | Memory evaluation modules |
 | `backend/tests/unit/test_memory_records.py` | Memory record and trace model tests | Memory models |
 | `backend/tests/unit/test_memory_promotion.py` | Promotion eligibility and skip reason tests | Promotion |
 | `backend/tests/unit/test_memory_retrieval.py` | Scope, lifecycle, correction, and ranking tests | Retrieval |
@@ -146,7 +148,7 @@ trust this table alone; it records the state at approval time.
 | R5 delivery | Delivered or owner-accepted on the integration base | Delivered at `89496eb` on `feature/agent-memory` |
 | R5 report | Exists and is not `FAIL` or `INVALID` | `docs/reports/memory/r5-shadow-v0.1.md` is `PASS` |
 | ADR 0007 | `Accepted` | Accepted 2026-09-05 |
-| R6 spec | `Approved` | Approved 2026-09-05, version 0.1 |
+| R6 spec | `Approved` | Approved 2026-09-05, version 0.1; age-key amendment approved 2026-09-06, version 0.2 |
 | This plan | `Approved` | Approved 2026-09-05, version 0.1 |
 
 Stop before source edits if any gate no longer holds.
@@ -686,6 +688,26 @@ left unchecked: it requires repository-owner review acceptance first. No
 `code-reviewer` subagent exists in this runtime, so review below is
 implementer self-review against the spec/plan checklists plus fresh
 verification; the owner review carries acceptance.
+
+Owner review round (2026-09-05) returned three P1, two P2, and standards
+findings against the Task 1-8 change set; all were fixed in this worktree
+without a plan change except one flagged spec sentence. P1a: same-run
+correction supersession never fired (snapshot + wall-clock age key), fixed
+with two-pass promotion and message-time age keys plus same-run and
+reverse-direction regression tests. P1b: `disabled_run_id` was a bare label;
+the disabled branch is now documented as the gate-off path over identical
+queries, and `decide` reads win-rate/delta evidence when present. P1c: PASS
+with unevaluated answer quality is now explicit decide behavior carrying the
+approval-time limitation. P2: per-example selected IDs/reasons recorded,
+scope accuracy restricted to service-produced records, correction gate
+rationale kept. Standards: egress boundary row updated, prompt shape moved
+into the composer, settings pinned to domain constants by test, duplicate
+computations and shared count validation deduplicated, `RetrievalScope`
+value object threaded through selection and gates, enums replace raw-string
+comparisons, provider typed as `MemoryComponents`, `list_promotion_runs`
+added, promotion `trigger` parameter removed. One approved-spec sentence
+(the supersession age-key definition) was amended to source-message times
+and needs explicit owner approval.
 
 ## Package Verification
 

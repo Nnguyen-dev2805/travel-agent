@@ -322,6 +322,24 @@ def test_create_promotion_run_roundtrip_with_skip_reasons(
     }
 
 
+def test_list_promotion_runs_returns_newest_first(
+    repository: SQLiteMemoryRepository,
+):
+    first = _promotion_run()
+    second = _promotion_run(
+        promotion_run_id=generate_memory_promotion_run_id(),
+        started_at=MOMENT + timedelta(hours=1),
+        finished_at=MOMENT + timedelta(hours=1),
+    )
+    repository.create_promotion_run(first)
+    repository.create_promotion_run(second)
+    assert repository.list_promotion_runs(workspace_id="tw_example") == (
+        second,
+        first,
+    )
+    assert repository.list_promotion_runs(workspace_id="tw_other") == ()
+
+
 def test_write_and_list_retrieval_events(repository: SQLiteMemoryRepository):
     first = _trace()
     second = _trace(

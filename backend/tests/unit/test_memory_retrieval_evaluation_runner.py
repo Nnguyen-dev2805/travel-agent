@@ -9,6 +9,7 @@ No test here touches a model provider, Chroma, Docker, or the network.
 """
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -17,8 +18,17 @@ from backend.memory.evaluation.cli import main as cli_main
 from backend.memory.evaluation.models import MemoryEvaluationResult
 from backend.memory.evaluation.runner import (
     MemoryEvaluationError,
+    _run_promoted_records,
     decide_retrieval_result,
     run_retrieval_evaluation,
+)
+from backend.memory.models import (
+    MemoryRecord,
+    MemoryRecordScope,
+    MemoryRecordStatus,
+    MemoryRecordType,
+    SensitivityLabel,
+    generate_memory_record_id,
 )
 
 PREFERENCE_MESSAGE = "Tôi ăn chay trường, hãy nhớ giúp tôi."
@@ -148,6 +158,61 @@ def test_hard_gate_event_dominates_passing_metrics():
     )
 
 
+def test_measured_win_rate_below_threshold_fails():
+    assert (
+        decide_retrieval_result(
+            invalid_examples=0,
+            hard_gate_events=0,
+            promotion_precision=1.0,
+            scope_accuracy=1.0,
+            hit_at_5=1.0,
+            irrelevant_rate=0.0,
+            personalization_win_rate=0.4,
+            constraint_delta=0.1,
+            slice_precisions=[1.0],
+        )
+        is MemoryEvaluationResult.FAIL
+    )
+
+
+def test_negative_constraint_delta_fails():
+    assert (
+        decide_retrieval_result(
+            invalid_examples=0,
+            hard_gate_events=0,
+            promotion_precision=1.0,
+            scope_accuracy=1.0,
+            hit_at_5=1.0,
+            irrelevant_rate=0.0,
+            personalization_win_rate=0.8,
+            constraint_delta=-0.05,
+            slice_precisions=[1.0],
+        )
+        is MemoryEvaluationResult.FAIL
+    )
+
+
+def test_per_example_evidence_carries_selected_ids_and_reasons(tmp_path: Path):
+    manifest = _write_suite(tmp_path, [_retrieval_example()])
+    report = run_retrieval_evaluation(manifest, tmp_path / "out")
+    (example,) = report.examples
+    assert len(example.selected_ids) == 1
+    assert example.selected_ids[0].startswith("mem_")
+    assert list(example.selection_reasons) == ["lexical_match"]
+
+
+def test_slices_carry_hit_rate_and_environment_is_recorded(tmp_path: Path):
+    manifest = _write_suite(tmp_path, [_retrieval_example()])
+    out_dir = tmp_path / "out"
+    report = run_retrieval_evaluation(manifest, out_dir)
+    assert report.slices[0].hit_rate == 1.0
+    payload = json.loads((out_dir / "r6-test.json").read_text(encoding="utf-8"))
+    assert "dirty_working_tree" in payload["environment"]
+    assert "retrieval" in payload["environment"]
+    assert payload["mandatory_slices"][0]["hit_rate"] == 1.0
+    assert payload["per_example"][0]["selected_ids"] != []
+
+
 def test_missing_evidence_does_not_mask_quality_failure():
     assert (
         decide_retrieval_result(
@@ -242,3 +307,41 @@ def test_cli_run_retrieval_writes_reports(tmp_path: Path):
     )
     payload = json.loads((out_dir / "r6-test.json").read_text(encoding="utf-8"))
     assert payload["result_state"] == "PASS"
+
+
+def _scored_record(memory_id, created_at, **overrides):
+    payload = {
+        "memory_id": memory_id,
+        "source_candidate_id": "mc_probe",
+        "workspace_id": "tw_probe",
+        "conversation_id": "cv_probe",
+        "source_message_id": "ms_probe",
+        "source_sequence": 1,
+        "owner_user_id": "local-user",
+        "scope": MemoryRecordScope.USER,
+        "scope_id": "local-user",
+        "memory_type": MemoryRecordType.PREFERENCE,
+        "status": MemoryRecordStatus.ACTIVE,
+        "text": "Người dùng ăn chay trường.",
+        "confidence": 0.8,
+        "sensitivity_label": SensitivityLabel.NONE,
+        "supersedes_memory_id": None,
+        "created_at": created_at,
+        "updated_at": created_at,
+        "expires_at": None,
+    }
+    payload.update(overrides)
+    return MemoryRecord(**payload)
+
+
+def test_run_records_follow_promoted_ids_not_timestamps():
+    # A frozen or coarse clock can stamp a run record at or before the run
+    # start, so attribution must follow the promoted ids the use case
+    # returns, never a timestamp comparison.
+    moment = datetime(2026, 9, 6, 12, 0, 0, tzinfo=timezone.utc)
+    promoted = _scored_record("mem_promoted", moment - timedelta(seconds=1))
+    other = _scored_record("mem_other", moment + timedelta(seconds=1))
+
+    selected = _run_promoted_records([other, promoted], ("mem_promoted",))
+
+    assert [record.memory_id for record in selected] == ["mem_promoted"]

@@ -166,6 +166,7 @@ class MemoryPromotionResultResponse(BaseModel):
     promoted_count: int
     skipped_count: int
     skip_reasons: List[PromotionSkipReasonCountResponse] = Field(default_factory=list)
+    multi_target_correction_count: int = 0
     promoted_memory_ids: List[str] = Field(default_factory=list)
     started_at: datetime
     finished_at: datetime
@@ -185,6 +186,7 @@ class MemoryPromotionResultResponse(BaseModel):
                 PromotionSkipReasonCountResponse(reason=item.reason, count=item.count)
                 for item in result.skip_reasons
             ],
+            multi_target_correction_count=result.multi_target_correction_count,
             promoted_memory_ids=list(result.promoted_memory_ids),
             started_at=result.started_at,
             finished_at=result.finished_at,

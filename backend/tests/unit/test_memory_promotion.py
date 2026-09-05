@@ -57,6 +57,8 @@ MOMENT = datetime(2026, 9, 6, 12, 0, 0, tzinfo=timezone.utc)
 PREFERENCE_TEXT = "Tôi ăn chay trường, hãy nhớ giúp tôi."
 CONSTRAINT_TEXT = "Ngân sách chuyến này tối đa 20 triệu."
 CORRECTION_TEXT = "Thực ra tôi đổi sang đi tàu hỏa, sửa lại giúp tôi."
+SIBLING_CORRECTION_TEXT = "Thực ra tôi thích núi hơn, sửa lại giúp tôi."
+"""One sentence the R5 extractor reads as both a correction and a preference."""
 
 
 class FakeWorkspaceRepository:
@@ -257,15 +259,19 @@ def _service(workspaces=None, conversations=None, messages=(), candidates=()):
     return service, memory
 
 
-def _pipeline_candidate(content, **overrides):
-    """An accepted candidate produced by the real R5 extractor and policy."""
+def _pipeline_candidate(content, sequence=1, **overrides):
+    """An accepted candidate produced by the real R5 extractor and policy.
+
+    `sequence` mirrors the source message sequence, exactly as the service
+    maps it: candidate order must track message order for supersession age.
+    """
     from backend.memory.models import MemorySourceMessage
 
     source = MemorySourceMessage(
         message_id="ms_pipe",
         conversation_id="cv_promo",
         workspace_id="tw_promo",
-        sequence=1,
+        sequence=sequence,
         role="user",
         source="ui",
         trace_visibility="included",
@@ -281,7 +287,7 @@ def _pipeline_candidate(content, **overrides):
         "workspace_id": "tw_promo",
         "conversation_id": "cv_promo",
         "source_message_id": "ms_pipe",
-        "source_sequence": 1,
+        "source_sequence": sequence,
         "proposed_scope": decided.proposed_scope,
         "proposed_type": decided.proposed_type,
         "status": decided.status,
@@ -296,10 +302,63 @@ def _pipeline_candidate(content, **overrides):
     return MemoryCandidate(**payload)
 
 
+def _pipeline_candidates(content, sequence=1, message_id="ms_pipe", **overrides):
+    """Every accepted candidate the real R5 extractor produces from one message.
+
+    R5 runs all six draft builders over a single message, so one sentence can
+    yield a correction plus the inference it states. `_pipeline_candidate`
+    asserts a single draft and cannot express that, which is exactly why the
+    same-message supersession case needs its own helper.
+    """
+    from backend.memory.models import MemorySourceMessage
+
+    created_at = overrides.pop("created_at", MOMENT)
+    source = MemorySourceMessage(
+        message_id=message_id,
+        conversation_id="cv_promo",
+        workspace_id="tw_promo",
+        sequence=sequence,
+        role="user",
+        source="ui",
+        trace_visibility="included",
+        content=content,
+        created_at=created_at,
+    )
+    candidates = []
+    for draft in RuleBasedMemoryExtractor().extract([source]):
+        decided = MemoryPolicy().evaluate(draft)
+        if decided.status is not MemoryCandidateStatus.ACCEPTED:
+            continue
+        payload = {
+            "candidate_id": generate_memory_candidate_id(),
+            "run_id": "mer_pipe",
+            "workspace_id": "tw_promo",
+            "conversation_id": "cv_promo",
+            "source_message_id": message_id,
+            "source_sequence": sequence,
+            "proposed_scope": decided.proposed_scope,
+            "proposed_type": decided.proposed_type,
+            "status": decided.status,
+            "confidence": decided.confidence,
+            "sensitivity_label": decided.sensitivity_label,
+            "text": decided.text,
+            "evidence_summary": decided.evidence_summary,
+            "reason": decided.reason,
+            "created_at": created_at,
+        }
+        payload.update(overrides)
+        candidates.append(MemoryCandidate(**payload))
+    return candidates
+
+
 # 1. Promotion of the three reasons that have an R5 producer.
 
 
 def test_promotes_produced_preference_constraint_correction():
+    # All three share user scope except the workspace constraint; the
+    # user-scope correction therefore suppresses the older user-scope
+    # preference while the workspace constraint survives. This is the
+    # specified coarse rule, not test noise.
     service, memory = _service(
         messages=(
             _message(message_id="ms_pipe"),
@@ -310,10 +369,13 @@ def test_promotes_produced_preference_constraint_correction():
             _pipeline_candidate(PREFERENCE_TEXT),
             _pipeline_candidate(
                 CONSTRAINT_TEXT,
+                sequence=2,
                 source_message_id="ms_two",
                 proposed_scope=MemoryScope.WORKSPACE,
             ),
-            _pipeline_candidate(CORRECTION_TEXT, source_message_id="ms_three"),
+            _pipeline_candidate(
+                CORRECTION_TEXT, sequence=3, source_message_id="ms_three"
+            ),
         ),
     )
     result = service.promote_workspace("tw_promo", "cv_promo")
@@ -321,14 +383,16 @@ def test_promotes_produced_preference_constraint_correction():
     assert result.promoted_count == 3
     assert result.skipped_count == 0
     assert len(result.promoted_memory_ids) == 3
-    records = memory.list_records(workspace_id="tw_promo")
-    assert {record.memory_type.value for record in records} == {
-        "preference",
-        "constraint",
-        "correction",
+    records = {
+        record.memory_type.value: record
+        for record in memory.list_records(workspace_id="tw_promo")
     }
-    assert all(record.status is MemoryRecordStatus.ACTIVE for record in records)
-    assert all(record.memory_id.startswith("mem_") for record in records)
+    assert set(records) == {"preference", "constraint", "correction"}
+    assert records["preference"].status is MemoryRecordStatus.SUPERSEDED
+    assert records["constraint"].status is MemoryRecordStatus.ACTIVE
+    assert records["correction"].status is MemoryRecordStatus.ACTIVE
+    assert records["correction"].supersedes_memory_id == records["preference"].memory_id
+    assert all(record.memory_id.startswith("mem_") for record in records.values())
 
 
 def test_promotion_floor_is_075():
@@ -480,14 +544,16 @@ def test_real_pipeline_yields_neither_no_producer_reason():
 # 4. Correction supersession in all three target cases.
 
 
-def _promote_preference(service, memory, text=PREFERENCE_TEXT, message_id="ms_old"):
+def _promote_preference(
+    service, memory, text=PREFERENCE_TEXT, message_id="ms_old", sequence=1
+):
     from backend.memory.models import MemorySourceMessage
 
     source = MemorySourceMessage(
         message_id=message_id,
         conversation_id="cv_promo",
         workspace_id="tw_promo",
-        sequence=1,
+        sequence=sequence,
         role="user",
         source="ui",
         trace_visibility="included",
@@ -502,7 +568,7 @@ def _promote_preference(service, memory, text=PREFERENCE_TEXT, message_id="ms_ol
         workspace_id="tw_promo",
         conversation_id="cv_promo",
         source_message_id=message_id,
-        source_sequence=1,
+        source_sequence=sequence,
         proposed_scope=decided.proposed_scope,
         proposed_type=decided.proposed_type,
         status=decided.status,
@@ -532,7 +598,7 @@ def test_correction_with_no_targets_promotes_standalone():
         candidates=(),
     )
     correction = _pipeline_candidate(
-        CORRECTION_TEXT, source_message_id="ms_new", created_at=MOMENT
+        CORRECTION_TEXT, sequence=2, source_message_id="ms_new", created_at=MOMENT
     )
     memory.candidates.append(correction)
     result = service.promote_workspace("tw_promo", "cv_promo")
@@ -554,7 +620,7 @@ def test_correction_supersedes_single_older_target():
     _promote_preference(service, memory)
     (old,) = memory.list_records(workspace_id="tw_promo")
     correction = _pipeline_candidate(
-        CORRECTION_TEXT, source_message_id="ms_new", created_at=MOMENT
+        CORRECTION_TEXT, sequence=2, source_message_id="ms_new", created_at=MOMENT
     )
     memory.candidates.append(correction)
     result = service.promote_workspace("tw_promo", "cv_promo")
@@ -569,6 +635,56 @@ def test_correction_supersedes_single_older_target():
     assert new.supersedes_memory_id == old.memory_id
 
 
+def test_repromotion_after_supersede_skips_known_record():
+    # The superseded record still owns its source candidate id, so a rerun
+    # must report a superseded duplicate rather than attempt a reinsert.
+    service, memory = _service(
+        messages=(
+            _message(message_id="ms_old"),
+            _message(message_id="ms_new", sequence=2, content=CORRECTION_TEXT),
+        ),
+        candidates=(),
+    )
+    _promote_preference(service, memory)
+    correction = _pipeline_candidate(
+        CORRECTION_TEXT, sequence=2, source_message_id="ms_new", created_at=MOMENT
+    )
+    memory.candidates.append(correction)
+    service.promote_workspace("tw_promo", "cv_promo")
+
+    result = service.promote_workspace("tw_promo", "cv_promo")
+
+    assert result.promoted_count == 0
+    assert result.skipped_count == 2
+    counts = dict((item.reason, item.count) for item in result.skip_reasons)
+    assert counts.get(PromotionSkipReason.DUPLICATE_SUPERSEDED_RECORD) == 1
+    assert counts.get(PromotionSkipReason.DUPLICATE_ACTIVE_RECORD) == 1
+
+
+def test_correction_does_not_suppress_same_message_sibling():
+    # One sentence yields a correction and the preference it states. They
+    # share the message-time age key exactly, so the tie-suppressing rule
+    # would bury the preference the user just expressed unless same-message
+    # siblings are excluded from the target set.
+    service, memory = _service(
+        messages=(_message(message_id="ms_same", content=SIBLING_CORRECTION_TEXT),),
+        candidates=tuple(
+            _pipeline_candidates(SIBLING_CORRECTION_TEXT, message_id="ms_same")
+        ),
+    )
+    result = service.promote_workspace("tw_promo", "cv_promo")
+
+    records = {
+        record.memory_type.value: record
+        for record in memory.list_records(workspace_id="tw_promo")
+    }
+    assert set(records) == {"correction", "preference"}
+    assert result.promoted_count == 2
+    assert records["preference"].status is MemoryRecordStatus.ACTIVE
+    assert records["correction"].status is MemoryRecordStatus.ACTIVE
+    assert records["correction"].supersedes_memory_id is None
+
+
 def test_correction_suppresses_every_ambiguous_target():
     service, memory = _service(
         messages=(
@@ -579,13 +695,15 @@ def test_correction_suppresses_every_ambiguous_target():
         candidates=(),
     )
     _promote_preference(service, memory)
-    _promote_preference(service, memory, text="Tôi thích đi biển.", message_id="ms_b")
+    _promote_preference(
+        service, memory, text="Tôi thích đi biển.", message_id="ms_b", sequence=2
+    )
     olds = memory.list_records(
         workspace_id="tw_promo", status=MemoryRecordStatus.ACTIVE
     )
     assert len(olds) == 2
     correction = _pipeline_candidate(
-        CORRECTION_TEXT, source_message_id="ms_new", created_at=MOMENT
+        CORRECTION_TEXT, sequence=3, source_message_id="ms_new", created_at=MOMENT
     )
     memory.candidates.append(correction)
     result = service.promote_workspace("tw_promo", "cv_promo")
@@ -596,7 +714,12 @@ def test_correction_suppresses_every_ambiguous_target():
         for item in olds
     )
     counts = dict((item.reason, item.count) for item in result.skip_reasons)
-    assert counts.get(PromotionSkipReason.CORRECTION_SUPERSEDES_MULTIPLE) == 1
+    # A multi-target correction still promotes, so its fan-out is an
+    # informational count on the result, never a skip reason, and the skip
+    # accounting must reconcile exactly with the skipped count.
+    assert PromotionSkipReason.CORRECTION_SUPERSEDES_MULTIPLE not in counts
+    assert result.multi_target_correction_count == 1
+    assert sum(counts.values()) == result.skipped_count
     (new,) = [
         record
         for record in memory.list_records(workspace_id="tw_promo")
@@ -604,6 +727,30 @@ def test_correction_suppresses_every_ambiguous_target():
     ]
     oldest = min(olds, key=lambda item: (item.created_at, item.source_sequence))
     assert new.supersedes_memory_id == oldest.memory_id
+
+
+def test_older_correction_does_not_suppress_newer_inference():
+    service, memory = _service(
+        messages=(
+            _message(message_id="ms_old", content=CORRECTION_TEXT),
+            _message(message_id="ms_new", sequence=2, content=PREFERENCE_TEXT),
+        ),
+        candidates=(),
+    )
+    correction = _pipeline_candidate(
+        CORRECTION_TEXT, sequence=1, source_message_id="ms_old", created_at=MOMENT
+    )
+    preference = _pipeline_candidate(
+        PREFERENCE_TEXT, sequence=2, source_message_id="ms_new", created_at=MOMENT
+    )
+    memory.candidates.extend([correction, preference])
+    result = service.promote_workspace("tw_promo", "cv_promo")
+
+    assert result.promoted_count == 2
+    assert all(
+        record.status is MemoryRecordStatus.ACTIVE
+        for record in memory.list_records(workspace_id="tw_promo")
+    )
 
 
 def test_correction_never_crosses_scope_boundaries():
@@ -619,7 +766,7 @@ def test_correction_never_crosses_scope_boundaries():
     # A workspace-scope record must survive a user-scope correction.
     service._memory.create_records([_workspace_scoped_record()])
     correction = _pipeline_candidate(
-        CORRECTION_TEXT, source_message_id="ms_new", created_at=MOMENT
+        CORRECTION_TEXT, sequence=2, source_message_id="ms_new", created_at=MOMENT
     )
     memory.candidates.append(correction)
     result = service.promote_workspace("tw_promo", "cv_promo")
@@ -681,7 +828,7 @@ def test_user_correction_supersedes_record_from_another_trip():
         old, workspace_id="tw_other", conversation_id="cv_other"
     )
     correction = _pipeline_candidate(
-        CORRECTION_TEXT, source_message_id="ms_new", created_at=MOMENT
+        CORRECTION_TEXT, sequence=2, source_message_id="ms_new", created_at=MOMENT
     )
     memory.candidates.append(correction)
     result = service.promote_workspace("tw_promo", "cv_promo")

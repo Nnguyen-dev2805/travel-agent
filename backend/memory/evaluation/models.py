@@ -45,6 +45,9 @@ class SliceScore:
     expected: int
     matched: int
     precision: float | None
+    hit_rate: float | None = None
+    irrelevant: float | None = None
+    scope_accuracy: float | None = None
 
 
 @dataclass(frozen=True)
@@ -59,7 +62,12 @@ class HardGateScore:
 
 @dataclass(frozen=True)
 class ExampleScore:
-    """Per-example evidence without any content payload."""
+    """Per-example evidence without any content payload.
+
+    `selected_ids` and `selection_reasons` are populated by retrieval
+    evaluation with aligned memory identifiers and controlled reasons;
+    shadow extraction leaves them empty.
+    """
 
     example_id: str
     slice: str
@@ -67,6 +75,8 @@ class ExampleScore:
     actual_total: int
     matched: int
     failures: Tuple[str, ...] = field(default_factory=tuple)
+    selected_ids: Tuple[str, ...] = field(default_factory=tuple)
+    selection_reasons: Tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -129,6 +139,7 @@ class MemoryRetrievalReport:
     disabled_run_id: str = ""
     enabled_trace_ids: Tuple[str, ...] = field(default_factory=tuple)
     result_state: MemoryEvaluationResult = MemoryEvaluationResult.INVALID
+    environment: Dict[str, Any] = field(default_factory=dict)
     notes: Tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -168,6 +179,9 @@ def retrieval_report_to_dict(report: MemoryRetrievalReport) -> Dict[str, Any]:
                 "expected": item.expected,
                 "matched": item.matched,
                 "precision": item.precision,
+                "hit_rate": item.hit_rate,
+                "irrelevant": item.irrelevant,
+                "scope_accuracy": item.scope_accuracy,
             }
             for item in report.slices
         ],
@@ -188,12 +202,15 @@ def retrieval_report_to_dict(report: MemoryRetrievalReport) -> Dict[str, Any]:
                 "actual_total": item.actual_total,
                 "matched": item.matched,
                 "failures": list(item.failures),
+                "selected_ids": list(item.selected_ids),
+                "selection_reasons": list(item.selection_reasons),
             }
             for item in report.examples
         ],
         "disabled_run_id": report.disabled_run_id,
         "enabled_trace_ids": list(report.enabled_trace_ids),
         "result_state": report.result_state.value,
+        "environment": report.environment,
         "notes": list(report.notes),
     }
 

@@ -432,7 +432,9 @@ Implemented rules:
    provenance, and an allow-listed reason. Everything else becomes a
    controlled skip reason and writes nothing.
 3. A promoted correction suppresses older same-scope non-correction records
-   by the `(created_at, source_sequence)` age key; suppression is stored as
+   by message-time age: each side of the `(created_at, source_sequence)` key
+   uses its source message's creation time, so same-run corrections order by
+   user intent rather than pipeline wall-clock; suppression is stored as
    record status once, at promotion time.
 4. Retrieval selects only `active`, unexpired, non-sensitive records whose
    scope matches the querying owner, workspace, or conversation, ranked by

@@ -98,6 +98,18 @@ class MemoryRepository(Protocol):
         """
         ...
 
+    def list_promotion_runs(
+        self,
+        workspace_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+    ) -> tuple[MemoryPromotionRun, ...]:
+        """Return promotion runs for the supplied filters, newest first.
+
+        Raises:
+            MemoryStorageError: Storage failed.
+        """
+        ...
+
     def create_records(
         self, records: Sequence[MemoryRecord]
     ) -> tuple[MemoryRecord, ...]:

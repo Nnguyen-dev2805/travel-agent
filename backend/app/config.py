@@ -81,7 +81,11 @@ class Settings(BaseModel):
     # R6 feature-gated memory retrieval. The gate defaults to false: with it
     # disabled, bound and unbound chat behavior remains R4/R5 behavior.
     # Turning retrieval on by default requires memory evaluation evidence that
-    # satisfies the approved gates.
+    # satisfies the approved gates. Tuning defaults mirror the domain-module
+    # constants (`MEMORY_PROMOTION_MIN_CONFIDENCE` in
+    # `backend.memory.promotion` and `MEMORY_MAX_SELECTED` in
+    # `backend.memory.retrieval`); a unit test pins them equal so the two
+    # sources cannot drift silently.
     MEMORY_RETRIEVAL_ENABLED: bool = _env_flag("MEMORY_RETRIEVAL_ENABLED", False)
     MEMORY_PROMOTION_MIN_CONFIDENCE: float = float(
         os.getenv("MEMORY_PROMOTION_MIN_CONFIDENCE", "0.75")

@@ -26,6 +26,7 @@ from backend.memory.models import (
     MemoryRecordType,
     MemorySelection,
     MemorySelectionReason,
+    RetrievalScope,
     SensitivityLabel,
     utc_now,
 )
@@ -81,23 +82,32 @@ class MemoryRetrievalService:
         Only active, unexpired, non-sensitive records in a matching scope are
         eligible. A record is selected when its lexical score is above zero
         or it is a direct active correction.
+
+        Active corrections rank ahead of lexical matches. They carry score
+        `0.0` because no token overlap earned them, so ordering by score alone
+        would place them last and the `max_selected` cut would evict them
+        first. That is the opposite of the correction precedence the promotion
+        rules exist to protect, so rank is a two-level key: corrections first,
+        then descending lexical score, then `memory_id` for a stable tie
+        break, which keeps repeated turns identical.
         """
         moment = now or utc_now()
         limit = self._max_selected if max_selected is None else max_selected
         query_tokens = _tokens(query)
-        ranked: list[tuple[float, str, MemoryRecord]] = []
-        for record in self._eligible_records(owner_user_id, moment):
-            if not self._scope_matches(
-                record, owner_user_id, workspace_id, conversation_id
-            ):
-                continue
+        ranked: list[tuple[int, float, str, MemoryRecord]] = []
+        for record in self.eligible_records(
+            owner_user_id=owner_user_id,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            now=moment,
+        ):
             if record.memory_type is MemoryRecordType.CORRECTION:
-                ranked.append((0.0, record.memory_id, record))
+                ranked.append((0, 0.0, record.memory_id, record))
                 continue
             score = _lexical_score(query_tokens, record.text)
             if score > 0.0:
-                ranked.append((score, record.memory_id, record))
-        ranked.sort(key=lambda item: (-item[0], item[1]))
+                ranked.append((1, score, record.memory_id, record))
+        ranked.sort(key=lambda item: (item[0], -item[1], item[2]))
         return tuple(
             MemorySelection(
                 memory_id=record.memory_id,
@@ -111,22 +121,42 @@ class MemoryRetrievalService:
                 score=score,
                 text=record.text,
             )
-            for score, _, record in ranked[:limit]
+            for _, score, _, record in ranked[:limit]
         )
 
-    def _eligible_records(
-        self, owner_user_id: str, moment: datetime
+    def eligible_records(
+        self,
+        *,
+        owner_user_id: str,
+        workspace_id: str,
+        conversation_id: str,
+        now: Optional[datetime] = None,
     ) -> tuple[MemoryRecord, ...]:
-        records = self._memory.list_records(
-            owner_user_id=owner_user_id, status=MemoryRecordStatus.ACTIVE
+        """Return the records a turn in this scope could select.
+
+        Eligibility is lifecycle, sensitivity, expiry, and scope: everything
+        that decides whether a record may be used at all, before the query
+        decides which of them are relevant. Selection is therefore always a
+        subset of this set, which is what makes an eligibility count in a
+        retrieval trace mean something other than the selected count.
+        """
+        moment = now or utc_now()
+        scope = RetrievalScope(
+            owner_user_id=owner_user_id,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
         )
         eligible = []
-        for record in records:
+        for record in self._memory.list_records(
+            owner_user_id=owner_user_id, status=MemoryRecordStatus.ACTIVE
+        ):
             if record.status is not MemoryRecordStatus.ACTIVE:
                 continue
             if record.sensitivity_label not in _RETRIEVABLE_SENSITIVITIES:
                 continue
             if record.expires_at is not None and record.expires_at <= moment:
+                continue
+            if not self._scope_matches(record, scope):
                 continue
             eligible.append(record)
         logger.info(
@@ -137,16 +167,11 @@ class MemoryRetrievalService:
         return tuple(eligible)
 
     @staticmethod
-    def _scope_matches(
-        record: MemoryRecord,
-        owner_user_id: str,
-        workspace_id: str,
-        conversation_id: str,
-    ) -> bool:
+    def _scope_matches(record: MemoryRecord, scope: RetrievalScope) -> bool:
         if record.scope is MemoryRecordScope.USER:
-            return record.scope_id == owner_user_id
+            return record.scope_id == scope.owner_user_id
         if record.scope is MemoryRecordScope.WORKSPACE:
-            return record.scope_id == workspace_id
+            return record.scope_id == scope.workspace_id
         if record.scope is MemoryRecordScope.CONVERSATION:
-            return record.scope_id == conversation_id
+            return record.scope_id == scope.conversation_id
         return False

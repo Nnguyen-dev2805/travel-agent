@@ -104,6 +104,19 @@ def _extract(client: TestClient, workspace_id: str, conversation_id: str):
     )
 
 
+def _append(db_path: Path, workspace_id: str, conversation_id: str, content: str):
+    conversations = SQLiteConversationRepository(db_path=db_path)
+    workspaces = SQLiteWorkspaceRepository(db_path=db_path)
+    service = ConversationService(conversations, workspaces)
+    service.append_message(
+        conversation_id=conversation_id,
+        role=MessageRole.USER,
+        content=content,
+        source=MessageSource.UI,
+        trace_visibility=TraceVisibility.INCLUDED,
+    )
+
+
 def test_promotion_run_returns_201_with_counts(tmp_path: Path):
     db_path = tmp_path / "travel_agent.sqlite3"
     client = _client(db_path)
@@ -136,6 +149,38 @@ def test_second_promotion_skips_duplicates(tmp_path: Path):
     body = client.post(url, json={}).json()
     assert body["promoted_count"] == 0
     assert body["skipped_count"] == 1
+
+
+def test_repromotion_after_supersede_skips_duplicates(tmp_path: Path):
+    # A promoted preference is superseded by a later correction, then the
+    # same candidates promote again. The superseded record still owns its
+    # source candidate id under the table UNIQUE constraint, so the rerun
+    # must skip both candidates as duplicates instead of failing storage.
+    db_path = tmp_path / "travel_agent.sqlite3"
+    client = _client(db_path)
+    workspace_id = _workspace_id(db_path)
+    conversation_id = _seed(db_path, workspace_id, PREFERENCE_TEXT)
+    _extract(client, workspace_id, conversation_id)
+    url = f"/api/v1/workspaces/{workspace_id}/memory/promotions"
+    assert client.post(url, json={}).json()["promoted_count"] == 1
+
+    _append(
+        db_path,
+        workspace_id,
+        conversation_id,
+        "Thực ra tôi đổi sang đi tàu hỏa, sửa lại giúp tôi.",
+    )
+    _extract(client, workspace_id, conversation_id)
+    superseding = client.post(url, json={}).json()
+    # The correction promotes alongside the preference its own sentence
+    # states; the same-message sibling is the same intent, never a target.
+    assert superseding["promoted_count"] == 2
+
+    rerun = client.post(url, json={})
+    assert rerun.status_code == 201
+    body = rerun.json()
+    assert body["promoted_count"] == 0
+    assert body["skipped_count"] == 3
 
 
 def test_promotion_scope_errors(tmp_path: Path):

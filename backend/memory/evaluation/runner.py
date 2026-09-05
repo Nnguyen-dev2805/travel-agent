@@ -61,13 +61,15 @@ from backend.memory.models import (
     MemoryRecordType,
     MemorySelectionStatus,
     MemorySelectionTrace,
+    RetrievalScope,
     SensitivityLabel,
     generate_memory_record_id,
     generate_memory_retrieval_trace_id,
     utc_now,
 )
 from backend.memory.policy import POLICY_ID, MemoryPolicy
-from backend.memory.retrieval import MemoryRetrievalService
+from backend.memory.promotion import MEMORY_PROMOTION_MIN_CONFIDENCE
+from backend.memory.retrieval import MEMORY_MAX_SELECTED, MemoryRetrievalService
 from backend.memory.service import MemoryService
 from backend.memory.sqlite_repository import SQLiteMemoryRepository
 from backend.workspaces.models import (
@@ -674,6 +676,7 @@ PROMOTION_PRECISION_THRESHOLD = 0.97
 HIT_AT_5_THRESHOLD = 0.90
 IRRELEVANT_RATE_MAXIMUM = 0.10
 RETRIEVAL_SCOPE_THRESHOLD = 0.98
+PERSONALIZATION_WIN_THRESHOLD = 0.60
 
 _REQUIRED_SEED_KEYS = (
     "alias",
@@ -695,9 +698,18 @@ def decide_retrieval_result(
     scope_accuracy: float | None,
     hit_at_5: float | None,
     irrelevant_rate: float | None,
+    personalization_win_rate: float | None = None,
+    constraint_delta: float | None = None,
     slice_precisions: Sequence[float | None],
 ) -> MemoryEvaluationResult:
-    """Apply the R6 result-state rules to computed evidence."""
+    """Apply the R6 result-state rules to computed evidence.
+
+    Answer-quality fields participate when measured: a below-threshold win
+    rate or a negative constraint delta fails the run. When both are absent
+    the run may still pass on retrieval evidence, because the approval-time
+    limitation records answer quality as INCONCLUSIVE rather than blocking
+    retrieval validation; the report notes carry that limitation explicitly.
+    """
     if invalid_examples > 0:
         return MemoryEvaluationResult.INVALID
     if hard_gate_events > 0:
@@ -712,6 +724,13 @@ def decide_retrieval_result(
     if hit_at_5 is not None and hit_at_5 < HIT_AT_5_THRESHOLD:
         return MemoryEvaluationResult.FAIL
     if irrelevant_rate is not None and irrelevant_rate > IRRELEVANT_RATE_MAXIMUM:
+        return MemoryEvaluationResult.FAIL
+    if (
+        personalization_win_rate is not None
+        and personalization_win_rate < PERSONALIZATION_WIN_THRESHOLD
+    ):
+        return MemoryEvaluationResult.FAIL
+    if constraint_delta is not None and constraint_delta < 0.0:
         return MemoryEvaluationResult.FAIL
     exercised = [value for value in slice_precisions if value is not None]
     if any(value < SLICE_PRECISION_THRESHOLD for value in exercised):
@@ -982,6 +1001,20 @@ def _append_fixture_messages(
         )
 
 
+def _run_promoted_records(records, promoted_ids) -> list:
+    """Return the stored records this promotion run created, in run order.
+
+    Attribution follows the promoted ids the use case returns, never a
+    timestamp comparison: the service stamps records at the run start, so a
+    frozen or coarse clock makes `created_at >= started_at` vacuous and
+    neighbouring runs indistinguishable.
+    """
+    wanted = set(promoted_ids)
+    ordered = [record for record in records if record.memory_id in wanted]
+    ordered.sort(key=lambda record: promoted_ids.index(record.memory_id))
+    return ordered
+
+
 def _score_promotion_example(
     stores: dict[str, Any],
     example: dict[str, Any],
@@ -1015,11 +1048,22 @@ def _score_promotion_example(
         if record.status.value == "superseded"
     }
     result = stores["memory_service"].promote_workspace(workspace_id, conversation_id)
+    stored_runs = stores["memory"].list_promotion_runs(
+        workspace_id=workspace_id, conversation_id=conversation_id
+    )
+    stored_run = next(
+        (run for run in stored_runs if run.promotion_run_id == result.promotion_run_id),
+        None,
+    )
+    stored_run_matches = (
+        stored_run is not None
+        and stored_run.promoted_count == result.promoted_count
+        and stored_run.skipped_count == result.skipped_count
+    )
     records = stores["memory"].list_records(workspace_id=workspace_id)
+    new_records = _run_promoted_records(records, result.promoted_memory_ids)
     actual_promoted = sorted(
-        (record.scope.value, record.memory_type.value)
-        for record in records
-        if record.created_at >= result.started_at
+        (record.scope.value, record.memory_type.value) for record in new_records
     )
     expected_promoted = sorted(
         (item["scope"], item["type"]) for item in example["expected"]["promoted"]
@@ -1031,9 +1075,7 @@ def _score_promotion_example(
         and record.memory_id not in before_superseded
     )
     matched = sum((Counter(actual_promoted) & Counter(expected_promoted)).values())
-    new_records = [
-        record for record in records if record.created_at >= result.started_at
-    ]
+    promoted_ids = tuple(record.memory_id for record in new_records)
     scope_checked = len(new_records)
     scope_correct = sum(
         1 for record in new_records if _record_scope_id(record) == record.scope_id
@@ -1055,6 +1097,8 @@ def _score_promotion_example(
             if newly_superseded < example["expected"]["superseded"]
             else "memory_conflict"
         )
+    if not stored_run_matches:
+        failures.append("memory_false_write")
     return {
         "example_id": example["example_id"],
         "slice": example["slice"],
@@ -1063,6 +1107,8 @@ def _score_promotion_example(
         "matched": matched,
         "scope_checked": scope_checked,
         "scope_correct": scope_correct,
+        "selected_ids": promoted_ids,
+        "selection_reasons": ("promoted",) * len(promoted_ids),
         "failures": tuple(failures),
         "extra": {
             "expected_skipped": example["expected"]["skipped"],
@@ -1132,10 +1178,10 @@ def _score_retrieval_queries(
     id_to_alias = {value: key for key, value in alias_to_id.items()}
     expected_aliases_all: list[str] = []
     actual_aliases_all: list[str] = []
+    selected_ids_all: list[str] = []
+    selection_reasons_all: list[str] = []
     query_hits: list[bool | None] = []
     query_irrelevant: list[tuple[int, int]] = []
-    scope_checked = 0
-    scope_correct = 0
     for query in example["queries"]:
         query_owner = query.get("owner", owner)
         selections = stores["retrieval_service"].select_memories(
@@ -1158,28 +1204,15 @@ def _score_retrieval_queries(
         if actual_aliases:
             extra = Counter(actual_aliases) - Counter(expected_aliases)
             query_irrelevant.append((sum(extra.values()), len(actual_aliases)))
-        records_by_id = {
-            record.memory_id: record for record in stores["memory"].list_records()
-        }
+        query_scope = RetrievalScope(
+            owner_user_id=query_owner,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+        )
         for item in selections:
-            _count_selection_gates(
-                item,
-                stores["memory"],
-                query_owner,
-                workspace_id,
-                conversation_id,
-                gates,
-            )
-            scope_checked += 1
-            record = records_by_id.get(item.memory_id)
-            if (
-                record is not None
-                and _record_scope_id(record) == record.scope_id
-                and _selection_in_scope(
-                    record, query_owner, workspace_id, conversation_id
-                )
-            ):
-                scope_correct += 1
+            _count_selection_gates(item, stores["memory"], query_scope, gates)
+            selected_ids_all.append(item.memory_id)
+            selection_reasons_all.append(item.reason.value)
         trace = MemorySelectionTrace(
             trace_id=generate_memory_retrieval_trace_id(),
             workspace_id=workspace_id,
@@ -1192,14 +1225,17 @@ def _score_retrieval_queries(
             ),
             selected_ids=tuple(item.memory_id for item in selections),
             reasons=tuple(item.reason for item in selections),
-            eligible_count=len(selections),
+            eligible_count=len(
+                stores["retrieval_service"].eligible_records(
+                    owner_user_id=query_owner,
+                    workspace_id=workspace_id,
+                    conversation_id=conversation_id,
+                )
+            ),
             created_at=utc_now(),
         )
         stores["memory"].write_retrieval_event(trace)
         traces.append(trace.trace_id)
-    matched_total = sum(
-        (Counter(actual_aliases_all) & Counter(expected_aliases_all)).values()
-    )
     matched_total = sum(
         (Counter(actual_aliases_all) & Counter(expected_aliases_all)).values()
     )
@@ -1209,8 +1245,8 @@ def _score_retrieval_queries(
         "expected": expected_aliases_all,
         "actual": actual_aliases_all,
         "matched": matched_total,
-        "scope_checked": scope_checked,
-        "scope_correct": scope_correct,
+        "selected_ids": selected_ids_all,
+        "selection_reasons": selection_reasons_all,
         "query_hits": query_hits,
         "query_irrelevant": query_irrelevant,
     }
@@ -1225,27 +1261,23 @@ def _record_scope_id(record) -> str:
     return record.conversation_id
 
 
-def _selection_in_scope(
-    record, owner: str, workspace_id: str, conversation_id: str
-) -> bool:
+def _selection_in_scope(record, scope) -> bool:
     """Check one record sits inside the querying scope without keeping content."""
-    if record.owner_user_id != owner:
+    if record.owner_user_id != scope.owner_user_id:
         return False
     if record.scope.value == "user":
-        return record.scope_id == owner
+        return record.scope_id == scope.owner_user_id
     if record.scope.value == "workspace":
-        return record.scope_id == workspace_id
+        return record.scope_id == scope.workspace_id
     if record.scope.value == "conversation":
-        return record.scope_id == conversation_id
+        return record.scope_id == scope.conversation_id
     return False
 
 
 def _count_selection_gates(
     selection,
     memory_repository,
-    owner: str,
-    workspace_id: str,
-    conversation_id: str,
+    scope,
     gates: dict[str, int],
 ) -> None:
     """Count hard-gate events for one selected record without keeping content."""
@@ -1257,21 +1289,25 @@ def _count_selection_gates(
     if record is None:  # pragma: no cover - selections always resolve
         gates["cross_workspace_leakage"] += 1
         return
-    if not _selection_in_scope(record, owner, workspace_id, conversation_id):
-        if record.owner_user_id != owner:
+    if not _selection_in_scope(record, scope):
+        if record.owner_user_id != scope.owner_user_id:
             gates["cross_user_leakage"] += 1
         else:
             gates["cross_workspace_leakage"] += 1
-    if record.sensitivity_label.value in ("secret", "unsafe", "sensitive"):
+    if record.sensitivity_label in (
+        SensitivityLabel.SECRET,
+        SensitivityLabel.UNSAFE,
+        SensitivityLabel.SENSITIVE,
+    ):
         gates["secret_durable_promotion"] += 1
-    if record.status.value in (
-        "deleted",
-        "deletion_requested",
-        "expired",
-        "archived",
+    if record.status in (
+        MemoryRecordStatus.DELETED,
+        MemoryRecordStatus.DELETION_REQUESTED,
+        MemoryRecordStatus.EXPIRED,
+        MemoryRecordStatus.ARCHIVED,
     ):
         gates["deleted_memory_retrieval"] += 1
-    if record.status.value == "superseded":
+    if record.status is MemoryRecordStatus.SUPERSEDED:
         gates["correction_precedence"] += 1
 
 
@@ -1314,6 +1350,20 @@ def _build_retrieval_report(
         group_actual = sum(len(item["actual"]) for item in group)
         group_expected = sum(len(item["expected"]) for item in group)
         group_matched = sum(item["matched"] for item in group)
+        group_hits = [
+            hit
+            for item in group
+            for hit in item.get("query_hits", [])
+            if hit is not None
+        ]
+        group_irrelevant_n = sum(
+            extra for item in group for extra, _ in item.get("query_irrelevant", [])
+        )
+        group_irrelevant_d = sum(
+            total for item in group for _, total in item.get("query_irrelevant", [])
+        )
+        group_scope_correct = sum(item.get("scope_correct", 0) for item in group)
+        group_scope_checked = sum(item.get("scope_checked", 0) for item in group)
         slices.append(
             SliceScore(
                 slice=name,
@@ -1322,6 +1372,11 @@ def _build_retrieval_report(
                 expected=group_expected,
                 matched=group_matched,
                 precision=_ratio(group_matched, group_actual),
+                hit_rate=_ratio(sum(group_hits), len(group_hits))
+                if group_hits
+                else None,
+                irrelevant=_ratio(group_irrelevant_n, group_irrelevant_d),
+                scope_accuracy=_ratio(group_scope_correct, group_scope_checked),
             )
         )
 
@@ -1358,6 +1413,10 @@ def _build_retrieval_report(
         ),
     )
     gate_events = sum(item.events for item in hard_gates if item.applicable)
+    # Answer-quality evidence is absent without a provider-backed judge, so
+    # both fields stay None by construction: decide treats None as
+    # "unmeasured, allowed under the approval-time limitation" rather than
+    # as a favorable score.
     result_state = decide_retrieval_result(
         invalid_examples=0,
         hard_gate_events=gate_events,
@@ -1365,6 +1424,8 @@ def _build_retrieval_report(
         scope_accuracy=scope_accuracy if scope_checked > 0 else None,
         hit_at_5=hit_at_5,
         irrelevant_rate=irrelevant_rate,
+        personalization_win_rate=None,
+        constraint_delta=None,
         slice_precisions=[item.precision for item in slices],
     )
     return MemoryRetrievalReport(
@@ -1421,21 +1482,64 @@ def _build_retrieval_report(
                 actual_total=len(item["actual"]),
                 matched=item["matched"],
                 failures=item["failures"],
+                selected_ids=tuple(item.get("selected_ids", ())),
+                selection_reasons=tuple(item.get("selection_reasons", ())),
             )
             for item in scored
         ),
         disabled_run_id=f"{report_id}-disabled",
         enabled_trace_ids=tuple(traces),
         result_state=result_state,
+        environment=_evaluation_environment(),
         notes=(
             "R6 retrieval report: promotion, scope, retrieval, and lifecycle "
             "gates are measured end to end; answer-quality fields stay "
             "INCONCLUSIVE without a provider-backed judge, per the limitation "
             "accepted at R6 approval time.",
+            "The disabled branch executes the gate-off path over the identical "
+            "query set, which selects nothing by definition; the paired "
+            "comparison is enabled selections versus that empty baseline. No "
+            "answer is generated on either branch without a provider.",
             "Cross-user isolation is measured by the local owner label, not "
             "authenticated identity, per the open R6/R9 ordering problem.",
         ),
     )
+
+
+def _evaluation_environment() -> dict:
+    """Record harness environment without touching fixture content."""
+    import subprocess
+
+    dirty: bool | None = None
+    try:
+        root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[3],
+            timeout=10,
+        )
+        if root.returncode == 0:
+            status = subprocess.run(
+                ["git", "status", "--porcelain", "--untracked-files=no"],
+                capture_output=True,
+                text=True,
+                cwd=root.stdout.strip(),
+                timeout=10,
+            )
+            if status.returncode == 0:
+                dirty = bool(status.stdout.strip())
+    except Exception:  # noqa: BLE001 - environment signal is best-effort
+        dirty = None
+    return {
+        "dirty_working_tree": dirty,
+        "retrieval": {
+            "tokenizer": "unicode-word-lowercase",
+            "correction_bypass": True,
+            "max_selected_default": MEMORY_MAX_SELECTED,
+            "min_confidence_default": MEMORY_PROMOTION_MIN_CONFIDENCE,
+        },
+    }
 
 
 def _render_retrieval_markdown(report: MemoryRetrievalReport) -> str:
@@ -1488,15 +1592,22 @@ def _render_retrieval_markdown(report: MemoryRetrievalReport) -> str:
         "",
         "## Mandatory Slices",
         "",
-        "| Slice | Examples | Matched / Actual | Precision |",
-        "| --- | --- | --- | --- |",
+        "| Slice | Examples | Matched / Actual | Precision | Hit rate |",
+        "| --- | --- | --- | --- | --- |",
     ]
     for item in report.slices:
         precision = "n/a" if item.precision is None else f"{item.precision:.4f}"
+        hit_rate = "n/a" if item.hit_rate is None else f"{item.hit_rate:.4f}"
         lines.append(
             f"| {item.slice} | {item.eligible_examples} | "
-            f"{item.matched} / {item.actual} | {precision} |"
+            f"{item.matched} / {item.actual} | {precision} | {hit_rate} |"
         )
+    lines += ["", "## Environment", ""]
+    lines.append(
+        f"- dirty_working_tree: {report.environment.get('dirty_working_tree')}"
+    )
+    for key in sorted(report.environment.get("retrieval", {})):
+        lines.append(f"- retrieval.{key}: {report.environment['retrieval'][key]}")
     lines += [
         "",
         "## Per-example Evidence",

@@ -2,15 +2,15 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
-| Version | 0.1 |
+| Status | Approved (version 0.3 amendment pending owner sign-off at merge) |
+| Version | 0.3 |
 | Date | 2026-09-04 |
 | Change class | Level 3 - Architecture Design |
 | Decision owner | Repository owner |
 | Scope | Runtime milestone R6 - promotion of measured memory candidates into answer-eligible records, feature-gated memory retrieval for bound conversations, orchestration-owned context composition, traceable A/B evaluation, and privacy/scope/lifecycle guards |
 | Parent design | [Architecture Baseline Design](./2026-08-31-architecture-baseline-design.md), version 0.1; [Roadmap and Learning Design](./2026-08-31-roadmap-and-learning-design.md), version 0.1 |
 | Depends on | R5 delivered on `feature/agent-memory` at `89496eb`; [Shadow Memory Extraction Design](./2026-09-04-shadow-memory-extraction-design.md), version 0.1; [ADR 0006](../adr/0006-shadow-memory-candidate-store-and-policy-boundary.md); [ADR 0007](../adr/0007-feature-gated-memory-retrieval-and-context-boundary.md) (Accepted 2026-09-05); [Memory Evaluation Protocol](../evaluation/memory-evaluation.md); [Security Policy](../../SECURITY.md) |
-| Architecture approval | Repository owner approved R6 spec version 0.1 in conversation on 2026-09-05, after a documentation review round that corrected the promotion allow-list against the delivered R5 vocabulary, replaced the `memory` schema version bump with a separate `memory_records` module, named the `RAGService` composition seam, and defined correction supersession |
+| Architecture approval | Repository owner approved R6 spec version 0.1 in conversation on 2026-09-05, after a documentation review round that corrected the promotion allow-list against the delivered R5 vocabulary, replaced the `memory` schema version bump with a separate `memory_records` module, named the `RAGService` composition seam, and defined correction supersession. Version 0.2 amends only the correction-supersession age key: it resolves age through source-message provenance instead of pipeline wall-clock, and excludes siblings extracted from the same source message from the target set. The repository owner approved both amendments in conversation on 2026-09-06 after implementation review reproduced a same-message correction burying the preference stated in the same sentence. Version 0.3 amends the promotion accounting under the owner's 2026-09-06 review directive: duplicate detection covers records in any lifecycle status with a new `duplicate_superseded_record` reason, and the multi-target fan-out moves from `skip_reasons` to `multi_target_correction_count` so skip counts always sum to `skipped_count`; the evaluation harness attributes run records by promoted ids instead of timestamps. Formal sign-off is pending at merge |
 | Implementation plan | [Memory Retrieval Implementation Plan](../plans/2026-09-04-memory-retrieval-implementation.md), version 0.1 (Approved 2026-09-05) |
 | Related issue | None - R6 specification drafting was authorized by the repository owner in conversation on 2026-09-04 |
 | Superseded document | None |
@@ -189,7 +189,7 @@ promotion policy, not directly by the extractor.
 | `workspace_id` | Existing workspace identifier for provenance |
 | `conversation_id` | Existing conversation identifier for provenance |
 | `source_message_id` | Existing message identifier for provenance |
-| `source_sequence` | R5 candidate `source_sequence` copied forward; part of the correction-supersession age key, which is `(created_at, source_sequence)` because `sequence` is monotonic only inside one conversation |
+| `source_sequence` | R5 candidate `source_sequence` copied forward; part of the correction-supersession age key, which is `(source message created_at, source_sequence)` because `sequence` is monotonic only inside one conversation |
 | `owner_user_id` | Local owner label copied from the workspace; not authentication |
 | `scope` | `user`, `workspace`, or `conversation` |
 | `scope_id` | Owner label for `user`, workspace id for `workspace`, conversation id for `conversation` |
@@ -215,7 +215,8 @@ Promotion returns counts and skip reasons, not raw source text.
 | `source_candidate_count` | Number of candidates examined |
 | `promoted_count` | Number of created active memory records |
 | `skipped_count` | Number of candidates skipped |
-| `skip_reasons` | Counts keyed by controlled reason |
+| `skip_reasons` | Counts keyed by controlled reason; only non-promoted outcomes appear, so the counts always sum to `skipped_count` |
+| `multi_target_correction_count` | Number of promoted corrections that suppressed more than one target; informational only, never a skip reason |
 | `started_at` | UTC timestamp |
 | `finished_at` | UTC timestamp |
 
@@ -280,8 +281,11 @@ R6 promotes a candidate only when all conditions are true:
 7. policy reason is one of `supported_preference`,
    `supported_constraint`, `supported_profile_fact`,
    `supported_trip_decision`, or `explicit_correction`;
-8. no active duplicate record already exists for the same normalized text,
-   scope, and source candidate.
+8. no record already exists for the same normalized text, scope, and
+   source candidate, in any lifecycle status. The record table constrains
+   `source_candidate_id` across all statuses, so a rerun after a
+   supersession reports `duplicate_superseded_record` instead of attempting
+   a reinsert. Supersession targets are still active records only.
 
 Candidates with `secret`, `sensitive`, `unsafe`, `needs_user_action`,
 `rejected`, `invalid`, `none` scope, or unresolved provenance are skipped with
@@ -303,7 +307,8 @@ is never free text and never contains candidate content.
 | `provenance_unresolved` | Workspace, conversation, or message provenance did not resolve |
 | `reason_not_promotable` | Policy reason was outside the promotion allow-list |
 | `duplicate_active_record` | An active record already exists for the same normalized text, scope, and source candidate |
-| `correction_supersedes_multiple` | A correction suppressed more than one active target; reported alongside `promoted`, not instead of it |
+| `duplicate_superseded_record` | A non-active record already exists for the same normalized text, scope, and source candidate; the rerun skips instead of violating the table uniqueness constraint |
+| `correction_supersedes_multiple` | Legacy, no longer emitted: a correction suppressed more than one active target. Stored rows may still carry it and must keep parsing; new runs report the fan-out on `multi_target_correction_count` instead, because a promoted candidate must never appear under a skip vocabulary |
 
 ### Producer Reachability of the Promotion Allow-list
 
@@ -348,7 +353,8 @@ as the existing memory records that satisfy all of:
 2. same `owner_user_id`;
 3. same `scope` and `scope_id`;
 4. `memory_type` is not `correction`;
-5. the record is strictly older than the correction under the age key below.
+5. the record's `source_message_id` differs from the correction candidate's;
+6. the record is strictly older than the correction under the age key below.
 
 Scope isolation comes from condition 3 alone. For `conversation` scope
 `scope_id` is the conversation id, for `workspace` scope it is the workspace id,
@@ -362,10 +368,23 @@ trip, which is the reason `user` scope exists.
 
 Because `Message.sequence` is monotonic per conversation and not comparable
 across conversations, the age key is the tuple `(created_at, source_sequence)`
-ascending. A record is older when its tuple is strictly less than the
-correction candidate's. A record that ties on both values is also treated as
-older, matching the suppression bias stated below rather than leaving an
-unresolved competitor active.
+ascending, where each `created_at` is the source message's creation time
+resolved through stored provenance — not pipeline wall-clock. Extraction and
+promotion timestamps cannot order two candidates born in the same run, so
+wall-clock comparison would leave same-run corrections with zero targets. A
+record is older when its tuple is strictly less than the correction
+candidate's. A record from a different source message that ties on both values
+is also treated as older, matching the suppression bias stated below rather
+than leaving an unresolved competitor active.
+
+Condition 5 exists because message-time keys make ties routine rather than
+rare. R5 evaluates every draft builder against each message, so one sentence
+such as "actually I prefer mountains, please fix that" yields both a
+correction and the preference it states, sharing the age key exactly. Those
+two are one intent, not an older inference and its correction, so suppressing
+the sibling would bury the memory the user just expressed. Same-message
+siblings are therefore never targets, and the tie rule applies only across
+different source messages.
 
 Resolution is deterministic:
 
@@ -373,7 +392,7 @@ Resolution is deterministic:
 | --- | --- |
 | `0` | `supersedes_memory_id` is absent and the correction is promoted as a standalone active record |
 | `1` | The correction records that `memory_id`, and the target's `status` becomes `superseded` |
-| More than `1` | Every target's `status` becomes `superseded`, `supersedes_memory_id` records the oldest target by the age key, and the promotion trace reports the count under the controlled reason `correction_supersedes_multiple` |
+| More than `1` | Every target's `status` becomes `superseded`, `supersedes_memory_id` records the oldest target by the age key, and the promotion result reports the count on `multi_target_correction_count` |
 
 Suppressing every ambiguous target errs toward forgetting. That direction costs
 retrieval recall and can suppress an unrelated record in the same scope, but it

@@ -293,4 +293,4 @@ must be compared; a cosmetic variant is not a distinct alternative.
 | 2026-09-03 | Trip Workspace Foundation Design | Level 3 | 0.1 | Approved | [Design](./2026-09-03-trip-workspace-foundation-design.md) |
 | 2026-09-04 | Conversation Persistence Design | Level 3 | 0.1 | Approved | [Design](./2026-09-04-conversation-persistence-design.md) |
 | 2026-09-04 | Shadow Memory Extraction Design | Level 3 | 0.1 | Approved | [Design](./2026-09-04-shadow-memory-extraction-design.md) |
-| 2026-09-04 | Memory Retrieval Design | Level 3 | 0.1 | Approved | [Design](./2026-09-04-memory-retrieval-design.md) |
+| 2026-09-04 | Memory Retrieval Design | Level 3 | 0.3 | Approved (0.3 amendment pending owner sign-off at merge) | [Design](./2026-09-04-memory-retrieval-design.md) |

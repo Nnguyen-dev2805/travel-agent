@@ -122,8 +122,10 @@ Public production deployment therefore fails closed under
 ## External Providers
 
 The current generation path can send the user message and retrieved travel
-context to the configured external model endpoint. Credentials and user content
-sent to any model, search, storage, tracing, or other external provider must be
+context to the configured external model endpoint. On feature-gated bound
+turns it can additionally send selected memory record text. Credentials and
+user content sent to any model, search, storage, tracing, or other external
+provider must be
 covered by an approved data-flow and privacy contract before production use.
 
 That contract must identify the purpose, transmitted data classes, provider
@@ -154,7 +156,11 @@ investigation purpose and remains minimized or redacted.
 
 ## Memory Safety
 
-The current prototype has no implemented agent memory. Future memory behavior is
+The prototype has feature-gated memory retrieval only: shadow candidates,
+promoted records, and selected memory exist as local development state, and
+no memory influences answers unless the default-off retrieval gate is
+explicitly enabled. Default-on personalization, production memory claims,
+and durable memory privacy guarantees do not exist. Future memory behavior is
 governed by [Memory Evaluation](docs/evaluation/memory-evaluation.md).
 
 The following Package 5 hard gates are zero-tolerance and non-compensating:

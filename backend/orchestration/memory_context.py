@@ -16,6 +16,17 @@ from typing import Sequence
 from backend.memory.models import MemorySelection
 
 MEMORY_SECTION_HEADER = "[Bộ nhớ liên quan]"
+TRAVEL_SECTION_HEADER = "[Ngữ cảnh du lịch]"
+
+
+def _one_line(text: str) -> str:
+    """Collapse embedded line breaks so memory text cannot forge a header.
+
+    A stored memory may legitimately contain newlines, but a newline inside
+    a prompt item would let crafted content mimic a section boundary. The
+    stored record is unchanged; only its prompt rendering is flattened.
+    """
+    return " ".join(text.split())
 
 
 def compose_memory_section(selections: Sequence[MemorySelection]) -> str:
@@ -26,7 +37,24 @@ def compose_memory_section(selections: Sequence[MemorySelection]) -> str:
     lines = [MEMORY_SECTION_HEADER]
     for selection in ordered:
         lines.append(
-            f"- {selection.text} (loại: {selection.memory_type.value}, "
+            f"- {_one_line(selection.text)} (loại: {selection.memory_type.value}, "
             f"phạm vi: {selection.scope.value})"
         )
     return "\n".join(lines)
+
+
+def compose_turn_context(
+    travel_context: str, selections: Sequence[MemorySelection]
+) -> str:
+    """Compose the full generation context for one memory-enabled turn.
+
+    The composer, not the orchestrator, owns prompt shape: the memory
+    section first per the approved spec, then the travel section, each
+    under an explicit boundary header. Headers mark provenance; they do
+    not neutralize injection, which is why memory retrieval stays
+    feature-gated and evaluated.
+    """
+    section = compose_memory_section(selections)
+    if not section:
+        return travel_context
+    return f"{section}\n\n{TRAVEL_SECTION_HEADER}\n{travel_context}"

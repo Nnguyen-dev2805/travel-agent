@@ -202,6 +202,21 @@ def test_gate_off_preserves_schema_and_never_resolves_memory(tmp_path: Path):
     assert fake_rag.context_calls == []
 
 
+def test_provider_constructs_typed_memory_components(tmp_path: Path, monkeypatch):
+    import backend.app.api.chat as chat_module
+    from backend.orchestration.conversation_orchestrator import MemoryComponents
+
+    monkeypatch.setattr(
+        chat_module,
+        "settings",
+        Settings(APP_DB_PATH=tmp_path / "travel_agent.sqlite3"),
+    )
+    components = chat_module.get_memory_components()
+    assert isinstance(components, MemoryComponents)
+    assert components.retrieval_service is not None
+    assert callable(components.resolve_owner)
+
+
 def test_gate_defaults_off_without_environment(monkeypatch):
     for name in (
         "MEMORY_RETRIEVAL_ENABLED",
@@ -213,6 +228,18 @@ def test_gate_defaults_off_without_environment(monkeypatch):
     assert fresh.MEMORY_RETRIEVAL_ENABLED is False
     assert fresh.MEMORY_PROMOTION_MIN_CONFIDENCE == 0.75
     assert fresh.MEMORY_MAX_SELECTED == 5
+
+
+def test_settings_mirror_domain_module_defaults(monkeypatch):
+    from backend.memory.promotion import MEMORY_PROMOTION_MIN_CONFIDENCE
+    from backend.memory.retrieval import MEMORY_MAX_SELECTED
+
+    for name in ("MEMORY_PROMOTION_MIN_CONFIDENCE", "MEMORY_MAX_SELECTED"):
+        monkeypatch.delenv(name, raising=False)
+    assert Settings().MEMORY_PROMOTION_MIN_CONFIDENCE == (
+        MEMORY_PROMOTION_MIN_CONFIDENCE
+    )
+    assert Settings().MEMORY_MAX_SELECTED == MEMORY_MAX_SELECTED
 
 
 def test_gate_enabled_by_explicit_true(monkeypatch):

@@ -1,18 +1,18 @@
 # R6 Memory Retrieval Evaluation Report
 
-- Report: `r6-retrieval-v0.1-20260905T025818Z`
+- Report: `r6-retrieval-v0.1-20260905T083912Z`
 - Dataset: `r6-retrieval-v0.1` v0.1 (benchmark)
 - Extractor: `rule-based-v1`; Policy: `policy-v1`
-- Eligible examples: 20; invalid: 0; skipped: 0
-- Disabled run: `r6-retrieval-v0.1-20260905T025818Z-disabled`; enabled traces: 13
+- Eligible examples: 22; invalid: 0; skipped: 0
+- Disabled run: `r6-retrieval-v0.1-20260905T083912Z-disabled`; enabled traces: 13
 - Result: **PASS**
 
 ## Metrics
 
 | Metric | Value | Matched / Total | Threshold |
 | --- | --- | --- | --- |
-| promotion_precision | 1.0000 | 4 / 4 | >= 0.97 |
-| scope_accuracy | 1.0000 | 10 / 10 | >= 0.98 |
+| promotion_precision | 1.0000 | 8 / 8 | >= 0.97 |
+| scope_accuracy | 1.0000 | 8 / 8 | >= 0.98 |
 | hit_at_5 | 1.0000 | 6 / 6 | >= 0.9 |
 | irrelevant_rate | 0.0000 | 0 / 6 | <= 0.1 |
 | personalization_win_rate | n/a | 0 / 0 | n/a without judge |
@@ -30,20 +30,28 @@
 
 ## Mandatory Slices
 
-| Slice | Examples | Matched / Actual | Precision |
-| --- | --- | --- | --- |
-| ambiguous | 1 | 0 / 0 | n/a |
-| correction | 3 | 3 / 3 | 1.0000 |
-| cross-scope | 3 | 0 / 0 | n/a |
-| deletion | 1 | 0 / 0 | n/a |
-| explicit-preference | 1 | 1 / 1 | 1.0000 |
-| inferred-preference | 1 | 1 / 1 | 1.0000 |
-| relevant-help | 2 | 1 / 1 | 1.0000 |
-| secret-like | 2 | 0 / 0 | n/a |
-| staleness | 1 | 0 / 0 | n/a |
-| transient | 2 | 1 / 1 | 1.0000 |
-| user-global | 1 | 1 / 1 | 1.0000 |
-| workspace-decision | 2 | 2 / 2 | 1.0000 |
+| Slice | Examples | Matched / Actual | Precision | Hit rate |
+| --- | --- | --- | --- | --- |
+| ambiguous | 1 | 0 / 0 | n/a | n/a |
+| correction | 5 | 7 / 7 | 1.0000 | 1.0000 |
+| cross-scope | 3 | 0 / 0 | n/a | n/a |
+| deletion | 1 | 0 / 0 | n/a | n/a |
+| explicit-preference | 1 | 1 / 1 | 1.0000 | n/a |
+| inferred-preference | 1 | 1 / 1 | 1.0000 | 1.0000 |
+| relevant-help | 2 | 1 / 1 | 1.0000 | 1.0000 |
+| secret-like | 2 | 0 / 0 | n/a | n/a |
+| staleness | 1 | 0 / 0 | n/a | n/a |
+| transient | 2 | 1 / 1 | 1.0000 | 1.0000 |
+| user-global | 1 | 1 / 1 | 1.0000 | 1.0000 |
+| workspace-decision | 2 | 2 / 2 | 1.0000 | 1.0000 |
+
+## Environment
+
+- dirty_working_tree: True
+- retrieval.correction_bypass: True
+- retrieval.max_selected_default: 5
+- retrieval.min_confidence_default: 0.75
+- retrieval.tokenizer: unicode-word-lowercase
 
 ## Per-example Evidence
 
@@ -56,6 +64,8 @@
 | `r6p-secret-001` | secret-like | 0 / 0 / 0 | — |
 | `r6p-transient-001` | transient | 0 / 0 / 0 | — |
 | `r6p-supersede-001` | correction | 1 / 1 / 1 | — |
+| `r6p-sibling-001` | correction | 2 / 2 / 2 | — |
+| `r6p-supersede-002` | correction | 2 / 2 / 2 | — |
 | `r6r-hit-user-001` | user-global | 1 / 1 / 1 | — |
 | `r6r-hit-workspace-001` | workspace-decision | 1 / 1 / 1 | — |
 | `r6r-inferred-001` | inferred-preference | 1 / 1 / 1 | — |
@@ -73,4 +83,5 @@
 ## Notes
 
 - R6 retrieval report: promotion, scope, retrieval, and lifecycle gates are measured end to end; answer-quality fields stay INCONCLUSIVE without a provider-backed judge, per the limitation accepted at R6 approval time.
+- The disabled branch executes the gate-off path over the identical query set, which selects nothing by definition; the paired comparison is enabled selections versus that empty baseline. No answer is generated on either branch without a provider.
 - Cross-user isolation is measured by the local owner label, not authenticated identity, per the open R6/R9 ordering problem.
