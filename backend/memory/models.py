@@ -540,3 +540,489 @@ class MemoryExtractionRun:
                 "failure_reason",
                 normalize_text(self.failure_reason, "failure_reason"),
             )
+
+
+# ---------------------------------------------------------------------------
+# Runtime milestone R6: answer-eligible memory records, promotion, retrieval,
+# and selection traces.
+#
+# These contracts extend the module without changing any R5 candidate
+# vocabulary. Two names below are R6-scoped decisions the approved spec
+# leaves open: `MemorySelectionReason` carries exactly the two selection
+# paths named by retrieval rule 9 (lexical score above zero, direct active
+# correction), and `MemorySelectionTrace` is the persisted retrieval event
+# the R6 storage module records.
+# ---------------------------------------------------------------------------
+
+MEMORY_RECORD_ID_PREFIX = "mem_"
+MEMORY_PROMOTION_RUN_ID_PREFIX = "mpr_"
+MEMORY_RETRIEVAL_TRACE_ID_PREFIX = "mtr_"
+MEMORY_RECORD_TEXT_MAX_LENGTH = 500
+
+
+class MemoryRecordScope(str, Enum):
+    """Answer-eligible memory scope vocabulary from the approved R6 spec."""
+
+    USER = "user"
+    WORKSPACE = "workspace"
+    CONVERSATION = "conversation"
+
+
+class MemoryRecordType(str, Enum):
+    """Answer-eligible memory type vocabulary from the approved R6 spec."""
+
+    PREFERENCE = "preference"
+    CONSTRAINT = "constraint"
+    PROFILE_FACT = "profile_fact"
+    EPISODE = "episode"
+    DECISION = "decision"
+    CORRECTION = "correction"
+
+
+class MemoryRecordStatus(str, Enum):
+    """Durable memory lifecycle vocabulary from the approved R6 spec."""
+
+    ACTIVE = "active"
+    SUPERSEDED = "superseded"
+    EXPIRED = "expired"
+    ARCHIVED = "archived"
+    DELETION_REQUESTED = "deletion_requested"
+    DELETED = "deleted"
+
+
+class MemorySelectionReason(str, Enum):
+    """Controlled per-turn selection reasons: the two retrieval rule 9 paths."""
+
+    LEXICAL_MATCH = "lexical_match"
+    ACTIVE_CORRECTION = "active_correction"
+
+
+class MemorySelectionStatus(str, Enum):
+    """Per-turn retrieval outcome vocabulary from the approved R6 spec."""
+
+    SELECTED = "selected"
+    NONE_SELECTED = "none_selected"
+    SKIPPED = "skipped"
+
+
+class PromotionSkipReason(str, Enum):
+    """Governed promotion outcome vocabulary from the approved R6 spec."""
+
+    PROMOTED = "promoted"
+    NOT_ACCEPTED = "not_accepted"
+    SCOPE_NOT_PROMOTABLE = "scope_not_promotable"
+    TYPE_NOT_PROMOTABLE = "type_not_promotable"
+    BELOW_MIN_CONFIDENCE = "below_min_confidence"
+    SENSITIVITY_NOT_PROMOTABLE = "sensitivity_not_promotable"
+    PROVENANCE_UNRESOLVED = "provenance_unresolved"
+    REASON_NOT_PROMOTABLE = "reason_not_promotable"
+    DUPLICATE_ACTIVE_RECORD = "duplicate_active_record"
+    CORRECTION_SUPERSEDES_MULTIPLE = "correction_supersedes_multiple"
+
+
+def generate_memory_record_id() -> str:
+    """Return a new opaque memory record identifier with the governed prefix."""
+    return f"{MEMORY_RECORD_ID_PREFIX}{uuid.uuid4().hex}"
+
+
+def generate_memory_promotion_run_id() -> str:
+    """Return a new opaque promotion run identifier with the governed prefix."""
+    return f"{MEMORY_PROMOTION_RUN_ID_PREFIX}{uuid.uuid4().hex}"
+
+
+def generate_memory_retrieval_trace_id() -> str:
+    """Return a new opaque retrieval trace identifier with the governed prefix."""
+    return f"{MEMORY_RETRIEVAL_TRACE_ID_PREFIX}{uuid.uuid4().hex}"
+
+
+def _require_score(value: Any, field_name: str) -> float:
+    """Require a finite, non-negative deterministic ranking score."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise MemoryValidationError(f"Memory field '{field_name}' must be a number.")
+    score = float(value)
+    if not math.isfinite(score) or score < 0.0:
+        raise MemoryValidationError(
+            f"Memory field '{field_name}' must be finite and non-negative."
+        )
+    return score
+
+
+@dataclass(frozen=True)
+class MemoryRecord:
+    """One answer-eligible durable memory record.
+
+    Records are created only by promotion policy, never directly by the
+    extractor. Sensitivity beyond `none` and `personal` is rejected at
+    promotion time; the contract itself accepts the full label vocabulary so
+    seeded evaluation fixtures can exercise lifecycle filtering.
+    """
+
+    memory_id: str
+    source_candidate_id: str
+    workspace_id: str
+    conversation_id: str
+    source_message_id: str
+    source_sequence: int
+    owner_user_id: str
+    scope: MemoryRecordScope
+    scope_id: str
+    memory_type: MemoryRecordType
+    status: MemoryRecordStatus
+    text: str
+    confidence: float
+    sensitivity_label: SensitivityLabel
+    supersedes_memory_id: str | None
+    created_at: datetime
+    updated_at: datetime
+    expires_at: datetime | None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "memory_id",
+            _require_identity(self.memory_id, "memory_id", MEMORY_RECORD_ID_PREFIX),
+        )
+        object.__setattr__(
+            self,
+            "source_candidate_id",
+            require_text(self.source_candidate_id, "source_candidate_id"),
+        )
+        object.__setattr__(
+            self, "workspace_id", require_text(self.workspace_id, "workspace_id")
+        )
+        object.__setattr__(
+            self,
+            "conversation_id",
+            require_text(self.conversation_id, "conversation_id"),
+        )
+        object.__setattr__(
+            self,
+            "source_message_id",
+            require_text(self.source_message_id, "source_message_id"),
+        )
+        object.__setattr__(
+            self,
+            "source_sequence",
+            _require_sequence(self.source_sequence, "source_sequence"),
+        )
+        object.__setattr__(
+            self,
+            "owner_user_id",
+            require_text(self.owner_user_id, "owner_user_id"),
+        )
+        scope = _coerce_enum(self.scope, "scope", MemoryRecordScope)
+        object.__setattr__(self, "scope", scope)
+        scope_id = require_text(self.scope_id, "scope_id")
+        expected_owner = {
+            MemoryRecordScope.USER: self.owner_user_id,
+            MemoryRecordScope.WORKSPACE: self.workspace_id,
+            MemoryRecordScope.CONVERSATION: self.conversation_id,
+        }[scope]
+        if scope_id != expected_owner:
+            raise MemoryValidationError(
+                "Memory field 'scope_id' must be the owner label for "
+                "'user' scope, the workspace id for 'workspace' scope, or "
+                "the conversation id for 'conversation' scope."
+            )
+        object.__setattr__(self, "scope_id", scope_id)
+        object.__setattr__(
+            self,
+            "memory_type",
+            _coerce_enum(self.memory_type, "memory_type", MemoryRecordType),
+        )
+        object.__setattr__(
+            self,
+            "status",
+            _coerce_enum(self.status, "status", MemoryRecordStatus),
+        )
+        object.__setattr__(
+            self,
+            "text",
+            require_text(self.text, "text", MEMORY_RECORD_TEXT_MAX_LENGTH),
+        )
+        object.__setattr__(
+            self,
+            "confidence",
+            _require_confidence(self.confidence, "confidence"),
+        )
+        object.__setattr__(
+            self,
+            "sensitivity_label",
+            _coerce_enum(self.sensitivity_label, "sensitivity_label", SensitivityLabel),
+        )
+        if self.supersedes_memory_id is not None:
+            object.__setattr__(
+                self,
+                "supersedes_memory_id",
+                _require_identity(
+                    self.supersedes_memory_id,
+                    "supersedes_memory_id",
+                    MEMORY_RECORD_ID_PREFIX,
+                ),
+            )
+        object.__setattr__(
+            self, "created_at", _require_utc(self.created_at, "created_at")
+        )
+        object.__setattr__(
+            self, "updated_at", _require_utc(self.updated_at, "updated_at")
+        )
+        if self.expires_at is not None:
+            object.__setattr__(
+                self,
+                "expires_at",
+                _require_utc(self.expires_at, "expires_at"),
+            )
+
+
+@dataclass(frozen=True)
+class PromotionSkipCount:
+    """One governed promotion outcome with its candidate count."""
+
+    reason: PromotionSkipReason
+    count: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "reason",
+            _coerce_enum(self.reason, "reason", PromotionSkipReason),
+        )
+        object.__setattr__(self, "count", _require_count(self.count, "count"))
+
+
+@dataclass(frozen=True)
+class MemoryPromotionRun:
+    """One persisted candidate-to-record promotion execution."""
+
+    promotion_run_id: str
+    workspace_id: str
+    conversation_id: str | None
+    source_candidate_count: int
+    promoted_count: int
+    skipped_count: int
+    skip_reasons: tuple[PromotionSkipCount, ...]
+    started_at: datetime
+    finished_at: datetime
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "promotion_run_id",
+            _require_identity(
+                self.promotion_run_id,
+                "promotion_run_id",
+                MEMORY_PROMOTION_RUN_ID_PREFIX,
+            ),
+        )
+        object.__setattr__(
+            self, "workspace_id", require_text(self.workspace_id, "workspace_id")
+        )
+        if self.conversation_id is not None:
+            object.__setattr__(
+                self,
+                "conversation_id",
+                require_text(self.conversation_id, "conversation_id"),
+            )
+        source = _require_count(self.source_candidate_count, "source_candidate_count")
+        promoted = _require_count(self.promoted_count, "promoted_count")
+        skipped = _require_count(self.skipped_count, "skipped_count")
+        object.__setattr__(self, "source_candidate_count", source)
+        object.__setattr__(self, "promoted_count", promoted)
+        object.__setattr__(self, "skipped_count", skipped)
+        reasons = tuple(self.skip_reasons)
+        for item in reasons:
+            if not isinstance(item, PromotionSkipCount):
+                raise MemoryValidationError(
+                    "Memory field 'skip_reasons' must hold PromotionSkipCount entries."
+                )
+        object.__setattr__(self, "skip_reasons", reasons)
+        if source != promoted + skipped:
+            raise MemoryValidationError(
+                "Memory field 'source_candidate_count' must equal "
+                "promoted_count + skipped_count."
+            )
+        object.__setattr__(
+            self, "started_at", _require_utc(self.started_at, "started_at")
+        )
+        object.__setattr__(
+            self, "finished_at", _require_utc(self.finished_at, "finished_at")
+        )
+
+
+@dataclass(frozen=True)
+class MemoryPromotionResult:
+    """The outcome a promotion use case returns: the run plus created ids."""
+
+    promotion_run_id: str
+    workspace_id: str
+    conversation_id: str | None
+    source_candidate_count: int
+    promoted_count: int
+    skipped_count: int
+    skip_reasons: tuple[PromotionSkipCount, ...]
+    promoted_memory_ids: tuple[str, ...]
+    started_at: datetime
+    finished_at: datetime
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "promotion_run_id",
+            _require_identity(
+                self.promotion_run_id,
+                "promotion_run_id",
+                MEMORY_PROMOTION_RUN_ID_PREFIX,
+            ),
+        )
+        object.__setattr__(
+            self, "workspace_id", require_text(self.workspace_id, "workspace_id")
+        )
+        if self.conversation_id is not None:
+            object.__setattr__(
+                self,
+                "conversation_id",
+                require_text(self.conversation_id, "conversation_id"),
+            )
+        source = _require_count(self.source_candidate_count, "source_candidate_count")
+        promoted = _require_count(self.promoted_count, "promoted_count")
+        skipped = _require_count(self.skipped_count, "skipped_count")
+        object.__setattr__(self, "source_candidate_count", source)
+        object.__setattr__(self, "promoted_count", promoted)
+        object.__setattr__(self, "skipped_count", skipped)
+        reasons = tuple(self.skip_reasons)
+        for item in reasons:
+            if not isinstance(item, PromotionSkipCount):
+                raise MemoryValidationError(
+                    "Memory field 'skip_reasons' must hold PromotionSkipCount entries."
+                )
+        object.__setattr__(self, "skip_reasons", reasons)
+        if source != promoted + skipped:
+            raise MemoryValidationError(
+                "Memory field 'source_candidate_count' must equal "
+                "promoted_count + skipped_count."
+            )
+        promoted_ids = tuple(
+            _require_identity(memory_id, "promoted_memory_ids", MEMORY_RECORD_ID_PREFIX)
+            for memory_id in self.promoted_memory_ids
+        )
+        if len(promoted_ids) != promoted:
+            raise MemoryValidationError(
+                "Memory field 'promoted_memory_ids' must hold exactly "
+                "promoted_count identifiers."
+            )
+        object.__setattr__(self, "promoted_memory_ids", promoted_ids)
+        object.__setattr__(
+            self, "started_at", _require_utc(self.started_at, "started_at")
+        )
+        object.__setattr__(
+            self, "finished_at", _require_utc(self.finished_at, "finished_at")
+        )
+
+
+@dataclass(frozen=True)
+class MemorySelection:
+    """One memory record selected for a turn, with its controlled reason."""
+
+    memory_id: str
+    scope: MemoryRecordScope
+    memory_type: MemoryRecordType
+    reason: MemorySelectionReason
+    score: float
+    text: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "memory_id",
+            _require_identity(self.memory_id, "memory_id", MEMORY_RECORD_ID_PREFIX),
+        )
+        object.__setattr__(
+            self, "scope", _coerce_enum(self.scope, "scope", MemoryRecordScope)
+        )
+        object.__setattr__(
+            self,
+            "memory_type",
+            _coerce_enum(self.memory_type, "memory_type", MemoryRecordType),
+        )
+        object.__setattr__(
+            self,
+            "reason",
+            _coerce_enum(self.reason, "reason", MemorySelectionReason),
+        )
+        object.__setattr__(self, "score", _require_score(self.score, "score"))
+        object.__setattr__(
+            self,
+            "text",
+            require_text(self.text, "text", MEMORY_RECORD_TEXT_MAX_LENGTH),
+        )
+
+
+@dataclass(frozen=True)
+class MemorySelectionTrace:
+    """One persisted retrieval event: eligibility, selection, and gate state.
+
+    `selected_ids` and `reasons` are aligned by index. No field carries
+    message content, memory text beyond selected identifiers, or prompt
+    fragments.
+    """
+
+    trace_id: str
+    workspace_id: str
+    conversation_id: str | None
+    gate_enabled: bool
+    status: MemorySelectionStatus
+    selected_ids: tuple[str, ...]
+    reasons: tuple[MemorySelectionReason, ...]
+    eligible_count: int
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "trace_id",
+            _require_identity(
+                self.trace_id,
+                "trace_id",
+                MEMORY_RETRIEVAL_TRACE_ID_PREFIX,
+            ),
+        )
+        object.__setattr__(
+            self, "workspace_id", require_text(self.workspace_id, "workspace_id")
+        )
+        if self.conversation_id is not None:
+            object.__setattr__(
+                self,
+                "conversation_id",
+                require_text(self.conversation_id, "conversation_id"),
+            )
+        if not isinstance(self.gate_enabled, bool):
+            raise MemoryValidationError(
+                "Memory field 'gate_enabled' must be a boolean."
+            )
+        object.__setattr__(
+            self,
+            "status",
+            _coerce_enum(self.status, "status", MemorySelectionStatus),
+        )
+        selected_ids = tuple(
+            _require_identity(memory_id, "selected_ids", MEMORY_RECORD_ID_PREFIX)
+            for memory_id in self.selected_ids
+        )
+        object.__setattr__(self, "selected_ids", selected_ids)
+        reasons = tuple(
+            _coerce_enum(reason, "reasons", MemorySelectionReason)
+            for reason in self.reasons
+        )
+        object.__setattr__(self, "reasons", reasons)
+        if len(selected_ids) != len(reasons):
+            raise MemoryValidationError(
+                "Memory fields 'selected_ids' and 'reasons' must align by index."
+            )
+        object.__setattr__(
+            self,
+            "eligible_count",
+            _require_count(self.eligible_count, "eligible_count"),
+        )
+        object.__setattr__(
+            self, "created_at", _require_utc(self.created_at, "created_at")
+        )

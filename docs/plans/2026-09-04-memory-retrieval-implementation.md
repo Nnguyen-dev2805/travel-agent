@@ -22,7 +22,7 @@ test layout.
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | In Progress |
 | Plan version | 0.1 |
 | Date | 2026-09-04 |
 | Approved specification | [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md), version 0.1 (Approved 2026-09-05) |
@@ -130,7 +130,13 @@ test layout.
   R6 spec, and this plan
 - Produces: recorded execution base and baseline evidence
 
-- [ ] **Step 1: Confirm hard gates**
+- [x] **Step 1: Confirm hard gates**
+
+Gates re-read from sources on 2026-09-05 and all hold: R5 delivered at
+`89496eb` (ancestor of this worktree HEAD `c5c958e`, source-identical —
+`git diff 89496eb HEAD -- backend/` empty); `docs/reports/memory/
+r5-shadow-v0.1.json` is `PASS` (13 eligible, 0 invalid); ADR 0007
+`Accepted`; R6 spec v0.1 `Approved`; this plan v0.1 `Approved`.
 
 Re-read each source of truth and confirm the recorded state still holds. Do not
 trust this table alone; it records the state at approval time.
@@ -145,14 +151,22 @@ trust this table alone; it records the state at approval time.
 
 Stop before source edits if any gate no longer holds.
 
-- [ ] **Step 2: Inspect clean worktree**
+- [x] **Step 2: Inspect clean worktree**
+
+Worktree `r6-retrieval` verified isolated (`git-dir != git-common-dir`),
+`git status` clean, `.worktrees` ignored, `data/processed` symlinked per
+Global Constraint 11 (invisible to `git status`).
 
 Run: `git status --short --branch --untracked-files=all`
 
 Expected: no unrelated changes overlap R6 paths. If dirty files overlap, read
 them before deciding whether to continue.
 
-- [ ] **Step 3: Record baseline tests**
+- [x] **Step 3: Record baseline tests**
+
+Baseline in this worktree (primary `.venv` by absolute path):
+`834 passed, 1 warning in 22.20s` — exactly the recorded `89496eb`
+figure, so no investigation was needed.
 
 Run: `./.venv/bin/python -m pytest backend/tests -q`
 
@@ -161,17 +175,25 @@ Expected: existing suite passes. The base `89496eb` measured `834 passed` with
 observed by this execution in this plan; investigate any difference before
 continuing.
 
-- [ ] **Step 4: Mark execution start**
+- [x] **Step 4: Mark execution start**
+
+Plan status, plan index, and roadmap R6 moved to `In Progress`. Note: the
+roadmap cell read `Ready for handoff`, not `Blocked by gate` as this step
+anticipated; the transition intent (execution started) is identical.
 
 Update this plan status to `In Progress`, update the plan index to
 `In Progress`, and update roadmap `R6` from `Blocked by gate` to `In progress`
 only after the gates and baseline pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: gate evidence, baseline output, and worktree status.
 
 Expected: no source file has changed before the gate and baseline are recorded.
+
+Checkpoint: only this plan, `docs/plans/README.md`, and
+`docs/roadmap/master-roadmap.md` changed (the Task 1 file scope); no
+`backend/` source changed before baseline.
 
 ## Task 2: Memory Record Contracts
 
@@ -192,33 +214,41 @@ Expected: no source file has changed before the gate and baseline are recorded.
   - `generate_memory_record_id()`
   - `generate_memory_promotion_run_id()`
 
-- [ ] **Step 1: Write failing model tests**
+- [x] **Step 1: Write failing model tests**
 
 Cover identifier prefixes `mem_` and `mpr_`, UTC timestamps, status vocabulary,
 scope and `scope_id` invariants, text length, confidence range, promoted
 sensitivity labels, optional expiration, and no blank required identifiers.
 
-- [ ] **Step 2: Run model tests for RED**
+- [x] **Step 2: Run model tests for RED**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_records.py -q`
 
 Expected: tests fail because R6 contracts do not exist.
 
-- [ ] **Step 3: Implement contracts**
+- [x] **Step 3: Implement contracts**
 
 Extend the memory model module without changing R5 candidate vocabularies except
 where the approved R6 spec requires additive exports.
 
-- [ ] **Step 4: Run model tests for GREEN**
+- [x] **Step 4: Run model tests for GREEN**
+
+GREEN: `18 passed` (`backend/tests/unit/test_memory_records.py`).
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_memory_records.py -q`
 
 Expected: all model tests pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: R5 candidate contracts still pass, and R6 record contracts match the
 spec exactly.
+
+Checkpoint: R5 code untouched (only appended section + merged import/exports);
+two R6-scoped model decisions documented in code because the approved spec
+leaves them open — `MemorySelectionReason` holds exactly the two retrieval
+rule 9 paths, and `MemorySelectionTrace` is the persisted retrieval event;
+`scope_id` is bound to its scope owner inside the contract.
 
 ## Task 3: SQLite Record Store and Repository Protocols
 
@@ -234,36 +264,47 @@ spec exactly.
   records, listing records by scope, writing retrieval events, and rejecting
   unexpected schema versions.
 
-- [ ] **Step 1: Write failing repository tests**
+- [x] **Step 1: Write failing repository tests**
 
 Cover empty database initialization with R5 `memory` schema version 1 plus
 `memory_records` schema version 1, coexistence with existing R5 candidate
 tables, fail-closed behavior for unexpected `memory_records` versions, record
 uniqueness, lifecycle filtering, and temporary database isolation.
 
-- [ ] **Step 2: Run repository tests for RED**
+- [x] **Step 2: Run repository tests for RED**
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_sqlite_memory_records.py -q`
 
 Expected: tests fail because R6 repository methods and schema do not exist.
 
-- [ ] **Step 3: Implement repository and schema**
+- [x] **Step 3: Implement repository and schema**
 
 Add explicit `memory_records` schema module version 1 tables and indexes. Do not
 change the R5 `memory` module version. Do not introduce a general migration
 framework. Do not write memory data to Chroma or `data/evaluation`.
 
-- [ ] **Step 4: Run repository tests for GREEN**
+- [x] **Step 4: Run repository tests for GREEN**
+
+GREEN: `11 passed` (`backend/tests/unit/test_sqlite_memory_records.py`;
+`18 passed` for Task 2 models alongside).
 
 Run: `./.venv/bin/python -m pytest backend/tests/unit/test_sqlite_memory_records.py -q`
 
 Expected: all repository tests pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: schema ownership remains under `backend/memory/`, all tests use temp
 databases, R5 candidate persistence still works, and ADR 0004 fail-closed
 registry behavior remains unchanged.
+
+Checkpoint: `mark_records_superseded` added beyond the letter of the Task 3
+interface list because the approved Correction Supersession rule requires
+persisting target status flips and the interface has no update operation —
+without it Task 4 cannot implement approved behavior. `MemorySelectionReason`
+holds exactly the two retrieval rule 9 paths and `MemorySelectionTrace` is
+the persisted retrieval event; both were unspecified in the spec and are
+documented as R6-scoped decisions in code.
 
 ## Task 4: Promotion Policy
 

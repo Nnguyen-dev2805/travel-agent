@@ -7,9 +7,17 @@ statements, path creation, or connection management.
 
 from __future__ import annotations
 
-from typing import Protocol, Sequence
+from typing import Optional, Protocol, Sequence
 
-from backend.memory.models import MemoryCandidate, MemoryExtractionRun
+from backend.memory.models import (
+    MemoryCandidate,
+    MemoryExtractionRun,
+    MemoryPromotionRun,
+    MemoryRecord,
+    MemoryRecordScope,
+    MemoryRecordStatus,
+    MemorySelectionTrace,
+)
 
 
 class MemoryRepositoryError(Exception):
@@ -75,6 +83,80 @@ class MemoryRepository(Protocol):
         With `run_id`, order is `source_sequence` ascending, then
         `candidate_id` ascending. Without it, candidates group by parent run
         newest first, then follow the same in-run order.
+
+        Raises:
+            MemoryStorageError: Storage failed.
+        """
+        ...
+
+    def create_promotion_run(self, run: MemoryPromotionRun) -> MemoryPromotionRun:
+        """Persist a new promotion run and return the stored record.
+
+        Raises:
+            MemoryAlreadyExistsError: The run identity is already used.
+            MemoryStorageError: Storage failed for another reason.
+        """
+        ...
+
+    def create_records(
+        self, records: Sequence[MemoryRecord]
+    ) -> tuple[MemoryRecord, ...]:
+        """Persist answer-eligible records atomically, in input order.
+
+        Raises:
+            MemoryAlreadyExistsError: A record identity or a source
+                candidate is already recorded.
+            MemoryStorageError: Storage failed for another reason.
+        """
+        ...
+
+    def list_records(
+        self,
+        workspace_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        scope: Optional[MemoryRecordScope] = None,
+        status: Optional[MemoryRecordStatus] = None,
+    ) -> tuple[MemoryRecord, ...]:
+        """Return records matching every supplied filter, oldest first.
+
+        Order is `created_at` ascending, then `memory_id` ascending, so age
+        comparisons read in stored order.
+
+        Raises:
+            MemoryStorageError: Storage failed.
+        """
+        ...
+
+    def mark_records_superseded(self, memory_ids: Sequence[str]) -> int:
+        """Flip active records to `superseded` and return the flipped count.
+
+        Only rows still `active` move; unknown or already-superseded
+        identities contribute zero. Promotion resolves targets before
+        calling, so this method performs no scope or age reasoning.
+
+        Raises:
+            MemoryStorageError: Storage failed.
+        """
+        ...
+
+    def write_retrieval_event(
+        self, trace: MemorySelectionTrace
+    ) -> MemorySelectionTrace:
+        """Persist one retrieval event and return it.
+
+        Raises:
+            MemoryAlreadyExistsError: The trace identity is already used.
+            MemoryStorageError: Storage failed for another reason.
+        """
+        ...
+
+    def list_retrieval_events(
+        self,
+        workspace_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+    ) -> tuple[MemorySelectionTrace, ...]:
+        """Return retrieval events for the supplied filters, newest first.
 
         Raises:
             MemoryStorageError: Storage failed.
