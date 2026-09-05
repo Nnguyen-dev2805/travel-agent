@@ -200,4 +200,4 @@ commit, push, open a PR, merge, and release.
 | 2026-09-04 | Conversation Persistence Implementation Plan | [Conversation Persistence Design](../specs/2026-09-04-conversation-persistence-design.md) v0.1 | Completed | [Plan](./2026-09-04-conversation-persistence-implementation.md) |
 | 2026-09-04 | Shadow Memory Extraction Implementation Plan | [Shadow Memory Extraction Design](../specs/2026-09-04-shadow-memory-extraction-design.md) v0.1 | Completed | [Plan](./2026-09-04-shadow-memory-extraction-implementation.md) |
 | 2026-09-04 | Memory Retrieval Implementation Plan | [Memory Retrieval Design](../specs/2026-09-04-memory-retrieval-design.md) v0.3 | Completed | [Plan](./2026-09-04-memory-retrieval-implementation.md) |
-| 2026-09-05 | Trip Planner State Implementation Plan | [Trip Planner State Design](../specs/2026-09-05-trip-planner-state-design.md) v0.2 | In Progress | [Plan](./2026-09-05-trip-planner-state-implementation.md) |
+| 2026-09-05 | Trip Planner State Implementation Plan | [Trip Planner State Design](../specs/2026-09-05-trip-planner-state-design.md) v0.2 | Completed | [Plan](./2026-09-05-trip-planner-state-implementation.md) |

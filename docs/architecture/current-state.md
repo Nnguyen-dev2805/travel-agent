@@ -559,7 +559,8 @@ Current gaps:
    routes are unauthenticated and `owner_user_id` is a local scope label only.
 4. No implemented conversation summarization: `summary` has no column and no
    producer.
-5. No implemented planner module or itinerary state.
+5. Planner state exists as backend-only `R7` records, but no planner agent, LLM
+   itinerary generation, planner UI, or implicit chat planner write exists.
 6. No implemented evaluation trace write in the bounded chat route.
 7. No workspace-aware chat: the chat route performs no workspace lookup and
    accepts no `workspace_id`. It binds a turn to a conversation only when the

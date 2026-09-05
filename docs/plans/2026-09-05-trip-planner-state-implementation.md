@@ -22,7 +22,7 @@ schema registry, existing backend test layout.
 
 | Field | Value |
 | --- | --- |
-| Status | In Progress |
+| Status | Completed |
 | Plan version | 0.2 |
 | Date | 2026-09-05 |
 | Approved specification | [Trip Planner State Design](../specs/2026-09-05-trip-planner-state-design.md), version 0.2, approved by repository owner on 2026-09-05 |
@@ -652,8 +652,8 @@ production migration, no destructive cleanup, and no history rewrite.
 | Approval | ADR 0008 accepted, R7 spec v0.2 approved, and plan v0.2 approved by repository owner on 2026-09-05 |
 | Execution | Tasks 1-8 done in worktree `r7-planner` (base `3a53dfa`): contracts, repository, service, API routes, evaluation harness, docs, boundary checks, package verification |
 | Verification | `pytest backend/tests`: 985 passed + 1 known non-R7 failure (`test_chunker.py::test_loader_real_dataset` needs gitignored `data/processed/vietnam_travel_raw.jsonl` absent from fresh worktrees); `compileall` exit 0; `run-state --suite r7-state-v0.1` result `PASS` over 16 examples with 6/6 gates; import-boundary greps exit 1 with no output; `git diff --check` clean. Review-fix round: operation rows now commit in the same repository transaction as their state change (atomicity tests included); version allocation uses `BEGIN IMMEDIATE`; itinerary creates take `ItineraryVersionDraft` |
-| Owner review | Pending |
-| Git delivery | Not authorized |
+| Owner review | Repository owner accepted the R7 change set on 2026-09-05 after the atomicity review round |
+| Git delivery | Pending repository-owner action; no push, PR, merge, or release performed |
 
 ## Approval Record
 

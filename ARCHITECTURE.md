@@ -221,6 +221,44 @@ and no candidate enters `ContextBundle`, prompt assembly, retrieval, or
 generated answers. It is unauthenticated local development behavior and must
 not be exposed publicly.
 
+## Trip Planner State Flow
+
+Milestone `R7` adds backend-only planner state beside workspaces, conversations,
+and memory. Planner writes are explicit and always leave operation evidence, per
+ADR 0008.
+
+```mermaid
+flowchart LR
+    Caller[Local caller] --> Routes[FastAPI planner routes]
+    Routes --> Service[PlannerService]
+    Service --> WS[WorkspaceRepository interface]
+    Service --> Conv[ConversationRepository interface]
+    Service --> Interface[PlannerRepository interface]
+    Interface --> Adapter[SQLitePlannerRepository]
+    Adapter --> Registry[Shared schema registry]
+    Registry --> DB[(APP_DB_PATH)]
+```
+
+The service validates workspace and optional conversation provenance, then
+decides the lifecycle transition; the adapter performs the scoped write. Each
+successful state change and its `PlannerOperation` row commit in one transaction,
+so a stored itinerary or decision can never exist without the operation that
+produced it, and a rejected request writes nothing. Itinerary versions are
+immutable snapshots: accepting one supersedes prior accepted versions in the same
+workspace instead of editing them, and rejected decisions stay listable as
+decision evidence.
+
+A separate evaluation command replays tracked synthetic suites under
+`docs/evaluation/fixtures/planner/` through the same service and writes a report
+with result state (`PASS`, `FAIL`, `INCONCLUSIVE`, `INVALID`) and per-gate
+evidence.
+
+This path is independent of RAG and memory: planner routes construct no
+embedder, Chroma collection, memory service, or model-provider client;
+`backend/planner` imports no RAG, memory, or orchestration module, and none of
+those import planner. Chat never creates planner state. It is unauthenticated
+local development behavior and must not be exposed publicly.
+
 ## Trust Boundaries
 
 | Boundary | Current implication |
@@ -229,6 +267,7 @@ not be exposed publicly.
 | Caller to workspace routes | Workspace routes are unauthenticated. `owner_user_id` is a caller-supplied local development scope label, not authentication, authorization, or tenant isolation, so these routes must not be exposed publicly |
 | Caller to conversation routes | Conversation routes are unauthenticated. Conversations inherit scope from their parent workspace and carry no owner field, so `R4` claims no cross-user or cross-workspace isolation beyond deterministic repository filtering. The public append route accepts only `user` and `system_event`, so a caller cannot forge an assistant turn. These routes must not be exposed publicly |
 | Caller to memory routes | Memory routes are unauthenticated and inherit workspace scope through the parent conversation. The trigger route always creates a `manual` run and rejects any caller-supplied `trigger`. These routes must not be exposed publicly |
+| Caller to planner routes | Planner routes are unauthenticated and inherit scope from the addressed workspace. A cross-workspace itinerary or decision id reports not-found rather than leaking that the identifier exists elsewhere, and no chat, memory, or RAG path can write planner state. These routes must not be exposed publicly |
 | Memory candidate evidence to callers and reports | Candidate `text` is excluded from HTTP responses; reports carry identifiers, counts, controlled reason codes, and redacted summaries only. Secret-like spans are redacted before persistence, and raw message content is never logged |
 | Feature-gated memory answers | Memory records enter prompts only for bound turns with the gate enabled; memory is never a citation, the public request carries no memory toggle, and selected IDs/reasons travel in controlled trace metadata only |
 | Local process to model provider | User message, retrieved travel context, and — only for gate-enabled bound turns — selected memory record text leave the local process for the configured external model endpoint |
@@ -243,8 +282,8 @@ not be exposed publicly.
   optional additive `conversation_id`.
 - The chat response contract contains `reply`, `model`, and `citations`, plus a
   `conversation` object that is absent, not null, unless the caller opted in.
-- The backend mounts chat, workspace, and conversation routes under `/api/v1` and
-  health at `/health`.
+- The backend mounts chat, workspace, conversation, memory, and planner routes
+  under `/api/v1` and health at `/health`.
 - Workspace routes are additive; the chat route performs no workspace lookup and
   accepts no `workspace_id`.
 - Workspace identity is server-generated and prefixed `tw_`; conversation identity
@@ -253,7 +292,16 @@ not be exposed publicly.
   prefixed `mem_`, promotion-run identity `mpr_`, and retrieval-trace identity
   `mtr_`. Memory retrieval stays behind `MEMORY_RETRIEVAL_ENABLED=false` by
   default; records live in a separate `memory_records` schema module at
-  version 1 while R5 `memory` stays at version 1.
+  version 1 while R5 `memory` stays at version 1. Planner itinerary-version
+  identity is prefixed `itv_`, trip-decision identity `td_`, and planner-operation
+  identity `po_`, in a separate `planner_state` schema module at version 1.
+- Itinerary `version_number` starts at `1` and is contiguous per workspace across
+  successful creates, allocated by the adapter inside a `BEGIN IMMEDIATE`
+  transaction and never supplied by a caller. A failed create allocates nothing.
+- Every successful state-changing planner use case writes exactly one
+  `PlannerOperation` row inside the same transaction as the state change, so a
+  saved plan can never exist without its operation evidence. Rejected requests
+  write no planner row at all.
 - Message order within a conversation is a stored `sequence` integer starting at
   `1`, unique per conversation, assigned by the adapter inside the write
   transaction and never supplied by a caller.
@@ -265,22 +313,26 @@ not be exposed publicly.
   path for either record.
 - Assistant and tool turns are writable only through the orchestrator.
 - SQLite access is confined to `backend/storage/schema_registry.py`,
-  `backend/workspaces/sqlite_repository.py`, and
-  `backend/conversations/sqlite_repository.py`. `PRAGMA user_version` is confined
+  `backend/workspaces/sqlite_repository.py`,
+  `backend/conversations/sqlite_repository.py`,
+  `backend/memory/sqlite_repository.py`, and
+  `backend/planner/sqlite_repository.py`. `PRAGMA user_version` is confined
   to the schema registry.
 - Schema versions are recorded per module in `schema_versions`, so workspace,
-  conversation, and memory modules coexist in one database file without
-  version contention.
-- RAG and evaluation modules do not import workspace, conversation, memory, or
-  orchestration modules, and `backend/workspaces` does not import conversation,
-  memory, or orchestration modules. `backend/memory` does not import RAG or
-  orchestration modules, and no memory candidate enters `ContextBundle`, prompt
-  assembly, RAG retrieval, or generated answers.
+  conversation, memory, memory-record, and planner modules coexist in one
+  database file without version contention.
+- RAG and evaluation modules do not import workspace, conversation, memory,
+  orchestration, or planner modules, and `backend/workspaces` does not import
+  conversation, memory, or orchestration modules. `backend/memory` does not
+  import RAG or orchestration modules, and no memory candidate enters
+  `ContextBundle`, prompt assembly, RAG retrieval, or generated answers.
+  `backend/planner` does not import RAG, memory, or orchestration modules, and
+  none of those import planner.
 - The RAG service is process-global after first construction.
 - Chroma uses persistent local storage under `data/chromadb` by default, and no
-  conversation or message record is written to any vector database.
+  conversation, message, or planner record is written to any vector database.
 - Health readiness is narrower than chat readiness, and it does not signal
-  workspace or conversation storage readiness.
+  workspace, conversation, or planner storage readiness.
 - Startup attempts to pre-warm the RAG service and converts pre-warm failures
   to warnings.
 
@@ -296,9 +348,11 @@ not be exposed publicly.
   authenticated identity. Promotion covers only the three allow-list reasons
   with an R5 producer; `profile_fact` and `decision` records exist solely
   through seeded evaluation fixtures.
-- Trip workspace and conversation records exist as local backend components, but
-  there is no authenticated user, workspace-aware chat, itinerary state, planner
-  behavior, workspace or conversation UI, or workspace lifecycle transition.
+- Trip workspace, conversation, and planner records exist as local backend
+  components, but there is no authenticated user, workspace-aware chat, planner
+  agent, LLM itinerary generation, workspace/conversation/planner UI, or
+  workspace lifecycle transition. `R7` planner writes require an explicit
+  planner API call; chat never creates planner state.
 - **The frontend is unchanged, so real browser traffic is not persisted.** `R4`
   delivers the capability to persist a turn; the browser still holds its visible
   transcript in volatile React state. Frontend work was explicitly deferred.
@@ -307,11 +361,12 @@ not be exposed publicly.
 - **No deletion semantics exist for any record.** The retention vocabulary admits
   `summarized`, `archived`, `deletion_requested`, and `deleted`, but no producer
   moves a record into any of them, and hard deletion versus tombstoning is an
-  open security-hardening decision.
+  open security-hardening decision. `R7` planner records add `archived` and
+  `superseded` lifecycle states but no deletion path.
 - No request body size limit exists, and message `content` is deliberately
   unbounded, so request size limiting remains an API-boundary gap.
-- Workspace and conversation routes are unauthenticated, and `owner_user_id` is a
-  local scope label rather than an authorization control.
+- Workspace, conversation, memory, and planner routes are unauthenticated, and
+  `owner_user_id` is a local scope label rather than an authorization control.
 - Local SQLite storage settles no production database, migration, backup,
   restore, concurrency, retention, or deletion policy, and offers no concurrency
   safety beyond a single local process.

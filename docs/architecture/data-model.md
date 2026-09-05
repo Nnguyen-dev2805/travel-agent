@@ -144,11 +144,13 @@ exists at runtime, with these implemented constraints:
 | `created_at`, `updated_at` | Server-generated timezone-aware UTC timestamps |
 
 The `User` entity is not implemented, so `owner_user_id` currently references no
-stored user record. Itinerary versions, trip decisions, memory records, context
-bundles, and evaluation traces are not implemented and do not yet reference
-`workspace_id`; since `R4`, conversations do. `R3` implements creation and
-inspection only; update, archive, deletion, and tombstoning require a later
-approved design because they affect privacy, retention, and recovery semantics.
+stored user record. Context bundles and evaluation traces are not implemented and
+do not yet reference `workspace_id`. Conversations reference it since `R4`, memory
+records carry workspace scope through `scope_id` since `R6`, and itinerary
+versions, trip decisions, and planner operations reference it since `R7`. `R3`
+implements creation and inspection only; update, archive, deletion, and
+tombstoning require a later approved design because they affect privacy,
+retention, and recovery semantics.
 
 Physical storage for `R3` is a local SQLite file behind a repository interface per
 ADR 0003, promoted by ADR 0004 into one shared local application store with
