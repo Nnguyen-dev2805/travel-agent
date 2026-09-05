@@ -455,7 +455,7 @@ timestamps); a speculative `rank_records` helper was deleted before GREEN.
   travel-context seam
 - Produces: feature-gated memory selection during bound chat turns
 
-- [ ] **Step 1: Write failing integration tests**
+- [x] **Step 1: Write failing integration tests**
 
 Cover:
 
@@ -468,13 +468,13 @@ Cover:
   citations;
 - out-of-scope or inactive memory is not selected.
 
-- [ ] **Step 2: Run integration tests for RED**
+- [x] **Step 2: Run integration tests for RED**
 
 Run: `./.venv/bin/python -m pytest backend/tests/integration/test_chat_memory_retrieval.py -q`
 
 Expected: tests fail because chat integration does not exist.
 
-- [ ] **Step 3: Implement feature-gated integration**
+- [x] **Step 3: Implement feature-gated integration**
 
 Add the three R6 settings to `backend/app/config.py` using the existing
 `os.getenv` pattern, with `MEMORY_RETRIEVAL_ENABLED` defaulting to false. Add a
@@ -484,16 +484,28 @@ construction through existing dependency patterns. Keep the public request body
 free of a memory override. Extend the existing chat response serializer so an
 absent `memory` object is omitted entirely.
 
-- [ ] **Step 4: Run integration tests for GREEN**
+- [x] **Step 4: Run integration tests for GREEN**
+
+GREEN: `8 passed` (`test_chat_memory_retrieval.py`).
 
 Run: `./.venv/bin/python -m pytest backend/tests/integration/test_chat_memory_retrieval.py -q`
 
 Expected: all integration tests pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: feature-gate-off behavior is unchanged and selected memory metadata is
 controlled.
+
+Checkpoint: R4 boundary tests caught an orchestrator `backend.workspaces`
+import from the first implementation — restructured so the app-layer
+provider owns workspace resolution and returns `None`/owner-or-`None`,
+keeping the R4 import boundary green with no test edits. Gate-off and
+unbound turns still call `generate_answer` (existing R4/RAG tests
+untouched); only gate-on bound turns use the new RAG seam. Retrieval
+failure degrades to `skipped` with an error log instead of failing the
+turn. Settings use an `_env_flag` helper so parsing is unit-testable
+(Pydantic evaluates defaults at import time).
 
 ## Task 7: R6 Evaluation Harness and Report
 

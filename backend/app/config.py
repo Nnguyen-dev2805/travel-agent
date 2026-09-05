@@ -24,6 +24,18 @@ DEPRECATED_WORKSPACE_DB_PATH = (
 )
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    """Read a boolean environment flag, defaulting when unset.
+
+    Evaluated when `Settings` is defined, like every other setting in this
+    module: a process picks up flag changes on restart, not mid-run.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() == "true"
+
+
 def _resolve_app_db_path() -> Path:
     """Resolve the shared application database path, honoring the R3 alias.
 
@@ -66,6 +78,15 @@ class Settings(BaseModel):
     WORKSPACE_DB_PATH: Path = Path(
         os.getenv("WORKSPACE_DB_PATH", str(DEPRECATED_WORKSPACE_DB_PATH))
     )
+    # R6 feature-gated memory retrieval. The gate defaults to false: with it
+    # disabled, bound and unbound chat behavior remains R4/R5 behavior.
+    # Turning retrieval on by default requires memory evaluation evidence that
+    # satisfies the approved gates.
+    MEMORY_RETRIEVAL_ENABLED: bool = _env_flag("MEMORY_RETRIEVAL_ENABLED", False)
+    MEMORY_PROMOTION_MIN_CONFIDENCE: float = float(
+        os.getenv("MEMORY_PROMOTION_MIN_CONFIDENCE", "0.75")
+    )
+    MEMORY_MAX_SELECTED: int = int(os.getenv("MEMORY_MAX_SELECTED", "5"))
 
 
 settings = Settings()

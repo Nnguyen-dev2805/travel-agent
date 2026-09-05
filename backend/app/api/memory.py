@@ -41,6 +41,7 @@ from backend.memory.models import (
     MemoryExtractionTrigger,
     MemoryValidationError,
 )
+from backend.memory.promotion import MemoryPromotionPolicy
 from backend.memory.repository import MemoryRepositoryError
 from backend.memory.service import (
     MemoryRunNotFoundError,
@@ -97,6 +98,9 @@ def get_memory_service() -> MemoryService:
         memory_repository=memory,
         conversation_repository=conversations,
         workspace_repository=workspaces,
+        promotion_policy=MemoryPromotionPolicy(
+            min_confidence=settings.MEMORY_PROMOTION_MIN_CONFIDENCE
+        ),
     )
 
 

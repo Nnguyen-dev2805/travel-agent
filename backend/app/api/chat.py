@@ -15,12 +15,23 @@ cannot be broken by a storage failure and cannot create the developer database.
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from backend.app.api.conversations import get_conversation_service
-from backend.app.schemas.chat import ChatRequest, ChatResponse, ConversationTurnPayload
+from backend.app.config import settings
+from backend.app.schemas.chat import (
+    ChatMemoryPayload,
+    ChatRequest,
+    ChatResponse,
+    ConversationTurnPayload,
+)
 from backend.conversations.models import ConversationValidationError
 from backend.conversations.repository import ConversationRepositoryError
 from backend.conversations.service import ConversationNotFoundError
+from backend.memory.repository import MemoryRepositoryError
+from backend.memory.retrieval import MemoryRetrievalService
+from backend.memory.sqlite_repository import SQLiteMemoryRepository
 from backend.orchestration.conversation_orchestrator import ConversationOrchestrator
 from backend.rag.generation import RAGService
+from backend.workspaces.repository import WorkspaceRepositoryError
+from backend.workspaces.sqlite_repository import SQLiteWorkspaceRepository
 
 logger = logging.getLogger("travel_agent_backend")
 router = APIRouter()
@@ -39,16 +50,59 @@ def get_rag_service() -> RAGService:
     return _rag_service
 
 
+def get_memory_components():
+    """Resolve memory retrieval components for one bound turn.
+
+    The provider runs lazily inside the orchestrator, only when the feature
+    gate is enabled for a bound turn, so gate-disabled and unbound turns
+    never open the memory database. A `None` return means storage could not
+    be opened, and the orchestrator degrades to an ungated answer with a
+    `skipped` trace rather than failing the turn. Owner resolution swallows
+    its own storage errors the same way, so the     orchestrator never imports
+    workspace storage details and the R4 orchestration import boundary holds.
+    """
+    try:
+        memory = SQLiteMemoryRepository(db_path=settings.APP_DB_PATH)
+        workspaces = SQLiteWorkspaceRepository(db_path=settings.APP_DB_PATH)
+    except (MemoryRepositoryError, WorkspaceRepositoryError) as error:
+        logger.error(
+            "memory.components unavailable failure_class=%s",
+            type(error).__name__,
+        )
+        return None
+
+    def resolve_owner(workspace_id: str):
+        try:
+            workspace = workspaces.get(workspace_id)
+        except WorkspaceRepositoryError as error:
+            logger.error(
+                "memory.owner unavailable failure_class=%s",
+                type(error).__name__,
+            )
+            return None
+        return workspace.owner_user_id if workspace is not None else None
+
+    return (
+        MemoryRetrievalService(memory, max_selected=settings.MEMORY_MAX_SELECTED),
+        resolve_owner,
+    )
+
+
 def get_conversation_orchestrator() -> ConversationOrchestrator:
     """Construct the orchestrator for one chat turn.
 
     The RAG service is resolved eagerly because every turn generates an answer.
     The conversation service is passed as a provider so it is constructed only
-    when the caller supplied a `conversation_id`.
+    when the caller supplied a `conversation_id`. Memory components travel
+    behind a second provider so they resolve only for a gate-enabled bound
+    turn. The public request body carries no memory override.
     """
     return ConversationOrchestrator(
         rag_service=get_rag_service(),
         conversation_service_provider=get_conversation_service,
+        memory_enabled=settings.MEMORY_RETRIEVAL_ENABLED,
+        memory_provider=get_memory_components,
+        max_selected=settings.MEMORY_MAX_SELECTED,
     )
 
 
@@ -80,11 +134,23 @@ def chat_endpoint(
             else None
         )
 
+        memory = (
+            ChatMemoryPayload(
+                enabled=outcome.memory.enabled,
+                status=outcome.memory.status,
+                selected_memory_ids=list(outcome.memory.selected_memory_ids),
+                selection_reasons=list(outcome.memory.selection_reasons),
+            )
+            if outcome.memory is not None
+            else None
+        )
+
         return ChatResponse(
             reply=outcome.reply,
             model=outcome.model,
             citations=outcome.citations,
             conversation=conversation,
+            memory=memory,
         )
 
     except HTTPException:
