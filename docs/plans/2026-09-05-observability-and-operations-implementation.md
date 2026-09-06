@@ -21,7 +21,7 @@ pytest, existing Markdown/JSON report style.
 
 | Field | Value |
 | --- | --- |
-| Status | In Progress |
+| Status | Completed |
 | Plan version | 0.3 |
 | Date | 2026-09-05 |
 | Approved specification | [Observability and Operations Design](../specs/2026-09-05-observability-and-operations-design.md), version 0.2, approved by repository owner on 2026-09-05 |
@@ -874,9 +874,9 @@ because R8 adds no product data schema and no durable telemetry store.
 | --- | --- |
 | Approval | ADR 0009 accepted, R8 spec v0.2 approved, and plan v0.3 approved by repository owner on 2026-09-05 |
 | Execution | Tasks 1-8 done in worktree `r8-observability` (base `e761f11`): contracts, events, middleware, instrumentation, readiness, evaluation, docs, package verification |
-| Verification | `pytest backend/tests`: 1033 passed + 1 known non-R8 failure (`test_chunker.py::test_loader_real_dataset` needs gitignored `data/processed/vietnam_travel_raw.jsonl` absent from fresh worktrees); `compileall` exit 0; `run-readiness --suite r8-operational-readiness-v0.1` result `PASS` over 14 examples with 6/6 gates; import-boundary greps exit 1 with no output; privacy sentinel grep over `docs/reports/ops/` exit 1 with no output; `git diff --check` clean |
-| Owner review | Pending |
-| Git delivery | Not authorized |
+| Verification | `pytest backend/tests`: 1036 passed + 1 known non-R8 failure (`test_chunker.py::test_loader_real_dataset` needs gitignored `data/processed/vietnam_travel_raw.jsonl` absent from fresh worktrees); `compileall` exit 0; `run-readiness --suite r8-operational-readiness-v0.1` result `PASS` over 14 examples with 6/6 gates; import-boundary greps exit 1 with no output; privacy sentinel grep over `docs/reports/ops/` exit 1 with no output; vendor-name doc grep exit 1 with no output; `git diff --check` clean. Review-fix round in commit `1413bee`: the unvalidated caller `conversation_id` left the chat accepted event so a malformed id keeps the `404` contract instead of raising through observability, `counters` entries now pass the same key rules and scalar redaction as top-level fields while route paths survive, `ops.py` chains its cause, and the architecture and security gap lists no longer claim the chat route logs a message prefix |
+| Owner review | Repository owner accepted the R8 change set on 2026-09-05 after the route-contract and counters-redaction review round |
+| Git delivery | Pending repository-owner action; no push, PR, merge, or release performed |
 
 ## Approval Record
 
