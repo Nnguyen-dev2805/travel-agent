@@ -21,7 +21,7 @@ existing R8 observability events, existing docs report pattern.
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | In Progress |
 | Plan version | 0.3 |
 | Date | 2026-09-06 |
 | Approved specification | [Security and Privacy Hardening Design](../specs/2026-09-06-security-and-privacy-hardening-design.md), version 0.2, approved by repository owner on 2026-09-06 |
@@ -154,11 +154,11 @@ Do not implement this plan until all are true:
 
 **Interfaces:**
 
-- Consumes: owner approvals for ADR 0010, R9 spec v0.2, and this plan v0.2.
+- Consumes: owner approvals for ADR 0010, R9 spec v0.2, and this plan v0.3.
 - Produces: implementation worktree with documented base commit and R9 plan
   state moved to `In Progress`.
 
-- [ ] **Step 1: Confirm implementation base**
+- [x] **Step 1: Confirm implementation base**
 
 Run:
 
@@ -170,24 +170,24 @@ git log --oneline -8
 Expected: implementation worktree is clean and includes accepted R8 work, or the
 repository-owner selected later base.
 
-- [ ] **Step 2: Confirm approval gates**
+- [x] **Step 2: Confirm approval gates**
 
 Expected headers:
 
 ```text
 ADR 0010: Accepted
 R9 spec v0.2: Approved
-R9 plan v0.2: Approved
+R9 plan v0.3: Approved
 ```
 
 Stop if any value is missing.
 
-- [ ] **Step 3: Move R9 docs into implementation state**
+- [x] **Step 3: Move R9 docs into implementation state**
 
 Update this plan status to `In Progress`, update `docs/plans/README.md`, and
 update roadmap `R9` from `Blocked by gate` to `In progress`.
 
-- [ ] **Step 4: Run baseline tests**
+- [x] **Step 4: Run baseline tests**
 
 Run:
 
@@ -198,7 +198,7 @@ Run:
 Expected: pass, or disclose exact known non-R9 external/environment failures
 before changing source.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: approval gates, base commit, clean status, and R9 status edits.
 
@@ -223,7 +223,7 @@ Expected: no source change has started before gates are satisfied.
   `AuthenticationError`, `parse_local_token_registry(raw: str)`,
   `resolve_local_principal(token: str, registry: Mapping[str, str])`.
 
-- [ ] **Step 1: Write failing security model tests**
+- [x] **Step 1: Write failing security model tests**
 
 Cover valid principal construction, blank owner rejection, credential label
 validation, and enum values `authenticated` and `compatibility`.
@@ -236,7 +236,7 @@ Run:
 
 Expected: fail because `backend.security` does not exist.
 
-- [ ] **Step 2: Write failing local token tests**
+- [x] **Step 2: Write failing local token tests**
 
 Cover:
 
@@ -258,12 +258,12 @@ Run:
 
 Expected: fail because token registry code does not exist.
 
-- [ ] **Step 3: Implement minimal contracts**
+- [x] **Step 3: Implement minimal contracts**
 
 Implement immutable models and parsing helpers. Use `hmac.compare_digest` for
 token comparison. Error messages must not include token values or raw JSON.
 
-- [ ] **Step 4: Add settings**
+- [x] **Step 4: Add settings**
 
 Add:
 
@@ -283,7 +283,7 @@ existing `.env.example` with safe placeholder values only; do not rewrite the
 file, because it already documents `GITHUB_TOKEN`, `LLM_MODEL`, `VITE_API_URL`,
 and the R6 memory flags.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
@@ -293,7 +293,7 @@ Run:
 
 Expected: pass.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: token values are never logged, returned, or included in exception
 messages; settings representation does not expose `LOCAL_AUTH_TOKENS_JSON`;
@@ -316,7 +316,7 @@ Expected: security contracts are standalone and deterministic.
 - Produces: `get_optional_principal`, `require_principal`, request-size
   middleware, auth-aware CORS validation, and a protected-readiness policy.
 
-- [ ] **Step 1: Write failing auth API tests**
+- [x] **Step 1: Write failing auth API tests**
 
 Cover:
 
@@ -336,7 +336,7 @@ Run:
 
 Expected: fail because auth dependencies are not wired.
 
-- [ ] **Step 2: Write failing request-size/CORS tests**
+- [x] **Step 2: Write failing request-size/CORS tests**
 
 Cover oversized request returns `413` with controlled detail; wildcard CORS is
 rejected or narrowed when `AUTH_REQUIRED=true`; malformed auth configuration
@@ -350,7 +350,7 @@ Run:
 
 Expected: fail for missing request-size behavior.
 
-- [ ] **Step 3: Implement dependencies and middleware**
+- [x] **Step 3: Implement dependencies and middleware**
 
 Implement bearer parsing, compatibility principal fallback when auth is disabled,
 request-size middleware using `Content-Length` and safe body rejection, and CORS
@@ -359,7 +359,7 @@ Protect `/api/v1/ops/readiness` when `AUTH_REQUIRED=true`; keep `/health`
 unauthenticated. If the token registry is malformed, readiness is unavailable
 through the route and operators must use `/health` plus privacy-safe logs.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run:
 
@@ -369,7 +369,7 @@ Run:
 
 Expected: pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: `/health` remains compatible, protected routes can require auth, token
 values are absent from logs/responses, and request-size rejection is content-free.

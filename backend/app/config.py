@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 dotenv_path = ROOT_DIR / ".env"
@@ -91,6 +91,20 @@ class Settings(BaseModel):
         os.getenv("MEMORY_PROMOTION_MIN_CONFIDENCE", "0.75")
     )
     MEMORY_MAX_SELECTED: int = int(os.getenv("MEMORY_MAX_SELECTED", "5"))
+    # R9 local security boundary. `AUTH_REQUIRED=false` preserves
+    # unauthenticated local compatibility; `true` fails closed and
+    # requires a valid local bearer token for protected routes.
+    # `LOCAL_AUTH_TOKENS_JSON` is secret-bearing: it must never appear in
+    # settings representations, logs, readiness output, reports, or error
+    # messages.
+    AUTH_REQUIRED: bool = _env_flag("AUTH_REQUIRED", False)
+    LOCAL_AUTH_TOKENS_JSON: SecretStr = SecretStr(
+        os.getenv("LOCAL_AUTH_TOKENS_JSON", "{}")
+    )
+    MAX_REQUEST_BODY_BYTES: int = int(os.getenv("MAX_REQUEST_BODY_BYTES", "1048576"))
+    ALLOWED_CORS_ORIGINS: str = os.getenv(
+        "ALLOWED_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+    )
 
 
 settings = Settings()

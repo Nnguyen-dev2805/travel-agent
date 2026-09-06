@@ -9,10 +9,17 @@ network.
 import logging
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.config import settings
 from backend.app.main import app
+
+
+@pytest.fixture(autouse=True)
+def _compat_auth(monkeypatch):
+    """Pin compatibility mode: R9 auth must not change these R8 expectations."""
+    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
 
 
 def test_health_body_unchanged_with_request_id_header(caplog):

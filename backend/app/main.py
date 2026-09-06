@@ -4,8 +4,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from backend.app.config import settings
 from backend.app.errors import content_free_validation_error_handler
+from backend.security.dependencies import (
+    enforce_request_body_limit,
+    resolve_cors_origins,
+)
+from backend.security.models import SecurityConfigurationError
 from backend.observability.context import reset_request_id, set_request_id
 from backend.observability.events import emit_event
 from backend.observability.models import (
@@ -55,10 +61,12 @@ app = FastAPI(
 # error body can carry message content or a conversation title.
 app.add_exception_handler(RequestValidationError, content_free_validation_error_handler)
 
-# Configure CORS middleware
+# Configure CORS middleware. Origin resolution fails closed at startup when
+# auth is enabled with a wildcard origin; compatibility mode preserves the
+# existing local origins.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
+    allow_origins=resolve_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,6 +90,21 @@ async def request_correlation_middleware(request: Request, call_next):
     token = set_request_id(request_id)
     start = time.perf_counter()
     try:
+        try:
+            oversized = await enforce_request_body_limit(request)
+        except SecurityConfigurationError as error:
+            logger.error(
+                "security.request rejected failure_class=%s",
+                type(error).__name__,
+            )
+            reset_request_id(token)
+            return JSONResponse(
+                status_code=500, content={"detail": "Request rejected."}
+            )
+        if oversized is not None:
+            oversized.headers["X-Request-ID"] = request_id
+            reset_request_id(token)
+            return oversized
         response = await call_next(request)
     except Exception as error:
         try:

@@ -14,9 +14,11 @@ diagnostic fields only.
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.observability.readiness import build_readiness_snapshot
+from backend.security.dependencies import require_principal
+from backend.security.models import AuthenticatedPrincipal
 
 logger = logging.getLogger("travel_agent_observability")
 router = APIRouter()
@@ -25,8 +27,16 @@ _READINESS_FAILED_DETAIL = "Readiness probe failed."
 
 
 @router.get("/ops/readiness")
-def get_readiness() -> dict[str, Any]:
-    """Return local readiness without changing any application state."""
+def get_readiness(
+    _principal: AuthenticatedPrincipal = Depends(require_principal),
+) -> dict[str, Any]:
+    """Return local readiness without changing any application state.
+
+    The route stays open in compatibility mode and requires a valid
+    bearer token when auth is enabled. Credential and configuration
+    failures are already controlled `401`/`500` responses from the
+    principal dependency, so this body only guards the probe itself.
+    """
     try:
         snapshot = build_readiness_snapshot()
     except Exception as error:
