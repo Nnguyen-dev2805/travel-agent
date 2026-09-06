@@ -147,3 +147,4 @@ evidence.
 | 0007 | Feature-gated Memory Retrieval and Context Boundary | Accepted | 2026-09-05 | [ADR 0007](./0007-feature-gated-memory-retrieval-and-context-boundary.md) |
 | 0008 | Workspace-owned Planner State and Operation Log | Accepted | 2026-09-05 | [ADR 0008](./0008-workspace-owned-planner-state-and-operation-log.md) |
 | 0009 | Privacy-safe Local Observability Boundary | Accepted | 2026-09-05 | [ADR 0009](./0009-privacy-safe-local-observability-boundary.md) |
+| 0010 | Local Identity, Authorization, and Deletion Boundary | Accepted | 2026-09-06 | [ADR 0010](./0010-local-identity-authorization-and-deletion-boundary.md) |

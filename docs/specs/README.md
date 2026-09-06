@@ -296,3 +296,4 @@ must be compared; a cosmetic variant is not a distinct alternative.
 | 2026-09-04 | Memory Retrieval Design | Level 3 | 0.3 | Approved | [Design](./2026-09-04-memory-retrieval-design.md) |
 | 2026-09-05 | Trip Planner State Design | Level 3 | 0.2 | Approved | [Design](./2026-09-05-trip-planner-state-design.md) |
 | 2026-09-05 | Observability and Operations Design | Level 3 | 0.2 | Approved | [Design](./2026-09-05-observability-and-operations-design.md) |
+| 2026-09-06 | Security and Privacy Hardening Design | Level 3 | 0.2 | Approved | [Design](./2026-09-06-security-and-privacy-hardening-design.md) |
