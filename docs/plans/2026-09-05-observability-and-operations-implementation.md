@@ -21,7 +21,7 @@ pytest, existing Markdown/JSON report style.
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | In Progress |
 | Plan version | 0.3 |
 | Date | 2026-09-05 |
 | Approved specification | [Observability and Operations Design](../specs/2026-09-05-observability-and-operations-design.md), version 0.2, approved by repository owner on 2026-09-05 |
@@ -136,7 +136,7 @@ Do not implement this plan until all are true:
 - Produces: implementation worktree with documented base commit and R8 plan
   state moved to `In Progress`.
 
-- [ ] **Step 1: Confirm implementation base**
+- [x] **Step 1: Confirm implementation base**
 
 Run:
 
@@ -148,7 +148,7 @@ git log --oneline -8
 Expected: implementation worktree is clean and base includes R7 delivered work
 through `57e70fe`, or the repository-owner selected later base.
 
-- [ ] **Step 2: Confirm approval gates**
+- [x] **Step 2: Confirm approval gates**
 
 Expected headers:
 
@@ -160,12 +160,12 @@ R8 plan v0.3: Approved
 
 Stop if any value is missing.
 
-- [ ] **Step 3: Move R8 docs into implementation state**
+- [x] **Step 3: Move R8 docs into implementation state**
 
 Update this plan status to `In Progress`, update `docs/plans/README.md`, and
 update roadmap `R8` from `Blocked by gate` to `In progress`.
 
-- [ ] **Step 4: Run baseline tests**
+- [x] **Step 4: Run baseline tests**
 
 Run:
 
@@ -176,7 +176,7 @@ Run:
 Expected: pass, or disclose known non-R8 external/environment failures before
 changing source.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: approval gates, base commit, clean status, and R8 status edits.
 
@@ -198,7 +198,7 @@ Expected: no source change has started before the gate is satisfied.
 - Produces: `OperationalEvent`, `ReadinessSnapshot`, `ReadinessComponent`,
   safe payload validation primitives, and redaction helpers.
 
-- [ ] **Step 1: Write failing model tests**
+- [x] **Step 1: Write failing model tests**
 
 Cover:
 
@@ -220,7 +220,7 @@ Run:
 
 Expected: fail because the module does not exist.
 
-- [ ] **Step 2: Write failing redaction tests**
+- [x] **Step 2: Write failing redaction tests**
 
 Cover:
 
@@ -241,12 +241,12 @@ Run:
 
 Expected: fail because redaction does not exist.
 
-- [ ] **Step 3: Implement minimal contracts**
+- [x] **Step 3: Implement minimal contracts**
 
 Implement dataclasses or Pydantic models with explicit enums and validation.
 Use `uuid.uuid4().hex` for ids and timezone-aware UTC timestamps.
 
-- [ ] **Step 4: Implement redaction and unsafe-key rejection**
+- [x] **Step 4: Implement redaction and unsafe-key rejection**
 
 Create one public helper:
 
@@ -258,7 +258,7 @@ def sanitize_event_fields(fields: Mapping[str, object]) -> dict[str, object]:
 It rejects forbidden keys and redacts token-like and path-like scalar values
 before returning a serializable dictionary.
 
-- [ ] **Step 5: Run focused contract tests**
+- [x] **Step 5: Run focused contract tests**
 
 Run:
 
@@ -268,7 +268,7 @@ Run:
 
 Expected: pass.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: contract and redaction files import no product domains or route modules.
 
@@ -296,7 +296,7 @@ Expected: exit `1` with no output.
 - Produces: `current_request_id()`, `set_request_id()`, request-id middleware,
   `emit_event(event_name, component, result, **fields)`.
 
-- [ ] **Step 1: Write failing event logger tests**
+- [x] **Step 1: Write failing event logger tests**
 
 Cover:
 
@@ -315,7 +315,7 @@ Run:
 
 Expected: fail.
 
-- [ ] **Step 2: Write failing middleware tests**
+- [x] **Step 2: Write failing middleware tests**
 
 Cover:
 
@@ -334,12 +334,12 @@ Run:
 
 Expected: fail because middleware is absent.
 
-- [ ] **Step 3: Implement context and event logger**
+- [x] **Step 3: Implement context and event logger**
 
 Use `contextvars.ContextVar` for request id storage and standard-library
 `logging.getLogger("travel_agent_observability")` for JSON event logs.
 
-- [ ] **Step 4: Add FastAPI middleware**
+- [x] **Step 4: Add FastAPI middleware**
 
 Generate a server-owned request id for every request, set it in context, add
 `X-Request-ID` to the response, and emit an `api.request.completed` event with
@@ -347,7 +347,7 @@ method, route path template when available, status code, duration, and result.
 Expose `X-Request-ID` through CORS so local browser clients can read it. Do not
 log request bodies or query strings.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
@@ -357,7 +357,7 @@ Run:
 
 Expected: pass.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: `/health` body compatibility and request id header behavior.
 
