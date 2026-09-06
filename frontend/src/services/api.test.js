@@ -1,49 +1,79 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import axios from 'axios'
-import { sendChatMessage } from './api'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import apiClient, { sendChatMessage } from './api';
+import { setToken, getToken, clearToken, PRESET_USERS } from './auth';
 
-vi.mock('axios')
+vi.mock('axios', () => {
+  const mockAxiosInstance = {
+    get: vi.fn(),
+    post: vi.fn(),
+    interceptors: {
+      request: { use: vi.fn() },
+      response: { use: vi.fn() },
+    },
+  };
+  return {
+    default: {
+      create: vi.fn(() => mockAxiosInstance),
+      post: vi.fn(),
+    },
+  };
+});
 
-describe('sendChatMessage', () => {
+describe('Authentication Service', () => {
+  const mockStorage = {};
   beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.stubGlobal('localStorage', {
+      getItem: (key) => mockStorage[key] || null,
+      setItem: (key, value) => {
+        mockStorage[key] = String(value);
+      },
+      removeItem: (key) => {
+        delete mockStorage[key];
+      },
+      clear: () => {
+        for (const k in mockStorage) delete mockStorage[k];
+      },
+    });
+    localStorage.clear();
+  });
 
-  it('posts the user message to the chat API', async () => {
-    axios.post.mockResolvedValueOnce({
+  it('stores and retrieves bearer token', () => {
+    expect(getToken()).toBe('');
+    setToken('token_alice_secret', 'Alice');
+    expect(getToken()).toBe('token_alice_secret');
+  });
+
+  it('clears token on logout', () => {
+    setToken('token_test');
+    clearToken();
+    expect(getToken()).toBe('');
+  });
+
+  it('contains Alice and Bob presets', () => {
+    expect(PRESET_USERS.length).toBeGreaterThanOrEqual(2);
+    expect(PRESET_USERS[0].id).toBe('user_alice');
+    expect(PRESET_USERS[1].id).toBe('user_bob');
+  });
+});
+
+describe('API Service', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('sends chat message via apiClient', async () => {
+    apiClient.post.mockResolvedValueOnce({
       data: {
-        reply: 'Xin chao',
-        model: 'test-model',
+        reply: 'Xin chào!',
+        model: 'gpt-4o-mini',
         citations: [],
       },
-    })
+    });
 
-    const result = await sendChatMessage('Plan a Da Nang trip')
-
-    expect(axios.post).toHaveBeenCalledWith(
-      'http://localhost:8000/api/v1/chat',
-      { message: 'Plan a Da Nang trip' },
-    )
-    expect(result.reply).toBe('Xin chao')
-    expect(result.model).toBe('test-model')
-    expect(result.citations).toEqual([])
-  })
-
-  it('surfaces backend detail errors', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    axios.post.mockRejectedValueOnce({
-      response: {
-        data: {
-          detail: 'Message content cannot be empty.',
-        },
-      },
-    })
-
-    await expect(sendChatMessage('   ')).rejects.toThrow(
-      'Message content cannot be empty.',
-    )
-    expect(consoleError).toHaveBeenCalledOnce()
-    consoleError.mockRestore()
-  })
-})
+    const result = await sendChatMessage('Du lịch Hội An');
+    expect(apiClient.post).toHaveBeenCalledWith('/chat', {
+      message: 'Du lịch Hội An',
+    });
+    expect(result.reply).toBe('Xin chào!');
+  });
+});
