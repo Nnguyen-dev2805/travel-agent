@@ -64,6 +64,44 @@ def test_content_like_keys_redact():
     assert cleaned["answer"] == "[REDACTED]"
 
 
+def test_counters_redact_forbidden_secret_and_path_values():
+    cleaned = sanitize_event_fields(
+        {
+            "counters": {
+                "message": "SECRET_USER_TEXT",
+                "token": "ghp_REALTOKENVALUE123",
+                "path": "/Users/me/secret/app.sqlite3",
+            }
+        }
+    )
+
+    assert cleaned["counters"] == {
+        "message": "[REDACTED]",
+        "token": "[REDACTED]",
+        "path": "[PATH]",
+    }
+
+
+def test_counters_keep_route_paths_and_diagnostic_scalars():
+    cleaned = sanitize_event_fields(
+        {
+            "counters": {
+                "method": "GET",
+                "path": "/api/v1/chat",
+                "status_code": 200,
+                "writes": 2,
+            }
+        }
+    )
+
+    assert cleaned["counters"] == {
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "status_code": 200,
+        "writes": 2,
+    }
+
+
 def test_safe_ids_reason_and_counters_survive():
     fields = {
         "request_id": "rq_" + "a" * 32,

@@ -44,6 +44,10 @@ Use these Package 3 architecture documents for deeper review:
 | Feature-gated chat memory | Bound turns compose selected memory with RAG context only when `MEMORY_RETRIEVAL_ENABLED` is true; gate-off and unbound turns keep R4/R5 behavior exactly | `backend/orchestration/conversation_orchestrator.py`, `backend/orchestration/memory_context.py` |
 | Planner routes | Create, read, accept, archive, decide, and inspect planner state behind `PlannerService`; construct no RAG, embedding, memory, or model-provider dependency | `backend/app/api/planner.py`, `backend/app/schemas/planner.py` |
 | Planner module | Owns `ItineraryVersion`, `TripDecision`, and `PlannerOperation` contracts, lifecycle use cases, operation evidence, the storage interface, and deterministic state evaluation | `backend/planner/models.py`, `backend/planner/service.py`, `backend/planner/repository.py`, `backend/planner/evaluation/runner.py` |
+| Observability contracts and redaction | Own `OperationalEvent` and readiness contracts, closed event vocabularies, and safe-field validation that rejects content keys and redacts token-like, path-like, and content-like values; standard library only | `backend/observability/models.py`, `backend/observability/redaction.py` |
+| Request correlation and event logging | Binds a server-owned `rq_` request id per request, returns it in the `X-Request-ID` response header, and writes one JSON event record per emission with pre-serialization redaction | `backend/observability/context.py`, `backend/observability/events.py`, `backend/app/main.py` |
+| Ops readiness route | Returns a read-only local readiness snapshot with component states and reason codes; creates no databases, collections, or schema, and calls no external provider | `backend/app/api/ops.py`, `backend/observability/readiness.py` |
+| Operational evaluation | Replays tracked synthetic suites through the real observability code and writes a Markdown and JSON report with result state and gate evidence | `backend/observability/evaluation/runner.py`, `backend/observability/evaluation/cli.py` |
 | Shared schema registry | Owns the `PRAGMA user_version` store marker and the `schema_versions` table, registers or verifies one module's schema version, and fails closed on unknown ownership or an unsupported version | `backend/storage/schema_registry.py` |
 | Shared local application store | One local SQLite file at `APP_DB_PATH` holding trip workspace, conversation, message, memory, and planner records with per-module schema versions | `backend/workspaces/sqlite_repository.py`, `backend/conversations/sqlite_repository.py`, `backend/planner/sqlite_repository.py` |
 | RAG generation service | Embeds the user message, retrieves Chroma context, builds the model prompt, calls the configured external model endpoint, and formats citations | `backend/rag/generation/rag_service.py` |
@@ -268,6 +272,7 @@ local development behavior and must not be exposed publicly.
 | Caller to conversation routes | Conversation routes are unauthenticated. Conversations inherit scope from their parent workspace and carry no owner field, so `R4` claims no cross-user or cross-workspace isolation beyond deterministic repository filtering. The public append route accepts only `user` and `system_event`, so a caller cannot forge an assistant turn. These routes must not be exposed publicly |
 | Caller to memory routes | Memory routes are unauthenticated and inherit workspace scope through the parent conversation. The trigger route always creates a `manual` run and rejects any caller-supplied `trigger`. These routes must not be exposed publicly |
 | Caller to planner routes | Planner routes are unauthenticated and inherit scope from the addressed workspace. A cross-workspace itinerary or decision id reports not-found rather than leaking that the identifier exists elsewhere, and no chat, memory, or RAG path can write planner state. These routes must not be exposed publicly |
+| Caller to ops readiness route | The ops readiness route is unauthenticated local development diagnostics. It returns component states, reason codes, and safe metadata only: no secrets, prompts, user content, provider payloads, paths, or stack traces. It performs no state-changing setup. This route must not be exposed publicly and must not be represented as production-safe |
 | Memory candidate evidence to callers and reports | Candidate `text` is excluded from HTTP responses; reports carry identifiers, counts, controlled reason codes, and redacted summaries only. Secret-like spans are redacted before persistence, and raw message content is never logged |
 | Feature-gated memory answers | Memory records enter prompts only for bound turns with the gate enabled; memory is never a citation, the public request carries no memory toggle, and selected IDs/reasons travel in controlled trace metadata only |
 | Local process to model provider | User message, retrieved travel context, and — only for gate-enabled bound turns — selected memory record text leave the local process for the configured external model endpoint |
@@ -328,6 +333,11 @@ local development behavior and must not be exposed publicly.
   `ContextBundle`, prompt assembly, RAG retrieval, or generated answers.
   `backend/planner` does not import RAG, memory, or orchestration modules, and
   none of those import planner.
+- Observability context and event emission are the only cross-cutting imports
+  allowed into product modules: RAG, memory, planner, workspace, conversation,
+  orchestration, storage, and route modules may import
+  `backend.observability.context` and `backend.observability.events`, and must
+  not import readiness, evaluation, or ops route modules.
 - The RAG service is process-global after first construction.
 - Chroma uses persistent local storage under `data/chromadb` by default, and no
   conversation, message, or planner record is written to any vector database.
@@ -372,8 +382,10 @@ local development behavior and must not be exposed publicly.
   safety beyond a single local process.
 - There is no current multi-service data platform.
 - Local CORS is permissive.
-- The chat path logs a prefix of the user message. `R4` neither extends nor
-  removes that behavior; removing it is owned by a security-hardening milestone.
+- The chat path no longer logs any user message prefix. `R8` replaced
+  prompt-prefix logging with content-free request and outcome events; raw
+  exception-derived HTTP 500 details remain owned by a security-hardening
+  milestone.
 - Current CI masks backend and frontend test failures, so green CI is not proof
   of passing tests.
 - Production security, privacy guarantees, data deletion, authorization,

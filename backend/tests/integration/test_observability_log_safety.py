@@ -198,6 +198,25 @@ def test_bound_chat_gate_off_logs_no_memory_content(tmp_path: Path, caplog):
     assert conversation_id in caplog.text
 
 
+def test_malformed_conversation_id_still_returns_404(tmp_path: Path, caplog):
+    # Regression: the request-accepted event once validated the raw
+    # caller-supplied conversation id, so a non-prefixed id raised inside
+    # observability and masked the 404 as a 500. Observability must never
+    # change the route contract.
+    db_path = tmp_path / "travel_agent.sqlite3"
+    client = _chat_client(db_path)
+
+    response = client.post(
+        "/api/v1/chat",
+        json={"message": "hi", "conversation_id": "bogus-not-cv-prefixed"},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Conversation not found."}
+    assert "ObservabilityValidationError" not in caplog.text
+    assert "unhandled_exception" not in caplog.text
+
+
 def test_blank_chat_message_rejected_without_content(tmp_path: Path, caplog):
     db_path = tmp_path / "travel_agent.sqlite3"
     client = _chat_client(db_path)

@@ -69,6 +69,9 @@ Material evidence paths:
 | Planner routes | Create, read, accept, archive, decide, and inspect planner state behind `PlannerService`; construct no RAG, embedding, memory, or model-provider dependency | `backend/app/api/planner.py`, `backend/app/schemas/planner.py` |
 | Planner contracts, service, and store | Own `ItineraryVersion`, `TripDecision`, and `PlannerOperation` value objects, lifecycle use cases, operation evidence, and the storage interface; registers `('planner_state', 1)` and fails closed on an incompatible recorded version | `backend/planner/models.py`, `backend/planner/service.py`, `backend/planner/repository.py`, `backend/planner/sqlite_repository.py` |
 | Planner state evaluation | Replays tracked synthetic suites end to end through the real planner service and writes a Markdown and JSON report with result state and gate evidence | `backend/planner/evaluation/runner.py`, `backend/planner/evaluation/cli.py` |
+| Observability contracts and events | Own closed event vocabularies, request correlation ids, and safe-field validation; product modules emit content-free JSON events through one doorway that redacts before serializing | `backend/observability/models.py`, `backend/observability/redaction.py`, `backend/observability/context.py`, `backend/observability/events.py` |
+| Ops readiness route | Returns a read-only local readiness snapshot with component states and reason codes; creates no state and calls no external provider | `backend/app/api/ops.py`, `backend/observability/readiness.py` |
+| Operational evaluation | Replays tracked synthetic suites through the real observability code and writes a Markdown and JSON report with result state and gate evidence | `backend/observability/evaluation/runner.py`, `backend/observability/evaluation/cli.py` |
 | RAG generation service | Embeds the user message, retrieves Chroma context, builds the prompt, calls the configured external model endpoint, and formats citations | `backend/rag/generation/rag_service.py` |
 | Vector embedder | Lazily loads `BAAI/bge-m3` through sentence-transformers when available, or returns deterministic 1024-dimensional fallback vectors | `backend/rag/embedding/embedder.py` |
 | Chroma vector store | Creates or opens a persistent local Chroma collection, upserts baseline or parent-child chunks, searches by query embedding, and counts records | `backend/rag/retrieval/vector_store.py` |
@@ -578,8 +581,8 @@ Current gaps:
 13. Travel knowledge retrieval and prompt assembly are coupled inside
     `RAGService.generate_answer`.
 14. Local CORS is permissive.
-15. The chat route logs a prefix of the user message. `R4` neither extended nor
-    removed that behavior.
+15. The chat route no longer logs any user message prefix. `R8` replaced
+    prompt-prefix logging with content-free request and outcome events.
 16. Production security, privacy, tenant isolation, SLOs, and deployment
     topology are not established by this prototype.
 

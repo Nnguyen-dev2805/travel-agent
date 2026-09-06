@@ -127,11 +127,16 @@ def chat_endpoint(
     if not user_message:
         raise HTTPException(status_code=400, detail="Message content cannot be empty.")
 
+    # The conversation id is still unvalidated caller input here: the
+    # orchestrator checks it below. It stays out of this event so a
+    # malformed id can never turn the 404 contract into a 500 or make
+    # observability report itself as an application failure; the
+    # request id correlates, and validated ids arrive with the
+    # turn-completed event.
     emit_event(
         EventName.CHAT_REQUEST_ACCEPTED,
         EventComponent.CHAT,
         EventResult.SUCCESS,
-        conversation_id=request.conversation_id,
     )
 
     try:

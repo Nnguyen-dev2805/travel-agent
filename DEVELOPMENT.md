@@ -408,6 +408,30 @@ Rules:
 python -m backend.planner.evaluation.cli run-state --suite r7-state-v0.1
 ```
 
+### Local Ops Readiness
+
+`/health` answers liveness only: it stays `{status, service}` and never
+proves model, RAG, storage, memory, or planner readiness. Ops readiness is
+the diagnostic surface:
+
+```bash
+curl --fail --silent --show-error http://localhost:8000/health
+curl --fail --silent --show-error http://localhost:8000/api/v1/ops/readiness
+./.venv/bin/python -m backend.observability.evaluation.cli run-readiness --suite r8-operational-readiness-v0.1
+```
+
+Rules:
+
+1. Every response carries an `X-Request-ID` header for local correlation;
+   it is not authentication.
+2. Readiness is read-only: it never creates databases, Chroma state, or
+   schema, and never calls a model provider.
+3. Logs and readiness output carry ids, reason codes, counts, and timings
+   only: no prompts, messages, answers, secrets, paths, or stack traces.
+4. A `degraded`, `not_ready`, or `unknown` component names its reason code;
+   follow the runbook routing in `docs/runbooks/local-development.md`
+   before any destructive recovery.
+
 ## Command Contract
 
 | Category | Working directory | Command | Claim | Writes | Network | Status |
@@ -430,6 +454,8 @@ python -m backend.planner.evaluation.cli run-state --suite r7-state-v0.1
 | Local memory retrieval evaluation | repository root | `python -m backend.memory.evaluation.cli run-retrieval --suite r6-retrieval-v0.1` | Retrieval report with paired metrics, hard-gate evidence, and `INCONCLUSIVE` answer-quality fields | Markdown and JSON reports | Local `git` process for the dirty-tree signal only; no network | Deterministic; writes reports only |
 | Local planner routes | repository root | `curl` requests to `/api/v1/workspaces/{workspace_id}/planner/...` while the backend runs | Itineraries, decisions, and operations can be written and inspected locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
 | Local planner evaluation | repository root | `python -m backend.planner.evaluation.cli run-state --suite r7-state-v0.1` | Planner report with versioning, lifecycle, isolation, and operation gates | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
+| Local ops readiness | repository root | `curl` requests to `/health` and `/api/v1/ops/readiness` while the backend runs | Liveness plus read-only component diagnostics with reason codes | No expected source writes | No expected external call | Requires no credential, model, or Chroma state |
+| Local ops evaluation | repository root | `python -m backend.observability.evaluation.cli run-readiness --suite r8-operational-readiness-v0.1` | Ops report with correlation, privacy, degradation, schema, evidence, and runbook gates | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
 | RAG and memory evaluation | repository root | later approved evaluation command | Approved metric-specific quality claim | Evaluation outputs | Depends on later plan | Future milestone |
 
 ## Opt-in Data and Model Operations

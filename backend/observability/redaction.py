@@ -77,19 +77,51 @@ _TOKEN_PATTERNS = (
 
 _PATH_PATTERN = re.compile(r"^(~?/[^ \n]*|[A-Za-z]:\\[^ \n]*)")
 
+_SENSITIVE_ROOTS = (
+    "/tmp/",
+    "/var/",
+    "/etc/",
+    "/home/",
+    "/Users/",
+    "/data/",
+    "/app/",
+    "/srv/",
+    "/opt/",
+    "/root/",
+    "~/",
+)
+
 
 def _looks_like_token(value: str) -> bool:
     return any(pattern.search(value) for pattern in _TOKEN_PATTERNS)
 
 
 def _looks_like_path(value: str) -> bool:
-    if "://" in value:
+    """Decide whether a string is a filesystem path rather than a route.
+
+    Route paths such as `/api/v1/chat` are governed diagnostic evidence
+    and must survive; they carry identifiers, never file locations. A
+    filesystem path almost always names a file (a dot in the last
+    segment), a sensitive root, or a Windows drive, so only those shapes
+    redact.
+    """
+    text = value.strip()
+    if "://" in text:
         return False
-    return bool(_PATH_PATTERN.match(value.strip()))
+    if re.match(r"^[A-Za-z]:\\", text):
+        return True
+    if _PATH_PATTERN.match(text) is None:
+        return False
+    last = text.rsplit("/", 1)[-1]
+    if "." in last:
+        return True
+    return text.startswith(_SENSITIVE_ROOTS)
 
 
 def _redact_scalar(key: str, value: Any) -> Any:
     lowered = key.lower()
+    if lowered in FORBIDDEN_KEYS:
+        return REDACTED
     if lowered in SECRET_LIKE_KEYS or lowered in CONTENT_LIKE_KEYS:
         return REDACTED
     if not isinstance(value, str):
@@ -108,6 +140,10 @@ def sanitize_event_fields(fields: Mapping[str, object]) -> dict[str, object]:
     and content-like keys redact regardless of value shape, while other
     string values redact only when they match token-like or path-like
     patterns, so safe ids, reason codes, and counters survive unchanged.
+
+    The `counters` mapping is validated and then redacted entry by entry
+    with the same key rules: a forbidden nested key redacts instead of
+    raising, because emission must never break the request it observes.
     The result holds plain JSON-serializable data only.
 
     Raises:
@@ -129,7 +165,11 @@ def sanitize_event_fields(fields: Mapping[str, object]) -> dict[str, object]:
                 f"Observability event field '{key}' must never be logged."
             )
         if key == "counters":
-            cleaned[key] = require_counters(value, "counters")
+            validated = require_counters(value, "counters")
+            cleaned[key] = {
+                entry_key: _redact_scalar(entry_key, entry_value)
+                for entry_key, entry_value in validated.items()
+            }
             continue
         if isinstance(value, Mapping) or (isinstance(value, (list, tuple, set))):
             raise ObservabilityValidationError(

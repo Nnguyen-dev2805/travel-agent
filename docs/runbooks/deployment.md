@@ -121,6 +121,13 @@ The release design must define which capabilities fail closed, which may degrade
 with an explicit limitation, and what evidence triggers rollback or incident
 handling. Package 6 does not invent those per-feature runtime decisions.
 
+R8 local observability evidence (`/api/v1/ops/readiness` snapshots and the
+`r8-operational-readiness-v0.1` report) improves diagnosis of degraded local
+state, but it does not pass production telemetry, alerting, retention, or
+privacy-hardening gates. An `evidence_gap` readiness state means a required
+evaluation report is absent and blocks promotion until regenerated; it never
+authorizes skipping the missing evidence.
+
 ## Rollback Readiness
 
 Rollback is a precondition for promotion, not an improvised incident step. A

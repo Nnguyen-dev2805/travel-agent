@@ -58,6 +58,13 @@ Advance only when there is enough evidence to classify a provisional severity
 and scope. If evidence itself contains secrets/private data, redact before it is
 stored in a repository artifact.
 
+R8 operational evidence helps triage without becoming a second leak:
+readiness reason codes such as `store_marker_mismatch`,
+`schema_incompatible`, or `unreadable` establish storage distrust with
+identifiers and counts only. Preserve the database file, record the reason
+code and component states, and never paste raw prompts, messages, provider
+payloads, paths, or stack traces into incident evidence.
+
 ## Contain
 
 **Goal:** stop or reduce ongoing exposure while preserving the ability to

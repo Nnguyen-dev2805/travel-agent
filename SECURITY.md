@@ -88,10 +88,11 @@ default debugging mechanism. User-content logging requires an approved purpose,
 scope, access model, and retention/deletion behavior. Secret values must never
 be logged or traced.
 
-The current chat route logs a prefix of the user message and may expose raw
-exception text in HTTP 500 details. Those behaviors are current prototype risks
-and public-production blockers; this policy does not approve them as production
-telemetry or error handling.
+The chat route no longer logs any user message prefix: R8 replaced
+prompt-prefix logging with content-free request and outcome events. Raw
+exception text in HTTP 500 details remains: that behavior is a current
+prototype risk and public-production blocker; this policy does not approve
+it as production telemetry or error handling.
 
 ## Trust Boundary
 
@@ -113,8 +114,8 @@ and the current Docker/Compose stack publishes development services on ports
 
 These are local prototype behaviors. They are not acceptable evidence for a
 credentialed public API and they do not establish user, tenant, or workspace
-isolation. The current prompt-prefix logging and raw error-detail behavior also
-remain unresolved production risks.
+isolation. Raw error-detail behavior remains an unresolved production risk;
+prompt-prefix logging was removed by R8.
 
 Public production deployment therefore fails closed under
 [Deployment Readiness](docs/runbooks/deployment.md).

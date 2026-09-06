@@ -31,6 +31,6 @@ def get_readiness() -> dict[str, Any]:
         snapshot = build_readiness_snapshot()
     except Exception as error:
         logger.error("ops.readiness failed failure_class=%s", type(error).__name__)
-        raise HTTPException(status_code=500, detail=_READINESS_FAILED_DETAIL)
+        raise HTTPException(status_code=500, detail=_READINESS_FAILED_DETAIL) from error
     logger.info("ops.readiness completed status=%s", snapshot.status.value)
     return snapshot.to_dict()

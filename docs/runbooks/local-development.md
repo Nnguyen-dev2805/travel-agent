@@ -40,12 +40,16 @@ Start with the smallest failing boundary:
 docker info
 docker compose ps --all
 curl --fail --silent --show-error http://localhost:8000/health
+curl --fail --silent --show-error http://localhost:8000/api/v1/ops/readiness
 lsof -nP -iTCP:8000 -sTCP:LISTEN
 lsof -nP -iTCP:5173 -sTCP:LISTEN
 ```
 
 These are read-only diagnostics. Do not jump directly to rebuilds or data
 cleanup. Record which check first fails, then use the matching section below.
+When the readiness snapshot reports a non-ready component, use its reason
+code with the routing table under Ops Readiness Reason Routing before any
+destructive recovery.
 
 ## Docker Daemon or Socket Failure
 
@@ -344,6 +348,26 @@ the provider failure class, not full user content.
 
 **Stop:** suspected provider compromise, credential misuse, repeated unexplained
 failures, or required provider changes route to incident/governed design work.
+
+## Ops Readiness Reason Routing
+
+A `degraded`, `not_ready`, or `unknown` readiness component names a reason
+code. Route by code before destructive recovery:
+
+| Reason code | Meaning | Route |
+| --- | --- | --- |
+| `credential_missing` | No model credential is configured | Missing Model Credential below |
+| `path_missing` | The Chroma path is absent | Chroma or Local Data-state Problems below |
+| `database_missing` | The SQLite file is absent | Persistent-data Recovery Boundary below |
+| `memory_retrieval_disabled` | The memory gate is off | Expected local behavior, not a failure |
+| `module_missing` | A runtime module is not installed | Dependency Install Failure below |
+| `probe_failed` | A probe raised unexpectedly | Record the failure class and retry once |
+| `evidence_gap` | An evaluation report is absent | Regenerate the missing report; see the Deployment Readiness Runbook for promotion impact |
+
+`store_marker_mismatch`, `schema_incompatible`, `schema_registry_missing`,
+and `unreadable` indicate storage the build cannot trust. Preserve the
+database file and route recovery through the Incident Response Runbook,
+never through blind deletion or recreation.
 
 ## Chroma or Local Data-state Problems
 
