@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from backend.workspaces.models import TripWorkspace
+from backend.workspaces.models import RetentionState, TripWorkspace
 
 
 class WorkspaceRepositoryError(Exception):
@@ -50,5 +50,16 @@ class WorkspaceRepository(Protocol):
 
         Ordering is `updated_at` descending, then `created_at` descending, then
         `workspace_id` ascending.
+        """
+        ...
+
+    def update_retention_state(
+        self, workspace_id: str, state: RetentionState
+    ) -> TripWorkspace | None:
+        """Set one workspace retention state without lifecycle reasoning.
+
+        Lifecycle decisions belong to the workspace or privacy service;
+        this method only performs the scoped write. Returns None when no
+        record exists.
         """
         ...

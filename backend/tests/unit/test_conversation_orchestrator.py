@@ -72,6 +72,21 @@ class FakeConversationService:
         self.appended: list[Message] = []
         self.failures: dict[MessageRole, Exception] = {}
 
+    def get_conversation(self, conversation_id: str):
+        from types import SimpleNamespace
+
+        if conversation_id not in self._known:
+            return None
+        return SimpleNamespace(conversation_id=conversation_id, workspace_id="tw_fake")
+
+    def get_workspace(self, workspace_id: str):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            workspace_id=workspace_id,
+            retention_state=SimpleNamespace(value="active"),
+        )
+
     def append_message(
         self,
         conversation_id: str,
@@ -409,6 +424,16 @@ class _AuthConversations:
 
     def get_workspace_owner_id(self, workspace_id: str):
         return {"tw_mine": "owner_a", "tw_theirs": "owner_b"}.get(workspace_id)
+
+    def get_workspace(self, workspace_id: str):
+        from types import SimpleNamespace
+
+        if workspace_id not in ("tw_mine", "tw_theirs"):
+            return None
+        return SimpleNamespace(
+            workspace_id=workspace_id,
+            retention_state=SimpleNamespace(value="active"),
+        )
 
     def append_message(self, conversation_id: str, **kwargs):
         from types import SimpleNamespace

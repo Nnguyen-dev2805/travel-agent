@@ -9,6 +9,7 @@ subsystem.
 from __future__ import annotations
 
 from backend.workspaces.models import (
+    RetentionState,
     TripWorkspace,
     WorkspaceCreate,
     WorkspaceListFilter,
@@ -84,10 +85,21 @@ class WorkspaceService:
     def get_workspace(self, workspace_id: str) -> TripWorkspace | None:
         """Return one workspace by identifier, or None when no record exists.
 
+        Workspaces pending or under deletion read as absent through normal
+        product paths; coordination reads them through the repository.
+
         Raises:
             WorkspaceValidationError: The identifier is blank.
         """
-        return self._repository.get(require_text(workspace_id, "workspace_id"))
+        workspace = self._repository.get(require_text(workspace_id, "workspace_id"))
+        if workspace is None:
+            return None
+        if workspace.retention_state in (
+            RetentionState.DELETION_REQUESTED,
+            RetentionState.DELETED,
+        ):
+            return None
+        return workspace
 
     def list_workspaces(self, owner_user_id: str) -> tuple[TripWorkspace, ...]:
         """Return workspaces for one local development owner scope label.

@@ -486,9 +486,8 @@ def test_list_excludes_deleted_records(workspace_client, workspace_repository):
     assert deleted.workspace_id not in ids
 
 
-def test_list_includes_active_archived_and_deletion_requested(
-    workspace_client, workspace_repository
-):
+def test_list_includes_active_and_archived_only(workspace_client, workspace_repository):
+    """R9 hides deletion-requested and deleted workspaces from normal lists."""
     expected = {
         _seed(
             workspace_repository,
@@ -500,12 +499,12 @@ def test_list_includes_active_archived_and_deletion_requested(
             retention_state=RetentionState.ARCHIVED,
             title="Archived",
         ).workspace_id,
-        _seed(
-            workspace_repository,
-            retention_state=RetentionState.DELETION_REQUESTED,
-            title="Deletion requested",
-        ).workspace_id,
     }
+    _seed(
+        workspace_repository,
+        retention_state=RetentionState.DELETION_REQUESTED,
+        title="Deletion requested",
+    )
     _seed(workspace_repository, retention_state=RetentionState.DELETED, title="Deleted")
 
     body = workspace_client.get("/api/v1/workspaces?owner_user_id=local-user").json()
@@ -513,18 +512,22 @@ def test_list_includes_active_archived_and_deletion_requested(
     assert {record["workspace_id"] for record in body["workspaces"]} == expected
 
 
-def test_get_still_returns_a_deleted_record_by_id(
-    workspace_client, workspace_repository
-):
-    """Retention filtering governs listing only; direct lookup is unchanged."""
+def test_get_hides_a_deleted_record_by_id(workspace_client, workspace_repository):
+    """R9 hides deletion-requested and deleted workspaces from direct lookup."""
     deleted = _seed(
         workspace_repository, retention_state=RetentionState.DELETED, title="Deleted"
     )
+    requested = _seed(
+        workspace_repository,
+        retention_state=RetentionState.DELETION_REQUESTED,
+        title="Requested",
+    )
 
-    response = workspace_client.get(f"/api/v1/workspaces/{deleted.workspace_id}")
+    for workspace_id in (deleted.workspace_id, requested.workspace_id):
+        response = workspace_client.get(f"/api/v1/workspaces/{workspace_id}")
 
-    assert response.status_code == 200
-    assert response.json()["retention_state"] == "deleted"
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Workspace not found."}
 
 
 # 8 and 9. Existing health and chat contracts remain compatible.

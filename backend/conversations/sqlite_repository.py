@@ -113,12 +113,12 @@ _SELECT_CONVERSATION_BY_ID = (
     "WHERE conversation_id = ?"
 )
 
-# Listing excludes `deleted` records. R4 creates only `active` records, so this
-# filter has no effect today; it keeps a future deletion milestone from
-# surfacing removed records through the list route.
+# Listing excludes `deleted` and `deletion_requested` records. Normal
+# product reads never surface conversations pending or under deletion; the
+# privacy service reads tombstoned rows through `get` for coordination.
 _SELECT_CONVERSATIONS_BY_WORKSPACE = f"""
 SELECT {_CONVERSATION_COLUMNS} FROM {CONVERSATION_TABLE}
-WHERE workspace_id = ? AND retention_state != ?
+WHERE workspace_id = ? AND retention_state NOT IN (?, ?)
 ORDER BY updated_at DESC, created_at DESC, conversation_id ASC
 """
 
@@ -297,7 +297,11 @@ class SQLiteConversationRepository:
         try:
             rows = connection.execute(
                 _SELECT_CONVERSATIONS_BY_WORKSPACE,
-                (workspace_id, ConversationRetentionState.DELETED.value),
+                (
+                    workspace_id,
+                    ConversationRetentionState.DELETED.value,
+                    ConversationRetentionState.DELETION_REQUESTED.value,
+                ),
             ).fetchall()
         except sqlite3.Error as error:
             raise ConversationStorageError(
@@ -307,6 +311,35 @@ class SQLiteConversationRepository:
             connection.close()
 
         return tuple(self._row_to_conversation(row) for row in rows)
+
+    def transition_workspace_conversations(
+        self, workspace_id: str, to_state: ConversationRetentionState
+    ) -> int:
+        """Move active or deletion-requested workspace conversations in bulk."""
+        moment = datetime.now(timezone.utc).isoformat()
+        connection = self._connect()
+        try:
+            with connection:
+                cursor = connection.execute(
+                    f"UPDATE {CONVERSATION_TABLE} SET retention_state = ?, "
+                    "updated_at = ? WHERE workspace_id = ? AND retention_state "
+                    "IN (?, ?) AND retention_state != ?",
+                    (
+                        to_state.value,
+                        moment,
+                        workspace_id,
+                        ConversationRetentionState.ACTIVE.value,
+                        ConversationRetentionState.DELETION_REQUESTED.value,
+                        to_state.value,
+                    ),
+                )
+                return cursor.rowcount
+        except sqlite3.Error as error:
+            raise ConversationStorageError(
+                "Could not transition conversation records."
+            ) from error
+        finally:
+            connection.close()
 
     def _allocate_next_sequence(
         self, connection: sqlite3.Connection, conversation_id: str

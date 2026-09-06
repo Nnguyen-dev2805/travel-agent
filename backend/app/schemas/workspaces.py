@@ -8,7 +8,7 @@ live in `backend.workspaces`. The list response is deliberately an object with a
 from datetime import date, datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.workspaces.models import (
     DateWindow,
@@ -90,3 +90,31 @@ class WorkspaceListResponse(BaseModel):
     """Owner-scoped workspace list in governed newest-first order."""
 
     workspaces: List[WorkspaceResponse] = Field(default_factory=list)
+
+
+class DeletionRequestBody(BaseModel):
+    """Empty deletion request body.
+
+    The model carries no fields: any submitted field is rejected instead
+    of interpreted. The workspace travels in the path.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class DeletionResultResponse(BaseModel):
+    """One workspace deletion request or confirmation outcome."""
+
+    workspace_id: str
+    workspace_state: str
+    conversations_updated: int
+    memory_updated: int
+
+    @classmethod
+    def from_domain(cls, result) -> "DeletionResultResponse":
+        return cls(
+            workspace_id=result.workspace_id,
+            workspace_state=result.workspace_state,
+            conversations_updated=result.conversations_updated,
+            memory_updated=result.memory_updated,
+        )

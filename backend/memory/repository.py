@@ -140,6 +140,20 @@ class MemoryRepository(Protocol):
         """
         ...
 
+    def transition_workspace_records(
+        self, workspace_id: str, to_state: MemoryRecordStatus
+    ) -> int:
+        """Move active or deletion-requested workspace records in bulk.
+
+        Only records already in `active` or `deletion_requested` move, so
+        superseded, expired, or archived records keep their states.
+        Returns the number of records that actually changed state.
+
+        Raises:
+            MemoryStorageError: Storage failed.
+        """
+        ...
+
     def mark_records_superseded(self, memory_ids: Sequence[str]) -> int:
         """Flip active records to `superseded` and return the flipped count.
 

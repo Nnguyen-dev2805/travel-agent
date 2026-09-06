@@ -497,7 +497,7 @@ Expected: authenticated cross-user leakage gate is now testable.
 - Produces: workspace deletion request and confirmation flow; deleted data
   hidden from normal APIs; deleted memory ineligible for retrieval.
 
-- [ ] **Step 1: Write failing deletion unit tests**
+- [x] **Step 1: Write failing deletion unit tests**
 
 Cover deletion request, confirmed deletion, rollback on repository failure using
 fail-closed ordering, idempotent retry after partial child transition failure,
@@ -511,7 +511,7 @@ Run:
 
 Expected: fail because privacy deletion service does not exist.
 
-- [ ] **Step 2: Write failing deletion API tests**
+- [x] **Step 2: Write failing deletion API tests**
 
 Cover:
 
@@ -534,7 +534,7 @@ Run:
 
 Expected: fail because deletion routes and repository transitions do not exist.
 
-- [ ] **Step 3: Add repository lifecycle transitions**
+- [x] **Step 3: Add repository lifecycle transitions**
 
 Add workspace-scoped transition methods that move active records to
 `deletion_requested` and then `deleted`. Keep transitions idempotent for already
@@ -542,7 +542,7 @@ matching states and controlled for unknown ids. Reuse existing list/retrieval
 filters that already exclude deleted workspace, conversation, and inactive
 memory records instead of rewriting them.
 
-- [ ] **Step 4: Implement privacy deletion service**
+- [x] **Step 4: Implement privacy deletion service**
 
 Coordinate workspace, conversation, memory, and planner visibility changes with
 safe ordering rather than one cross-adapter transaction. First move the
@@ -551,7 +551,7 @@ Then perform idempotent child transitions. If a child adapter fails, leave the
 workspace in `deletion_requested`, return a controlled retryable failure, and do
 not claim confirmed deletion.
 
-- [ ] **Step 5: Add deletion API endpoints**
+- [x] **Step 5: Add deletion API endpoints**
 
 Add authenticated owner-only endpoints under the workspace route, for example:
 
@@ -562,12 +562,12 @@ POST /api/v1/workspaces/{workspace_id}/deletion-confirmations
 
 Responses contain ids, lifecycle states, and counts only.
 
-- [ ] **Step 6: Enforce deleted-workspace guards**
+- [x] **Step 6: Enforce deleted-workspace guards**
 
 Reject new conversations, memory runs/promotions, planner writes, and bound chat
 against deleted or deletion-requested workspaces with controlled errors.
 
-- [ ] **Step 7: Run focused tests**
+- [x] **Step 7: Run focused tests**
 
 Run:
 
@@ -577,7 +577,7 @@ Run:
 
 Expected: pass.
 
-- [ ] **Step 8: Review checkpoint**
+- [x] **Step 8: Review checkpoint**
 
 Review: deletion creates no hard-delete claim, no raw user content in responses,
 and memory retrieval cannot select deleted or deletion-requested records.

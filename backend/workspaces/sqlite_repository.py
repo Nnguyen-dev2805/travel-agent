@@ -84,12 +84,12 @@ _SELECT_COLUMNS = """
 
 _SELECT_BY_ID = f"SELECT {_SELECT_COLUMNS} FROM {TABLE_NAME} WHERE workspace_id = ?"
 
-# Listing excludes `deleted` records. R3 creates only `active` records, so this
-# filter has no effect today, but it keeps a future deletion milestone from
-# surfacing removed records through the list route.
+# Listing excludes `deleted` and `deletion_requested` records. Normal
+# product reads never surface workspaces pending or under deletion; the
+# privacy service reads tombstoned rows through `get` for coordination.
 _SELECT_BY_OWNER = f"""
 SELECT {_SELECT_COLUMNS} FROM {TABLE_NAME}
-WHERE owner_user_id = ? AND retention_state != ?
+WHERE owner_user_id = ? AND retention_state NOT IN (?, ?)
 ORDER BY updated_at DESC, created_at DESC, workspace_id ASC
 """
 
@@ -254,12 +254,18 @@ class SQLiteWorkspaceRepository:
     def list_by_owner(self, owner_user_id: str) -> tuple[TripWorkspace, ...]:
         """Return owner-scoped workspaces in governed deterministic order.
 
-        Records in `RetentionState.DELETED` are excluded.
+        Records in `RetentionState.DELETED` or
+        `RetentionState.DELETION_REQUESTED` are excluded.
         """
         connection = self._connect()
         try:
             rows = connection.execute(
-                _SELECT_BY_OWNER, (owner_user_id, RetentionState.DELETED.value)
+                _SELECT_BY_OWNER,
+                (
+                    owner_user_id,
+                    RetentionState.DELETED.value,
+                    RetentionState.DELETION_REQUESTED.value,
+                ),
             ).fetchall()
         except sqlite3.Error as error:
             raise WorkspaceStorageError("Could not list workspace records.") from error
@@ -267,6 +273,28 @@ class SQLiteWorkspaceRepository:
             connection.close()
 
         return tuple(self._row_to_workspace(row) for row in rows)
+
+    def update_retention_state(
+        self, workspace_id: str, state: RetentionState
+    ) -> TripWorkspace | None:
+        """Set one workspace retention state without lifecycle reasoning."""
+        connection = self._connect()
+        try:
+            with connection:
+                updated = connection.execute(
+                    f"UPDATE {TABLE_NAME} SET retention_state = ? "
+                    "WHERE workspace_id = ?",
+                    (state.value, workspace_id),
+                ).rowcount
+                if updated != 1:
+                    return None
+        except sqlite3.Error as error:
+            raise WorkspaceStorageError(
+                "Could not update the workspace record."
+            ) from error
+        finally:
+            connection.close()
+        return self.get(workspace_id)
 
     def _row_to_workspace(self, row: tuple[Any, ...]) -> TripWorkspace:
         """Map one stored row to a workspace contract, failing closed."""

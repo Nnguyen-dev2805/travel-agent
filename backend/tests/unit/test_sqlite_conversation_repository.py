@@ -305,15 +305,21 @@ def test_list_excludes_deleted_records(repository):
     assert repository.get(deleted.conversation_id) is not None
 
 
-def test_list_includes_every_non_deleted_retention_state(repository):
+def test_list_hides_deletion_states(repository):
+    """R9 hides deletion-requested records from normal lists as well."""
     states = [
         ConversationRetentionState.ACTIVE,
         ConversationRetentionState.SUMMARIZED,
         ConversationRetentionState.ARCHIVED,
-        ConversationRetentionState.DELETION_REQUESTED,
     ]
     for index, state in enumerate(states):
         repository.create(_conversation(title=f"State {index}", retention_state=state))
+    repository.create(
+        _conversation(
+            title="Deletion requested",
+            retention_state=ConversationRetentionState.DELETION_REQUESTED,
+        )
+    )
 
     listed = repository.list_by_workspace(WORKSPACE)
     assert len(listed) == len(states)

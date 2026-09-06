@@ -55,6 +55,11 @@ from backend.memory.models import (
 from backend.memory.policy import MemoryPolicy
 from backend.memory.promotion import MemoryPromotionPolicy
 from backend.memory.repository import MemoryRepository
+
+# Workspace retention values hidden from normal product paths. Kept as
+# plain strings so importing this module never executes the workspace
+# package init.
+_DELETION_HIDDEN_RETENTION_VALUES = frozenset({"deletion_requested", "deleted"})
 from backend.observability.events import emit_event
 from backend.observability.models import (
     EventComponent,
@@ -132,7 +137,7 @@ class MemoryService:
         resolved_trigger = self._coerce_trigger(trigger)
 
         workspace = self._workspaces.get(workspace_id)
-        if workspace is None:
+        if workspace is None or self._is_deletion_hidden_workspace(workspace):
             raise WorkspaceNotFoundError("The parent workspace does not exist.")
         conversation = self._conversations.get(conversation_id)
         if conversation is None:
@@ -516,8 +521,13 @@ class MemoryService:
             self._require_run(workspace_id, conversation_id, run_id)
         return self._memory.list_candidates(run_id, workspace_id, conversation_id)
 
+    @staticmethod
+    def _is_deletion_hidden_workspace(workspace) -> bool:
+        return workspace.retention_state.value in _DELETION_HIDDEN_RETENTION_VALUES
+
     def _require_scope(self, workspace_id: str, conversation_id: Optional[str]) -> None:
-        if self._workspaces.get(workspace_id) is None:
+        workspace = self._workspaces.get(workspace_id)
+        if workspace is None or self._is_deletion_hidden_workspace(workspace):
             raise WorkspaceNotFoundError("The parent workspace does not exist.")
         if conversation_id is None:
             return

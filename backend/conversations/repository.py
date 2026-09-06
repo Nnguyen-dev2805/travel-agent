@@ -14,7 +14,12 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from backend.conversations.models import Conversation, Message, MessageDraft
+from backend.conversations.models import (
+    Conversation,
+    ConversationRetentionState,
+    Message,
+    MessageDraft,
+)
 
 
 class ConversationRepositoryError(Exception):
@@ -73,6 +78,20 @@ class ConversationRepository(Protocol):
         Ordering is `updated_at` descending, then `created_at` descending, then
         `conversation_id` ascending. Records in `deleted` retention state are
         excluded.
+        """
+        ...
+
+    def transition_workspace_conversations(
+        self, workspace_id: str, to_state: ConversationRetentionState
+    ) -> int:
+        """Move active or deletion-requested workspace conversations in bulk.
+
+        Only records already in `active` or `deletion_requested` move, so
+        summarized or archived conversations keep their states. Returns the
+        number of records that actually changed state.
+
+        Raises:
+            ConversationStorageError: Storage failed.
         """
         ...
 

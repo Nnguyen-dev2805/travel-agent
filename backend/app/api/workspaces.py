@@ -19,9 +19,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.app.config import settings
 from backend.app.schemas.workspaces import (
+    DeletionRequestBody,
+    DeletionResultResponse,
     WorkspaceCreateRequest,
     WorkspaceListResponse,
     WorkspaceResponse,
+)
+from backend.conversations.service import WorkspaceNotFoundError
+from backend.conversations.sqlite_repository import SQLiteConversationRepository
+from backend.memory.sqlite_repository import SQLiteMemoryRepository
+from backend.privacy.deletion import (
+    DeletionConflictError,
+    DeletionService,
+    PrivacyServiceError,
 )
 from backend.security.authorization import (
     CrossOwnerAccessError,
@@ -43,6 +53,23 @@ router = APIRouter()
 
 _STORAGE_ERROR_DETAIL = "Workspace storage is unavailable."
 _OWNER_FORBIDDEN_DETAIL = "Workspace owner does not match the principal."
+_DELETION_CONFLICT_DETAIL = "Workspace deletion cannot proceed yet."
+_DELETION_FAILED_DETAIL = "Workspace deletion could not complete."
+
+
+def get_deletion_service() -> DeletionService:
+    """Construct the privacy deletion service over the shared local store.
+
+    Tests override this dependency with repositories over a temporary
+    database path.
+    """
+    return DeletionService(
+        workspace_repository=SQLiteWorkspaceRepository(db_path=settings.APP_DB_PATH),
+        conversation_repository=SQLiteConversationRepository(
+            db_path=settings.APP_DB_PATH
+        ),
+        memory_repository=SQLiteMemoryRepository(db_path=settings.APP_DB_PATH),
+    )
 
 
 def get_workspace_service() -> WorkspaceService:
@@ -186,3 +213,87 @@ def get_workspace(
 
     logger.info("workspace.get ok workspace_id=%s", workspace.workspace_id)
     return WorkspaceResponse.from_domain(workspace)
+
+
+@router.post(
+    "/workspaces/{workspace_id}/deletion-requests",
+    response_model=DeletionResultResponse,
+    status_code=201,
+)
+def request_workspace_deletion(
+    workspace_id: str,
+    request: DeletionRequestBody | None = None,
+    service: DeletionService = Depends(get_deletion_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
+) -> DeletionResultResponse:
+    """Mark a workspace and its active children deletion-requested."""
+    _ = request
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("workspace.deletion miss failure_class=not_found")
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    try:
+        result = service.request_workspace_deletion(workspace_id)
+    except WorkspaceNotFoundError as error:
+        logger.info("workspace.deletion miss failure_class=not_found")
+        raise HTTPException(status_code=404, detail="Workspace not found.") from error
+    except PrivacyServiceError as error:
+        logger.error(
+            "workspace.deletion failed failure_class=%s", type(error).__name__
+        )
+        raise HTTPException(
+            status_code=500, detail=_DELETION_FAILED_DETAIL
+        ) from error
+
+    logger.info(
+        "workspace.deletion requested workspace_id=%s state=%s",
+        result.workspace_id,
+        result.workspace_state,
+    )
+    return DeletionResultResponse.from_domain(result)
+
+
+@router.post(
+    "/workspaces/{workspace_id}/deletion-confirmations",
+    response_model=DeletionResultResponse,
+)
+def confirm_workspace_deletion(
+    workspace_id: str,
+    request: DeletionRequestBody | None = None,
+    service: DeletionService = Depends(get_deletion_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
+) -> DeletionResultResponse:
+    """Confirm workspace deletion after verifying child transitions."""
+    _ = request
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("workspace.deletion miss failure_class=not_found")
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    try:
+        result = service.confirm_workspace_deletion(workspace_id)
+    except WorkspaceNotFoundError as error:
+        logger.info("workspace.deletion miss failure_class=not_found")
+        raise HTTPException(status_code=404, detail="Workspace not found.") from error
+    except DeletionConflictError as error:
+        logger.info("workspace.deletion conflict failure_class=deletion_conflict")
+        raise HTTPException(
+            status_code=409, detail=_DELETION_CONFLICT_DETAIL
+        ) from error
+    except PrivacyServiceError as error:
+        logger.error(
+            "workspace.deletion failed failure_class=%s", type(error).__name__
+        )
+        raise HTTPException(
+            status_code=500, detail=_DELETION_FAILED_DETAIL
+        ) from error
+
+    logger.info(
+        "workspace.deletion confirmed workspace_id=%s state=%s",
+        result.workspace_id,
+        result.workspace_state,
+    )
+    return DeletionResultResponse.from_domain(result)

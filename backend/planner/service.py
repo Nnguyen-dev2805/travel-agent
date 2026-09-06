@@ -39,6 +39,11 @@ from backend.observability.models import (
 )
 from backend.planner.repository import PlannerRepository
 
+# Workspace retention values hidden from normal product paths. Kept as
+# plain strings so importing this module never executes the workspace
+# package init.
+_DELETION_HIDDEN_RETENTION_VALUES = frozenset({"deletion_requested", "deleted"})
+
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from backend.conversations.repository import ConversationRepository
     from backend.workspaces.repository import WorkspaceRepository
@@ -418,7 +423,10 @@ class PlannerService:
         return self._planner.list_operations(workspace_id)
 
     def _require_workspace(self, workspace_id: str) -> None:
-        if self._workspaces.get(workspace_id) is None:
+        workspace = self._workspaces.get(workspace_id)
+        if workspace is None:
+            raise WorkspaceNotFoundError("The parent workspace does not exist.")
+        if workspace.retention_state.value in _DELETION_HIDDEN_RETENTION_VALUES:
             raise WorkspaceNotFoundError("The parent workspace does not exist.")
 
     def _require_scope(self, workspace_id: str, conversation_id: Optional[str]) -> None:

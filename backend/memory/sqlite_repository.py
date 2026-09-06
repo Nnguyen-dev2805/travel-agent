@@ -861,6 +861,36 @@ class SQLiteMemoryRepository:
 
         return tuple(self._row_to_record(row) for row in rows)
 
+    def transition_workspace_records(
+        self, workspace_id: str, to_state: MemoryRecordStatus
+    ) -> int:
+        """Move active or deletion-requested workspace records in bulk."""
+        connection = self._connect()
+        try:
+            with connection:
+                cursor = connection.execute(
+                    f"UPDATE {RECORD_TABLE} SET status = ?, updated_at = ? "
+                    "WHERE workspace_id = ? AND status IN (?, ?) "
+                    "AND status != ?",
+                    (
+                        to_state.value,
+                        _to_iso(utc_now()),
+                        workspace_id,
+                        MemoryRecordStatus.ACTIVE.value,
+                        MemoryRecordStatus.DELETION_REQUESTED.value,
+                        to_state.value,
+                    ),
+                )
+                changed = cursor.rowcount
+        except sqlite3.Error as error:
+            raise MemoryStorageError(
+                "Could not transition the memory records."
+            ) from error
+        finally:
+            connection.close()
+
+        return changed if changed >= 0 else 0
+
     def mark_records_superseded(self, memory_ids: Sequence[str]) -> int:
         """Flip active records to superseded; return the flipped count."""
         identities = tuple(memory_ids)

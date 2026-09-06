@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from backend.conversations.models import (
     Conversation,
     ConversationCreate,
+    ConversationRetentionState,
     ConversationValidationError,
     Message,
     MessageDraft,
@@ -43,6 +44,12 @@ from backend.conversations.repository import (
     MessageAlreadyExistsError,
     MessageSequenceConflictError,
 )
+
+# Workspace retention values hidden from normal product paths. Kept as
+# plain strings (rather than importing workspace contracts) so importing
+# this module never executes the workspace package init behind the R4
+# import boundary.
+_DELETION_HIDDEN_RETENTION_VALUES = frozenset({"deletion_requested", "deleted"})
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from backend.workspaces.repository import WorkspaceRepository
@@ -143,10 +150,32 @@ class ConversationService:
     def get_conversation(self, conversation_id: str) -> Conversation | None:
         """Return one conversation by identifier, or None when absent.
 
+        Conversations pending or under deletion read as absent through
+        normal product paths; coordination reads them through the
+        repository.
+
         Raises:
             ConversationValidationError: The identifier is blank.
         """
-        return self._conversations.get(require_text(conversation_id, "conversation_id"))
+        conversation = self._conversations.get(
+            require_text(conversation_id, "conversation_id")
+        )
+        if conversation is None:
+            return None
+        if conversation.retention_state in (
+            ConversationRetentionState.DELETION_REQUESTED,
+            ConversationRetentionState.DELETED,
+        ):
+            return None
+        return conversation
+
+    def get_workspace(self, workspace_id: str):
+        """Return the parent workspace record, or None when absent.
+
+        Read-only helper for route-boundary authorization: it performs no
+        scope check itself and never creates storage.
+        """
+        return self._workspaces.get(workspace_id)
 
     def list_conversations(self, workspace_id: str) -> tuple[Conversation, ...]:
         """Return conversations for one workspace in repository order.
@@ -265,11 +294,19 @@ class ConversationService:
             )
         return cursor.sequence
 
+    def _is_deletion_hidden_workspace(self, workspace_id: str) -> bool:
+        workspace = self._workspaces.get(workspace_id)
+        if workspace is None:
+            return False
+        return workspace.retention_state.value in _DELETION_HIDDEN_RETENTION_VALUES
+
     def _require_workspace(self, workspace_id: str) -> None:
         if self._workspaces.get(workspace_id) is None:
+            raise WorkspaceNotFoundError("The parent workspace does not exist.")
+        if self._is_deletion_hidden_workspace(workspace_id):
             raise WorkspaceNotFoundError("The parent workspace does not exist.")
 
     def _require_conversation(self, conversation_id: str) -> None:
         identifier = require_text(conversation_id, "conversation_id")
-        if self._conversations.get(identifier) is None:
+        if self.get_conversation(identifier) is None:
             raise ConversationNotFoundError("The conversation does not exist.")

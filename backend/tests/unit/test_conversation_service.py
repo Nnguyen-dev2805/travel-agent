@@ -38,6 +38,7 @@ from backend.conversations.service import (
     ConversationService,
     WorkspaceNotFoundError,
 )
+from backend.workspaces.models import RetentionState
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 EXISTING_WORKSPACE = "tw_existing"
@@ -55,7 +56,11 @@ class FakeWorkspaceRepository:
         self.calls.append(("get", workspace_id))
         if workspace_id not in self._existing:
             return None
-        return SimpleNamespace(workspace_id=workspace_id, owner_user_id="local-user")
+        return SimpleNamespace(
+            workspace_id=workspace_id,
+            owner_user_id="local-user",
+            retention_state=RetentionState.ACTIVE,
+        )
 
     def create(self, workspace):  # pragma: no cover - must never be reached
         raise AssertionError("the conversation service must not create workspaces")

@@ -182,6 +182,23 @@ class ConversationOrchestrator:
 
         conversations = self._conversation_service_provider()
 
+        conversation = conversations.get_conversation(conversation_id)
+        if conversation is not None:
+            workspace = conversations.get_workspace(conversation.workspace_id)
+            # Retention compares as plain strings so this module never
+            # imports workspace contracts behind the R4 import boundary.
+            # A deleted workspace hides its conversations from bound chat
+            # in every auth mode, mirroring the service guards.
+            if workspace is not None and workspace.retention_state.value in (
+                "deletion_requested",
+                "deleted",
+            ):
+                from backend.conversations.service import (
+                    ConversationNotFoundError,
+                )
+
+                raise ConversationNotFoundError("The conversation does not exist.")
+
         # A str-enum member equals its value string, so this also accepts
         # test doubles carrying the raw "authenticated" value.
         if principal is not None and principal.auth_mode == "authenticated":
@@ -191,17 +208,12 @@ class ConversationOrchestrator:
             # only for bound turns with an authenticated principal.
             from backend.security.models import CrossOwnerAccessError
 
-            conversation = conversations.get_conversation(conversation_id)
-            owner_id = (
-                conversations.get_workspace_owner_id(conversation.workspace_id)
-                if conversation is not None
-                else None
-            )
-            if (
-                conversation is None
-                or owner_id is None
-                or owner_id != principal.owner_user_id
-            ):
+            if conversation is None:
+                raise CrossOwnerAccessError(
+                    "The conversation does not exist in this owner scope."
+                )
+            owner_id = conversations.get_workspace_owner_id(conversation.workspace_id)
+            if owner_id is None or owner_id != principal.owner_user_id:
                 raise CrossOwnerAccessError(
                     "The conversation does not exist in this owner scope."
                 )
