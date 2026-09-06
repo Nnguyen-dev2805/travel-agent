@@ -385,3 +385,95 @@ def test_orchestration_package_exports_the_orchestrator():
 
     for name in ("ConversationOrchestrator", "TurnOutcome", "TurnPersistence"):
         assert hasattr(orchestration_package, name)
+
+
+# 12. Authenticated bound turns resolve the conversation owner first.
+
+
+class _AuthConversations:
+    """Conversation service double with workspace owner labels."""
+
+    def __init__(self):
+        self.appended: list = []
+
+    def get_conversation(self, conversation_id: str):
+        from types import SimpleNamespace
+
+        workspaces = {"cv_mine": "tw_mine", "cv_theirs": "tw_theirs"}
+        if conversation_id not in workspaces:
+            return None
+        return SimpleNamespace(
+            conversation_id=conversation_id,
+            workspace_id=workspaces[conversation_id],
+        )
+
+    def get_workspace_owner_id(self, workspace_id: str):
+        return {"tw_mine": "owner_a", "tw_theirs": "owner_b"}.get(workspace_id)
+
+    def append_message(self, conversation_id: str, **kwargs):
+        from types import SimpleNamespace
+
+        message = SimpleNamespace(message_id="ms_test", conversation_id=conversation_id)
+        self.appended.append(message)
+        return message
+
+
+def _auth_orchestrator():
+    conversations = _AuthConversations()
+    orchestrator = ConversationOrchestrator(
+        rag_service=FakeRAGService([]),
+        conversation_service_provider=lambda: conversations,
+    )
+    return orchestrator, conversations
+
+
+def _principal(owner: str, mode: str):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(owner_user_id=owner, auth_mode=mode)
+
+
+def test_authenticated_principal_denies_foreign_conversation():
+    from backend.security.models import CrossOwnerAccessError
+
+    orchestrator, conversations = _auth_orchestrator()
+
+    with pytest.raises(CrossOwnerAccessError):
+        orchestrator.handle_turn(
+            "hi", "cv_theirs", principal=_principal("owner_a", "authenticated")
+        )
+    assert conversations.appended == []
+
+
+def test_authenticated_principal_denies_missing_conversation():
+    from backend.security.models import CrossOwnerAccessError
+
+    orchestrator, conversations = _auth_orchestrator()
+
+    with pytest.raises(CrossOwnerAccessError):
+        orchestrator.handle_turn(
+            "hi", "cv_missing", principal=_principal("owner_a", "authenticated")
+        )
+    assert conversations.appended == []
+
+
+def test_authenticated_principal_allows_own_conversation():
+    orchestrator, conversations = _auth_orchestrator()
+
+    outcome = orchestrator.handle_turn(
+        "hi", "cv_mine", principal=_principal("owner_a", "authenticated")
+    )
+
+    assert outcome.reply == GENERATED_REPLY
+    assert len(conversations.appended) == 2
+
+
+def test_compatibility_and_missing_principal_preserve_legacy():
+    orchestrator, conversations = _auth_orchestrator()
+
+    orchestrator.handle_turn(
+        "hi", "cv_theirs", principal=_principal("owner_a", "compatibility")
+    )
+    orchestrator.handle_turn("hi", "cv_theirs")
+
+    assert len(conversations.appended) == 4

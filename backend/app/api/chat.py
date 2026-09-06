@@ -34,6 +34,9 @@ from backend.observability.models import (
     EventName,
     EventResult,
 )
+from backend.security.authorization import CrossOwnerAccessError
+from backend.security.dependencies import require_principal
+from backend.security.models import AuthenticatedPrincipal
 from backend.orchestration.conversation_orchestrator import (
     ConversationOrchestrator,
     MemoryComponents,
@@ -121,6 +124,7 @@ def get_conversation_orchestrator() -> ConversationOrchestrator:
 def chat_endpoint(
     request: ChatRequest,
     orchestrator: ConversationOrchestrator = Depends(get_conversation_orchestrator),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
 ):
     """Chat endpoint receiving prompt and returning RAG-generated response with citations."""
     user_message = request.message.strip()
@@ -141,7 +145,9 @@ def chat_endpoint(
 
     try:
         outcome = orchestrator.handle_turn(
-            message=user_message, conversation_id=request.conversation_id
+            message=user_message,
+            conversation_id=request.conversation_id,
+            principal=principal,
         )
 
         conversation = (
@@ -207,6 +213,11 @@ def chat_endpoint(
     except HTTPException:
         # Storage construction already produced a controlled response.
         raise
+    except CrossOwnerAccessError as error:
+        logger.info("chat.turn miss failure_class=conversation_not_found")
+        raise HTTPException(
+            status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
+        ) from error
     except ConversationNotFoundError as error:
         logger.info("chat.turn miss failure_class=conversation_not_found")
         raise HTTPException(

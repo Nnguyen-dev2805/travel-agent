@@ -57,6 +57,13 @@ from backend.planner.service import (
     PlannerServiceError,
 )
 from backend.planner.sqlite_repository import SQLitePlannerRepository
+from backend.security.authorization import (
+    CrossOwnerAccessError,
+    get_workspace_repository,
+    require_workspace_owner,
+)
+from backend.security.dependencies import require_principal
+from backend.security.models import AuthenticatedPrincipal
 from backend.workspaces.repository import WorkspaceRepositoryError
 from backend.workspaces.sqlite_repository import SQLiteWorkspaceRepository
 
@@ -117,8 +124,17 @@ def create_itinerary(
     workspace_id: str,
     request: ItineraryCreateRequest,
     service: PlannerService = Depends(get_planner_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> ItineraryVersionResponse:
     """Create a draft or proposed itinerary version."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("planner.itinerary.list miss failure_class=workspace_not_found")
+        raise HTTPException(
+            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
+        )
     try:
         stored = service.create_itinerary_version(
             workspace_id=workspace_id,
@@ -193,8 +209,17 @@ def list_itineraries(
         None, description="Return only versions with this status"
     ),
     service: PlannerService = Depends(get_planner_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> List[ItineraryVersionResponse]:
     """List itinerary versions for one workspace, newest first."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("planner.itinerary.list miss failure_class=workspace_not_found")
+        raise HTTPException(
+            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
+        )
     try:
         versions = service.list_itinerary_versions(workspace_id, status)
     except WorkspaceNotFoundError as error:
@@ -216,8 +241,17 @@ def get_itinerary(
     workspace_id: str,
     itinerary_version_id: str,
     service: PlannerService = Depends(get_planner_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> ItineraryVersionResponse:
     """Fetch one itinerary version scoped to the workspace."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("planner.itinerary.list miss failure_class=workspace_not_found")
+        raise HTTPException(
+            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
+        )
     try:
         stored = service.get_itinerary_version(workspace_id, itinerary_version_id)
     except WorkspaceNotFoundError as error:
@@ -243,8 +277,17 @@ def accept_itinerary(
     workspace_id: str,
     itinerary_version_id: str,
     service: PlannerService = Depends(get_planner_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> ItineraryVersionResponse:
     """Accept one version, superseding prior accepted versions."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("planner.itinerary.list miss failure_class=workspace_not_found")
+        raise HTTPException(
+            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
+        )
     try:
         stored = service.accept_itinerary_version(workspace_id, itinerary_version_id)
     except WorkspaceNotFoundError as error:
@@ -280,8 +323,17 @@ def archive_itinerary(
     workspace_id: str,
     itinerary_version_id: str,
     service: PlannerService = Depends(get_planner_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> ItineraryVersionResponse:
     """Archive one itinerary version."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("planner.itinerary.list miss failure_class=workspace_not_found")
+        raise HTTPException(
+            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
+        )
     try:
         stored = service.archive_itinerary_version(workspace_id, itinerary_version_id)
     except WorkspaceNotFoundError as error:
@@ -318,9 +370,18 @@ def record_decision(
     workspace_id: str,
     request: DecisionCreateRequest,
     service: PlannerService = Depends(get_planner_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> TripDecisionResponse:
     """Record a trip decision, optionally superseding an earlier one."""
     moment = _utc_now()
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("planner.decision.list miss failure_class=workspace_not_found")
+        raise HTTPException(
+            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
+        )
     try:
         stored = service.record_decision(
             workspace_id=workspace_id,
@@ -388,8 +449,17 @@ def list_decisions(
         None, description="Return only decisions of this type"
     ),
     service: PlannerService = Depends(get_planner_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> List[TripDecisionResponse]:
     """List trip decisions for one workspace, newest first."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("planner.decision.list miss failure_class=workspace_not_found")
+        raise HTTPException(
+            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
+        )
     try:
         decisions = service.list_decisions(workspace_id, status, decision_type)
     except WorkspaceNotFoundError as error:
@@ -412,8 +482,17 @@ def update_decision(
     decision_id: str,
     request: DecisionStatusUpdateRequest,
     service: PlannerService = Depends(get_planner_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> TripDecisionResponse:
     """Move one decision along its lifecycle."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("planner.decision.list miss failure_class=workspace_not_found")
+        raise HTTPException(
+            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
+        )
     try:
         stored = service.update_decision_status(
             workspace_id, decision_id, request.status
@@ -450,8 +529,17 @@ def update_decision(
 def list_operations(
     workspace_id: str,
     service: PlannerService = Depends(get_planner_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> List[PlannerOperationResponse]:
     """List planner operation rows for one workspace, newest first."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("planner.operations.list miss failure_class=workspace_not_found")
+        raise HTTPException(
+            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
+        )
     try:
         operations = service.list_operations(workspace_id)
     except WorkspaceNotFoundError as error:

@@ -23,6 +23,16 @@ from backend.app.schemas.workspaces import (
     WorkspaceListResponse,
     WorkspaceResponse,
 )
+from backend.security.authorization import (
+    CrossOwnerAccessError,
+    OwnerForbiddenError,
+    get_workspace_repository,
+    require_create_owner,
+    require_workspace_owner,
+    scope_list_owner,
+)
+from backend.security.dependencies import require_principal
+from backend.security.models import AuthenticatedPrincipal
 from backend.workspaces.models import WorkspaceCreate, WorkspaceValidationError
 from backend.workspaces.repository import WorkspaceRepositoryError
 from backend.workspaces.service import WorkspaceService
@@ -32,6 +42,7 @@ logger = logging.getLogger("travel_agent_workspaces")
 router = APIRouter()
 
 _STORAGE_ERROR_DETAIL = "Workspace storage is unavailable."
+_OWNER_FORBIDDEN_DETAIL = "Workspace owner does not match the principal."
 
 
 def get_workspace_service() -> WorkspaceService:
@@ -67,8 +78,14 @@ def get_workspace_service() -> WorkspaceService:
 def create_workspace(
     request: WorkspaceCreateRequest,
     service: WorkspaceService = Depends(get_workspace_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
 ) -> WorkspaceResponse:
     """Create one local trip workspace record."""
+    try:
+        require_create_owner(request.owner_user_id, principal)
+    except OwnerForbiddenError as error:
+        logger.info("workspace.create denied failure_class=owner_forbidden")
+        raise HTTPException(status_code=403, detail=_OWNER_FORBIDDEN_DETAIL) from error
     try:
         workspace_input = WorkspaceCreate(
             owner_user_id=request.owner_user_id,
@@ -108,10 +125,16 @@ def create_workspace(
 def list_workspaces(
     owner_user_id: str = Query(..., description="Local development scope label"),
     service: WorkspaceService = Depends(get_workspace_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
 ) -> WorkspaceListResponse:
     """List workspaces for one local development owner scope label."""
     try:
-        workspaces = service.list_workspaces(owner_user_id)
+        scoped_owner = scope_list_owner(owner_user_id, principal)
+    except OwnerForbiddenError as error:
+        logger.info("workspace.list denied failure_class=owner_forbidden")
+        raise HTTPException(status_code=403, detail=_OWNER_FORBIDDEN_DETAIL) from error
+    try:
+        workspaces = service.list_workspaces(scoped_owner)
     except WorkspaceValidationError as error:
         logger.info("workspace.list rejected failure_class=validation")
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -136,8 +159,15 @@ def list_workspaces(
 def get_workspace(
     workspace_id: str,
     service: WorkspaceService = Depends(get_workspace_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> WorkspaceResponse:
     """Retrieve one workspace by identifier."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("workspace.get miss failure_class=not_found")
+        raise HTTPException(status_code=404, detail="Workspace not found.")
     try:
         workspace = service.get_workspace(workspace_id)
     except WorkspaceValidationError as error:

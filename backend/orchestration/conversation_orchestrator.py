@@ -152,11 +152,24 @@ class ConversationOrchestrator:
         self._max_selected = max_selected
 
     def handle_turn(
-        self, message: str, conversation_id: Optional[str] = None
+        self,
+        message: str,
+        conversation_id: Optional[str] = None,
+        principal=None,
     ) -> TurnOutcome:
         """Run one chat turn, persisting it when the caller supplied a conversation.
 
+        The optional principal carries server-resolved identity from the
+        route boundary. When it is authenticated, a bound turn resolves
+        the conversation owner through the already-open conversation
+        service and denies missing or foreign conversations before any
+        write or generation, so no new storage is constructed for the
+        check. Unbound turns and compatibility principals behave exactly
+        as before.
+
         Raises:
+            CrossOwnerAccessError: The conversation is missing or belongs
+                to another owner while the principal is authenticated.
             ConversationNotFoundError: A `conversation_id` was supplied but no
                 such conversation exists. No model call is made.
             ConversationRepositoryError: The user turn could not be persisted. No
@@ -168,6 +181,30 @@ class ConversationOrchestrator:
             return self._unbound_turn(message)
 
         conversations = self._conversation_service_provider()
+
+        # A str-enum member equals its value string, so this also accepts
+        # test doubles carrying the raw "authenticated" value.
+        if principal is not None and principal.auth_mode == "authenticated":
+            # Imported lazily so importing this module never loads the
+            # security package init (which pulls FastAPI and workspace
+            # adapters behind the R4 import boundary). The branch runs
+            # only for bound turns with an authenticated principal.
+            from backend.security.models import CrossOwnerAccessError
+
+            conversation = conversations.get_conversation(conversation_id)
+            owner_id = (
+                conversations.get_workspace_owner_id(conversation.workspace_id)
+                if conversation is not None
+                else None
+            )
+            if (
+                conversation is None
+                or owner_id is None
+                or owner_id != principal.owner_user_id
+            ):
+                raise CrossOwnerAccessError(
+                    "The conversation does not exist in this owner scope."
+                )
 
         user_message = conversations.append_message(
             conversation_id=conversation_id,

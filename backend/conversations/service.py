@@ -129,6 +129,17 @@ class ConversationService:
             "identity attempt budget is not positive."
         )
 
+    def get_workspace_owner_id(self, workspace_id: str) -> str | None:
+        """Return the workspace owner label, or None when absent.
+
+        Read-only helper for route-boundary authorization: it performs no
+        scope check itself and never creates storage.
+        """
+        workspace = self._workspaces.get(workspace_id)
+        if workspace is None:
+            return None
+        return workspace.owner_user_id
+
     def get_conversation(self, conversation_id: str) -> Conversation | None:
         """Return one conversation by identifier, or None when absent.
 

@@ -41,6 +41,13 @@ from backend.conversations.service import (
     WorkspaceNotFoundError,
 )
 from backend.conversations.sqlite_repository import SQLiteConversationRepository
+from backend.security.authorization import (
+    CrossOwnerAccessError,
+    get_workspace_repository,
+    require_workspace_owner,
+)
+from backend.security.dependencies import require_principal
+from backend.security.models import AuthenticatedPrincipal
 from backend.workspaces.repository import WorkspaceRepositoryError
 from backend.workspaces.sqlite_repository import SQLiteWorkspaceRepository
 
@@ -94,8 +101,15 @@ def create_conversation(
     workspace_id: str,
     request: ConversationCreateRequest,
     service: ConversationService = Depends(get_conversation_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> ConversationResponse:
     """Create one conversation inside an existing trip workspace."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("conversation.create miss failure_class=workspace_not_found")
+        raise HTTPException(status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL)
     try:
         conversation_input = ConversationCreate(
             workspace_id=workspace_id, title=request.title
@@ -135,8 +149,15 @@ def create_conversation(
 def list_conversations(
     workspace_id: str,
     service: ConversationService = Depends(get_conversation_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> ConversationListResponse:
     """List conversations inside one trip workspace, newest updated first."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("conversation.list miss failure_class=workspace_not_found")
+        raise HTTPException(status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL)
     try:
         conversations = service.list_conversations(workspace_id)
     except ConversationValidationError as error:
@@ -167,6 +188,8 @@ def list_conversations(
 def get_conversation(
     conversation_id: str,
     service: ConversationService = Depends(get_conversation_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> ConversationResponse:
     """Retrieve one conversation by identifier."""
     try:
@@ -179,6 +202,12 @@ def get_conversation(
         raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
 
     if conversation is None:
+        logger.info("conversation.get miss failure_class=not_found")
+        raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
+
+    try:
+        require_workspace_owner(conversation.workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
         logger.info("conversation.get miss failure_class=not_found")
         raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
 
@@ -195,6 +224,8 @@ def append_message(
     conversation_id: str,
     request: MessageAppendRequest,
     service: ConversationService = Depends(get_conversation_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> MessageResponse:
     """Append one message to an existing conversation.
 
@@ -202,6 +233,29 @@ def append_message(
     caller can never forge an assistant or tool turn and poison later memory
     extraction through the public API.
     """
+    try:
+        existing = service.get_conversation(conversation_id)
+    except ConversationValidationError:
+        # Fall through to the write path below, which validates
+        # identically; this preserves exact legacy behavior for blank ids.
+        existing = None
+        skip_authz = True
+    except ConversationRepositoryError as error:
+        logger.error(
+            "conversation.append failed failure_class=%s", type(error).__name__
+        )
+        raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
+    else:
+        skip_authz = False
+    if not skip_authz:
+        if existing is None:
+            logger.info("conversation.append miss failure_class=not_found")
+            raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
+        try:
+            require_workspace_owner(existing.workspace_id, workspaces, principal)
+        except CrossOwnerAccessError:
+            logger.info("conversation.append miss failure_class=not_found")
+            raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
     if request.role not in PUBLIC_WRITABLE_ROLES:
         logger.info(
             "conversation.append rejected conversation_id=%s failure_class=restricted_role",
@@ -256,8 +310,33 @@ def list_messages(
         description="Maximum messages to return",
     ),
     service: ConversationService = Depends(get_conversation_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> MessageListResponse:
     """Read one page of message history in transcript order."""
+    try:
+        existing = service.get_conversation(conversation_id)
+    except ConversationValidationError:
+        # Fall through to the read path below, which validates
+        # identically; this preserves exact legacy behavior for blank ids.
+        existing = None
+        skip_authz = True
+    except ConversationRepositoryError as error:
+        logger.error(
+            "conversation.history failed failure_class=%s", type(error).__name__
+        )
+        raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
+    else:
+        skip_authz = False
+    if not skip_authz:
+        if existing is None:
+            logger.info("conversation.history miss failure_class=not_found")
+            raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
+        try:
+            require_workspace_owner(existing.workspace_id, workspaces, principal)
+        except CrossOwnerAccessError:
+            logger.info("conversation.history miss failure_class=not_found")
+            raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
     try:
         query = MessageHistoryQuery(
             conversation_id=conversation_id,

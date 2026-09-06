@@ -50,6 +50,13 @@ from backend.memory.service import (
     MemoryServiceError,
 )
 from backend.memory.sqlite_repository import SQLiteMemoryRepository
+from backend.security.authorization import (
+    CrossOwnerAccessError,
+    get_workspace_repository,
+    require_workspace_owner,
+)
+from backend.security.dependencies import require_principal
+from backend.security.models import AuthenticatedPrincipal
 from backend.workspaces.repository import WorkspaceRepositoryError
 from backend.workspaces.sqlite_repository import SQLiteWorkspaceRepository
 
@@ -114,8 +121,15 @@ def trigger_extraction(
     conversation_id: str,
     request: Optional[MemoryExtractionRequest] = None,
     service: MemoryService = Depends(get_memory_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> MemoryExtractionRunResponse:
     """Run one manual shadow extraction over a conversation's messages."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("memory.extract miss failure_class=workspace_not_found")
+        raise HTTPException(status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL)
     try:
         run = service.run_conversation_extraction(
             workspace_id=workspace_id,
@@ -169,8 +183,15 @@ def list_extraction_runs(
         None, description="Return only runs for this conversation"
     ),
     service: MemoryService = Depends(get_memory_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> MemoryExtractionRunListResponse:
     """List shadow extraction runs for one workspace, newest first."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("memory.runs miss failure_class=workspace_not_found")
+        raise HTTPException(status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL)
     try:
         runs = service.list_runs(workspace_id, conversation_id)
     except MemoryValidationError as error:
@@ -216,8 +237,15 @@ def list_candidates(
         None, description="Return only candidates for this extraction run"
     ),
     service: MemoryService = Depends(get_memory_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> MemoryCandidateListResponse:
     """List shadow memory candidate evidence for the supplied filters."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("memory.candidates miss failure_class=workspace_not_found")
+        raise HTTPException(status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL)
     try:
         candidates = service.list_candidates(workspace_id, conversation_id, run_id)
     except MemoryValidationError as error:
@@ -269,8 +297,15 @@ def promote_candidates(
     # caller-supplied field with 422. Promotion takes no per-request input.
     request: Optional[MemoryPromotionRequest] = None,
     service: MemoryService = Depends(get_memory_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    workspaces=Depends(get_workspace_repository),
 ) -> MemoryPromotionResultResponse:
     """Promote eligible shadow candidates into answer-eligible records."""
+    try:
+        require_workspace_owner(workspace_id, workspaces, principal)
+    except CrossOwnerAccessError:
+        logger.info("memory.promote miss failure_class=workspace_not_found")
+        raise HTTPException(status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL)
     try:
         result = service.promote_workspace(
             workspace_id=workspace_id,

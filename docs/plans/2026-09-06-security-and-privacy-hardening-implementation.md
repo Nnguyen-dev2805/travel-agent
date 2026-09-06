@@ -396,7 +396,7 @@ Expected: auth shell exists without product authorization claims yet.
 - Produces: route-level owner/workspace authorization for workspaces,
   conversations, memory, planner, bound chat, and ops readiness.
 
-- [ ] **Step 1: Write failing authorization unit tests**
+- [x] **Step 1: Write failing authorization unit tests**
 
 Cover same-owner allow, mismatched-owner forbidden, unknown workspace not-found,
 and compatibility mode preserving current local behavior.
@@ -409,7 +409,7 @@ Run:
 
 Expected: fail because authorization helpers do not exist.
 
-- [ ] **Step 2: Write failing integration isolation tests**
+- [x] **Step 2: Write failing integration isolation tests**
 
 Create two synthetic authenticated owners. Prove owner A cannot list, get,
 append, extract, promote, retrieve, create planner records, update planner
@@ -423,7 +423,7 @@ Run:
 
 Expected: fail because routes still trust caller-supplied ids.
 
-- [ ] **Step 3: Implement workspace authorization**
+- [x] **Step 3: Implement workspace authorization**
 
 Wire principal dependencies into workspace routes. In auth mode, create accepts
 only body owner equal to `principal.owner_user_id`; mismatched create returns
@@ -431,7 +431,7 @@ only body owner equal to `principal.owner_user_id`; mismatched create returns
 query with `403`; reading, mutating, or deleting an existing cross-owner
 workspace id returns `404`.
 
-- [ ] **Step 4: Implement dependent route authorization**
+- [x] **Step 4: Implement dependent route authorization**
 
 Before conversation, memory, and planner operations return content or mutate
 state, resolve workspace ownership and require the authenticated principal to
@@ -448,12 +448,12 @@ Do not authorize bound chat from caller-supplied owner fields; `ChatRequest` has
 none. The orchestrator's memory owner resolver must agree with this same
 workspace owner.
 
-- [ ] **Step 5: Protect ops readiness when auth is enabled**
+- [x] **Step 5: Protect ops readiness when auth is enabled**
 
 Keep `/health` unauthenticated. Require auth for `/api/v1/ops/readiness` when
 `AUTH_REQUIRED=true`.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -463,7 +463,7 @@ Run:
 
 Expected: pass.
 
-- [ ] **Step 7: Review checkpoint**
+- [x] **Step 7: Review checkpoint**
 
 Review: no route treats caller-supplied `owner_user_id` as authority when auth
 is enabled; cross-owner tests cover every product module.

@@ -55,7 +55,7 @@ class FakeWorkspaceRepository:
         self.calls.append(("get", workspace_id))
         if workspace_id not in self._existing:
             return None
-        return SimpleNamespace(workspace_id=workspace_id)
+        return SimpleNamespace(workspace_id=workspace_id, owner_user_id="local-user")
 
     def create(self, workspace):  # pragma: no cover - must never be reached
         raise AssertionError("the conversation service must not create workspaces")
@@ -629,3 +629,8 @@ def test_importing_the_service_loads_no_forbidden_module():
     assert offending == set(), (
         f"importing the conversation service loaded forbidden modules: {offending}"
     )
+
+
+def test_get_workspace_owner_id_returns_label_or_none(service: ConversationService):
+    assert service.get_workspace_owner_id(EXISTING_WORKSPACE) == "local-user"
+    assert service.get_workspace_owner_id(MISSING_WORKSPACE) is None

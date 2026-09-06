@@ -34,6 +34,25 @@ class AuthenticationError(Exception):
     """
 
 
+class CrossOwnerAccessError(Exception):
+    """An id is missing or belongs to another owner.
+
+    Routes map this to the resource's controlled not-found body without
+    disclosing which case occurred. It lives in models (not
+    authorization) so the orchestrator can raise the same denial without
+    importing workspace adapters.
+    """
+
+
+class OwnerForbiddenError(Exception):
+    """A caller-supplied owner label conflicts with the principal.
+
+    Routes map this to a controlled `403` body. Unlike
+    `CrossOwnerAccessError`, this fires only when no existing resource id
+    is being concealed.
+    """
+
+
 class AuthMode(str, Enum):
     """Governed authentication mode vocabulary."""
 
@@ -88,6 +107,8 @@ __all__ = [
     "AuthMode",
     "AuthenticatedPrincipal",
     "AuthenticationError",
+    "CrossOwnerAccessError",
+    "OwnerForbiddenError",
     "SecurityConfigurationError",
     "SecurityValidationError",
 ]
