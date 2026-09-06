@@ -5,6 +5,8 @@ outcomes. All tokens are synthetic fixtures. Controlled rejection bodies
 must never echo request content or credential material.
 """
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 import pytest
@@ -47,7 +49,31 @@ def test_invalid_body_limit_fails_closed(monkeypatch):
     )
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "Request rejected."}
+    body = response.json()
+    assert body["detail"] == "Request rejected."
+    assert body["request_id"].startswith("rq_")
+    assert response.headers["X-Request-ID"] == body["request_id"]
+
+
+def test_chunked_body_without_length_still_parses(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
+    monkeypatch.setattr(settings, "APP_DB_PATH", tmp_path / "t.sqlite3")
+    monkeypatch.setattr(settings, "MAX_REQUEST_BODY_BYTES", 1024 * 1024)
+    client = TestClient(app)
+
+    def _chunks():
+        payload = b'{"owner_user_id": "owner_a", "title": "Da Nang"}'
+        yield payload[:16]
+        yield payload[16:]
+
+    response = client.post(
+        "/api/v1/workspaces",
+        content=_chunks(),
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["title"] == "Da Nang"
 
 
 def test_wildcard_cors_rejected_when_auth_enabled(monkeypatch):
@@ -76,3 +102,60 @@ def test_malformed_registry_fails_closed_not_compat(monkeypatch):
 
     assert response.status_code == 500
     assert "not-json" not in response.text
+    assert response.headers["X-Request-ID"].startswith("rq_")
+
+
+def test_unhandled_exception_returns_generic_correlated_500(monkeypatch, caplog):
+    import json
+    import logging
+
+    from backend.app.api.workspaces import get_workspace_service
+
+    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
+
+    def _exploding_service():
+        raise RuntimeError("NEVER_LOG_RUNTIME_SECRET")
+
+    app.dependency_overrides[get_workspace_service] = _exploding_service
+    try:
+        # Unhandled exceptions always propagate out of the ASGI app, so
+        # the default client would re-raise instead of returning the
+        # handler response. Disabling that re-raise is the documented
+        # pattern for asserting error-response contracts.
+        client = TestClient(app, raise_server_exceptions=False)
+        with caplog.at_level(logging.INFO, logger="travel_agent_observability"):
+            response = client.get(
+                "/api/v1/workspaces", params={"owner_user_id": "owner_a"}
+            )
+    finally:
+        app.dependency_overrides.pop(get_workspace_service, None)
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["detail"] == "Internal server error."
+    assert body["request_id"].startswith("rq_")
+    assert response.headers["X-Request-ID"] == body["request_id"]
+    assert "NEVER_LOG_RUNTIME_SECRET" not in response.text
+    completions = [
+        json.loads(record.message)
+        for record in caplog.records
+        if record.name == "travel_agent_observability"
+        and "api.request.completed" in record.message
+    ]
+    assert completions, "expected one request completion event"
+    assert completions[0]["request_id"] == body["request_id"]
+    assert completions[0]["failure_class"] == "RuntimeError"
+
+
+def test_storage_exception_returns_controlled_500_without_content(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
+    monkeypatch.setattr(settings, "APP_DB_PATH", tmp_path)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/workspaces", params={"owner_user_id": "owner_a"})
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Workspace storage is unavailable."}
+    assert response.headers["X-Request-ID"].startswith("rq_")

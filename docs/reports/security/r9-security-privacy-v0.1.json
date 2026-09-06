@@ -1,0 +1,118 @@
+{
+  "dataset_id": "r9-security-privacy-v0.1",
+  "dataset_version": "0.1",
+  "result_state": "PASS",
+  "counts": {
+    "eligible_examples": 12
+  },
+  "gates": [
+    {
+      "gate": "unauthenticated_access",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "invalid_token_access",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "cross_owner_access",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "deleted_memory_retrieval",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "raw_500_leakage",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "token_leakage",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "oversized_request_accepted",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    }
+  ],
+  "per_example": [
+    {
+      "example_id": "r9a-missing-token",
+      "slice": "authentication",
+      "failures": []
+    },
+    {
+      "example_id": "r9a-invalid-token",
+      "slice": "authentication",
+      "failures": []
+    },
+    {
+      "example_id": "r9x-workspace",
+      "slice": "cross_owner",
+      "failures": []
+    },
+    {
+      "example_id": "r9x-conversation",
+      "slice": "cross_owner",
+      "failures": []
+    },
+    {
+      "example_id": "r9x-memory",
+      "slice": "cross_owner",
+      "failures": []
+    },
+    {
+      "example_id": "r9x-planner",
+      "slice": "cross_owner",
+      "failures": []
+    },
+    {
+      "example_id": "r9d-memory-selected",
+      "slice": "deletion",
+      "failures": []
+    },
+    {
+      "example_id": "r9d-writes-rejected",
+      "slice": "deletion",
+      "failures": []
+    },
+    {
+      "example_id": "r9e-500-redacted",
+      "slice": "error_hardening",
+      "failures": []
+    },
+    {
+      "example_id": "r9e-oversized",
+      "slice": "error_hardening",
+      "failures": []
+    },
+    {
+      "example_id": "r9p-tokens",
+      "slice": "privacy",
+      "failures": []
+    },
+    {
+      "example_id": "r9p-auth-off",
+      "slice": "privacy",
+      "failures": []
+    }
+  ],
+  "environment": {
+    "evaluation": "local-synthetic",
+    "auth_required": true
+  }
+}

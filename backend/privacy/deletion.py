@@ -170,7 +170,9 @@ class DeletionService:
             ) from error
         leftover_conversations = [
             item
-            for item in self._conversations.list_by_workspace(workspace_id)
+            for item in self._conversations.list_by_workspace(
+                workspace_id, include_deletion=True
+            )
             if item.retention_state
             in (
                 ConversationRetentionState.ACTIVE,

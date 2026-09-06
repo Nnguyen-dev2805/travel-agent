@@ -89,10 +89,13 @@ scope, access model, and retention/deletion behavior. Secret values must never
 be logged or traced.
 
 The chat route no longer logs any user message prefix: R8 replaced
-prompt-prefix logging with content-free request and outcome events. Raw
-exception text in HTTP 500 details remains: that behavior is a current
-prototype risk and public-production blocker; this policy does not approve
-it as production telemetry or error handling.
+prompt-prefix logging with content-free request and outcome events. R9
+replaced raw exception text in HTTP 500 details with generic correlated
+responses: unhandled failures return `Internal server error.` with the
+request id, and the request-size configuration failure returns
+`Request rejected.` with the request id. These responses are local
+development behavior, not approved production telemetry or error
+handling.
 
 ## Trust Boundary
 
@@ -107,15 +110,19 @@ approved control boundary rather than treating retrieved text as an instruction.
 
 ## Current API Security Boundary
 
-The bounded FastAPI backend currently has no implemented user authentication or
-authorization. Its CORS configuration includes `*` together with local origins,
-and the current Docker/Compose stack publishes development services on ports
-8000 and 5173.
+The bounded FastAPI backend implements a local bearer-token boundary behind
+`AUTH_REQUIRED`. When enabled, product routes resolve a server-side principal
+and authorize workspace ownership; cross-owner ids report not-found without
+leaking existence, and caller-supplied owner labels grant nothing. When
+disabled, the previous unauthenticated local behavior continues for
+compatibility only and proves no isolation. CORS keeps the local wildcard in
+compatibility mode and rejects it when auth is enabled. API request bodies
+are bounded by `MAX_REQUEST_BODY_BYTES`, and unhandled failures return a
+generic detail correlated with the request id instead of raw exception text.
 
-These are local prototype behaviors. They are not acceptable evidence for a
-credentialed public API and they do not establish user, tenant, or workspace
-isolation. Raw error-detail behavior remains an unresolved production risk;
-prompt-prefix logging was removed by R8.
+These remain local prototype behaviors, not production identity, TLS,
+hosting, or deployment architecture. They are not acceptable evidence for
+a credentialed public API beyond the local boundary they implement.
 
 Public production deployment therefore fails closed under
 [Deployment Readiness](docs/runbooks/deployment.md).
@@ -136,8 +143,16 @@ production provider or vendor architecture.
 
 ## Retention and Deletion
 
+Workspaces, conversations, and memory records support ordered soft deletion:
+a workspace moves to `deletion_requested` first, which immediately denies
+normal product access, and confirmation moves it and its transitioned
+children to `deleted` only after verification. Tombstoned rows remain in
+local SQLite for audit and evaluation; there is no hard deletion, backup
+erasure, or legal compliance claim. Planner state hides through workspace
+state rather than separate transitions.
+
 The current chat request has no approved durable conversation, workspace, user,
-or memory store. New documentation or operational tooling must not imply that
+or memory store beyond these local lifecycle states. New documentation or operational tooling must not imply that
 the prototype already persists those records.
 
 Before any new durable user-data store is used in production, its approved

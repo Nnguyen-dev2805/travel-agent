@@ -432,6 +432,29 @@ Rules:
    follow the runbook routing in `docs/runbooks/local-development.md`
    before any destructive recovery.
 
+### Local Auth and Deletion
+
+`AUTH_REQUIRED=false` preserves unauthenticated local behavior.
+`AUTH_REQUIRED=true` fails closed with bearer tokens from
+`LOCAL_AUTH_TOKENS_JSON`:
+
+```bash
+curl --fail --silent --show-error http://localhost:8000/api/v1/workspaces \
+  -H "Authorization: Bearer <owner-token>"
+curl -X POST http://localhost:8000/api/v1/workspaces/<workspace_id>/deletion-requests \
+  -H "Authorization: Bearer <owner-token>" \
+  -H 'Content-Type: application/json' -d '{}'
+AUTH_REQUIRED=true LOCAL_AUTH_TOKENS_JSON='{"owner_a":"secret-alpha-token","owner_b":"secret-beta-token"}' \
+  ./.venv/bin/python -m backend.security.evaluation.cli run-security --suite r9-security-privacy-v0.1
+```
+
+Rules:
+
+1. Tokens live in the environment only; never commit, log, or paste them.
+2. Deletion requests mark the workspace `deletion_requested` at once;
+   confirmation completes only after child transitions verify.
+3. Tombstoned rows stay in local SQLite; there is no hard deletion.
+
 ## Command Contract
 
 | Category | Working directory | Command | Claim | Writes | Network | Status |
@@ -456,6 +479,8 @@ Rules:
 | Local planner evaluation | repository root | `python -m backend.planner.evaluation.cli run-state --suite r7-state-v0.1` | Planner report with versioning, lifecycle, isolation, and operation gates | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
 | Local ops readiness | repository root | `curl` requests to `/health` and `/api/v1/ops/readiness` while the backend runs | Liveness plus read-only component diagnostics with reason codes | No expected source writes | No expected external call | Requires no credential, model, or Chroma state |
 | Local ops evaluation | repository root | `python -m backend.observability.evaluation.cli run-readiness --suite r8-operational-readiness-v0.1` | Ops report with correlation, privacy, degradation, schema, evidence, and runbook gates | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
+| Local auth routes | repository root | `curl` requests with `Authorization: Bearer` headers while the backend runs with `AUTH_REQUIRED=true` | Protected routes enforce owner scope; cross-owner ids report not-found | Local SQLite file at `APP_DB_PATH` | No expected external call | Synthetic tokens only, never committed |
+| Local security evaluation | repository root | `AUTH_REQUIRED=true LOCAL_AUTH_TOKENS_JSON='{...}' python -m backend.security.evaluation.cli run-security --suite r9-security-privacy-v0.1` | Security report with zero-tolerance gates | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
 | RAG and memory evaluation | repository root | later approved evaluation command | Approved metric-specific quality claim | Evaluation outputs | Depends on later plan | Future milestone |
 
 ## Opt-in Data and Model Operations

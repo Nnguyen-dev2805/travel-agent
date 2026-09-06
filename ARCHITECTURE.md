@@ -44,6 +44,8 @@ Use these Package 3 architecture documents for deeper review:
 | Feature-gated chat memory | Bound turns compose selected memory with RAG context only when `MEMORY_RETRIEVAL_ENABLED` is true; gate-off and unbound turns keep R4/R5 behavior exactly | `backend/orchestration/conversation_orchestrator.py`, `backend/orchestration/memory_context.py` |
 | Planner routes | Create, read, accept, archive, decide, and inspect planner state behind `PlannerService`; construct no RAG, embedding, memory, or model-provider dependency | `backend/app/api/planner.py`, `backend/app/schemas/planner.py` |
 | Planner module | Owns `ItineraryVersion`, `TripDecision`, and `PlannerOperation` contracts, lifecycle use cases, operation evidence, the storage interface, and deterministic state evaluation | `backend/planner/models.py`, `backend/planner/service.py`, `backend/planner/repository.py`, `backend/planner/evaluation/runner.py` |
+| Security boundary | Owns local bearer-token principals, owner authorization helpers, request-size and CORS guards, and deterministic security evaluation; token values never appear in logs, errors, responses, or reports | `backend/security/models.py`, `backend/security/local_tokens.py`, `backend/security/dependencies.py`, `backend/security/authorization.py`, `backend/security/evaluation/runner.py` |
+| Privacy deletion | Coordinates ordered workspace deletion across repository adapters with fail-closed barriers and verified confirmation; tombstones remain in local SQLite | `backend/privacy/deletion.py` |
 | Observability contracts and redaction | Own `OperationalEvent` and readiness contracts, closed event vocabularies, and safe-field validation that rejects content keys and redacts token-like, path-like, and content-like values; standard library only | `backend/observability/models.py`, `backend/observability/redaction.py` |
 | Request correlation and event logging | Binds a server-owned `rq_` request id per request, returns it in the `X-Request-ID` response header, and writes one JSON event record per emission with pre-serialization redaction | `backend/observability/context.py`, `backend/observability/events.py`, `backend/app/main.py` |
 | Ops readiness route | Returns a read-only local readiness snapshot with component states and reason codes; creates no databases, collections, or schema, and calls no external provider | `backend/app/api/ops.py`, `backend/observability/readiness.py` |
@@ -136,8 +138,9 @@ adapter and the shared schema registry import `sqlite3`.
 
 This path is independent of RAG: workspace routes construct no embedder, Chroma
 collection, or model-provider client, and `backend/rag` imports no workspace
-module. It is unauthenticated local development behavior and must not be exposed
-publicly.
+module. Compatibility mode keeps it unauthenticated local development
+behavior; auth-enabled mode gates it behind the bearer registry. Neither
+mode must be exposed publicly.
 
 ## Local Conversation Flow
 
@@ -222,8 +225,9 @@ reports carry identifiers, counts, and controlled reason codes only.
 This path is independent of RAG: memory routes construct no embedder, Chroma
 collection, or model-provider client, `backend/rag` imports no memory module,
 and no candidate enters `ContextBundle`, prompt assembly, retrieval, or
-generated answers. It is unauthenticated local development behavior and must
-not be exposed publicly.
+generated answers. Compatibility mode keeps it unauthenticated local
+development behavior; auth-enabled mode gates it behind the bearer
+registry. Neither mode must be exposed publicly.
 
 ## Trip Planner State Flow
 
@@ -260,18 +264,22 @@ evidence.
 This path is independent of RAG and memory: planner routes construct no
 embedder, Chroma collection, memory service, or model-provider client;
 `backend/planner` imports no RAG, memory, or orchestration module, and none of
-those import planner. Chat never creates planner state. It is unauthenticated
-local development behavior and must not be exposed publicly.
+those import planner. Chat never creates planner state. Compatibility mode
+keeps it unauthenticated local development behavior; auth-enabled mode
+gates it behind the bearer registry. Neither mode must be exposed
+publicly.
 
 ## Trust Boundaries
 
 | Boundary | Current implication |
 | --- | --- |
-| Browser to local API | Local browser requests cross into the FastAPI process through permissive local CORS configuration that includes `*` |
-| Caller to workspace routes | Workspace routes are unauthenticated. `owner_user_id` is a caller-supplied local development scope label, not authentication, authorization, or tenant isolation, so these routes must not be exposed publicly |
-| Caller to conversation routes | Conversation routes are unauthenticated. Conversations inherit scope from their parent workspace and carry no owner field, so `R4` claims no cross-user or cross-workspace isolation beyond deterministic repository filtering. The public append route accepts only `user` and `system_event`, so a caller cannot forge an assistant turn. These routes must not be exposed publicly |
-| Caller to memory routes | Memory routes are unauthenticated and inherit workspace scope through the parent conversation. The trigger route always creates a `manual` run and rejects any caller-supplied `trigger`. These routes must not be exposed publicly |
-| Caller to planner routes | Planner routes are unauthenticated and inherit scope from the addressed workspace. A cross-workspace itinerary or decision id reports not-found rather than leaking that the identifier exists elsewhere, and no chat, memory, or RAG path can write planner state. These routes must not be exposed publicly |
+| Browser to local API | Local browser requests cross into the FastAPI process through local CORS configuration. Compatibility mode keeps permissive local origins including `*`; when auth is enabled only explicit origins are allowed and a wildcard fails closed. Neither mode is a reviewed production origin set |
+| Caller to workspace routes | Compatibility mode keeps workspace routes unauthenticated, where `owner_user_id` is a caller-supplied local development scope label, not authentication, authorization, or tenant isolation. When auth is enabled the routes below resolve a server-side principal instead, so compatibility behavior must not be exposed publicly |
+| Caller to conversation routes | Compatibility mode keeps conversation routes unauthenticated. Conversations inherit scope from their parent workspace and carry no owner field, so `R4` claims no cross-user or cross-workspace isolation beyond deterministic repository filtering. The public append route accepts only `user` and `system_event`, so a caller cannot forge an assistant turn. Compatibility behavior must not be exposed publicly |
+| Caller to memory routes | Compatibility mode keeps memory routes unauthenticated; they inherit workspace scope through the parent conversation. The trigger route always creates a `manual` run and rejects any caller-supplied `trigger`. A conversation or run id from another workspace reports not-found rather than leaking that the identifier exists elsewhere. Compatibility behavior must not be exposed publicly |
+| Caller to planner routes | Compatibility mode keeps planner routes unauthenticated; they inherit scope from the addressed workspace. A cross-workspace itinerary or decision id reports not-found rather than leaking that the identifier exists elsewhere, and no chat, memory, or RAG path can write planner state. Compatibility behavior must not be exposed publicly |
+| Caller to product routes when auth is enabled | Product routes resolve a server-side principal from the bearer registry and authorize workspace ownership. Cross-owner ids report not-found without leaking existence; mismatched body owners report forbidden. Caller-supplied owner labels grant nothing. Compatibility mode preserves the unauthenticated behavior above and proves no isolation |
+| Workspace deletion lifecycle | Deletion requests move the workspace and active children to `deletion_requested`, which denies normal reads and writes at once; confirmation moves them to `deleted` only after verification. Tombstoned rows remain in local SQLite with no hard deletion, and planner state hides through workspace state |
 | Caller to ops readiness route | The ops readiness route is unauthenticated local development diagnostics. It returns component states, reason codes, and safe metadata only: no secrets, prompts, user content, provider payloads, paths, or stack traces. It performs no state-changing setup. This route must not be exposed publicly and must not be represented as production-safe |
 | Memory candidate evidence to callers and reports | Candidate `text` is excluded from HTTP responses; reports carry identifiers, counts, controlled reason codes, and redacted summaries only. Secret-like spans are redacted before persistence, and raw message content is never logged |
 | Feature-gated memory answers | Memory records enter prompts only for bound turns with the gate enabled; memory is never a citation, the public request carries no memory toggle, and selected IDs/reasons travel in controlled trace metadata only |
@@ -368,17 +376,20 @@ local development behavior and must not be exposed publicly.
   transcript in volatile React state. Frontend work was explicitly deferred.
 - **No conversation summarization exists.** `summary` has no column and no
   producer; it is deferred with the rest of memory work.
-- **No deletion semantics exist for any record.** The retention vocabulary admits
-  `summarized`, `archived`, `deletion_requested`, and `deleted`, but no producer
-  moves a record into any of them, and hard deletion versus tombstoning is an
-  open security-hardening decision. `R7` planner records add `archived` and
-  `superseded` lifecycle states but no deletion path.
-- No request body size limit exists, and message `content` is deliberately
-  unbounded, so request size limiting remains an API-boundary gap.
-- Workspace, conversation, memory, and planner routes are unauthenticated, and
-  `owner_user_id` is a local scope label rather than an authorization control.
+- **Workspace soft-deletion exists locally; no other deletion path does.**
+  `R9` moves workspaces, conversations, and memory records through
+  `deletion_requested` to `deleted` with tombstoned rows and no hard
+  deletion, while planner state hides through workspace state. No other
+  record family has a deletion producer. `R7` planner records add
+  `archived` and `superseded` lifecycle states but no deletion path.
+- Request body size is limited at the API boundary, and message `content`
+  stays deliberately unbounded inside that limit.
+- Compatibility mode keeps workspace, conversation, memory, and planner
+  routes unauthenticated with `owner_user_id` as a local scope label;
+  auth-enabled mode resolves a server-side principal and authorizes
+  workspace ownership instead.
 - Local SQLite storage settles no production database, migration, backup,
-  restore, concurrency, retention, or deletion policy, and offers no concurrency
+  restore, concurrency, or retention policy, and offers no concurrency
   safety beyond a single local process.
 - There is no current multi-service data platform.
 - Local CORS is permissive.

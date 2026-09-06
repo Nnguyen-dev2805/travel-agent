@@ -12,7 +12,11 @@ from backend.security.dependencies import (
     resolve_cors_origins,
 )
 from backend.security.models import SecurityConfigurationError
-from backend.observability.context import reset_request_id, set_request_id
+from backend.observability.context import (
+    current_request_id,
+    reset_request_id,
+    set_request_id,
+)
 from backend.observability.events import emit_event
 from backend.observability.models import (
     EventComponent,
@@ -61,6 +65,36 @@ app = FastAPI(
 # error body can carry message content or a conversation title.
 app.add_exception_handler(RequestValidationError, content_free_validation_error_handler)
 
+
+async def _unhandled_exception_handler(request: Request, error: Exception):
+    """Return a content-free 500 correlated with the request id.
+
+    Only truly unhandled exceptions reach here: `HTTPException` keeps its
+    controlled body through Starlette's own handler, and the validation
+    handler above keeps schema rejections. The id comes from the request
+    scope stashed by the correlation middleware, because that middleware
+    already reset its context by the time this outer layer runs; the
+    context and a fresh id are fallbacks only. Raw exception text, paths,
+    SQL, prompts, and user content never enter the response.
+    """
+    scoped = request.scope.get("r9.request_id")
+    if not isinstance(scoped, str) or not scoped.startswith("rq_"):
+        scoped = None
+    request_id = scoped or current_request_id() or generate_request_id()
+    logger.error(
+        "app.unhandled failure_class=%s request_id=%s",
+        type(error).__name__,
+        request_id,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error.", "request_id": request_id},
+        headers={"X-Request-ID": request_id},
+    )
+
+
+app.add_exception_handler(Exception, _unhandled_exception_handler)
+
 # Configure CORS middleware. Origin resolution fails closed at startup when
 # auth is enabled with a wildcard origin; compatibility mode preserves the
 # existing local origins.
@@ -88,6 +122,12 @@ async def request_correlation_middleware(request: Request, call_next):
     """
     request_id = generate_request_id()
     token = set_request_id(request_id)
+    # Stash the id on the request scope as well: the exception
+    # middleware outside this layer handles unhandled failures after this
+    # context is reset, so the safe-500 handler reads it back from here
+    # to keep one id across the completion event, the header, and the
+    # response body.
+    request.scope["r9.request_id"] = request_id
     start = time.perf_counter()
     try:
         try:
@@ -99,7 +139,9 @@ async def request_correlation_middleware(request: Request, call_next):
             )
             reset_request_id(token)
             return JSONResponse(
-                status_code=500, content={"detail": "Request rejected."}
+                status_code=500,
+                content={"detail": "Request rejected.", "request_id": request_id},
+                headers={"X-Request-ID": request_id},
             )
         if oversized is not None:
             oversized.headers["X-Request-ID"] = request_id

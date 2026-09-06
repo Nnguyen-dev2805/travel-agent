@@ -1,10 +1,10 @@
 # R6 Memory Retrieval Evaluation Report
 
-- Report: `r6-retrieval-v0.2-20260906T055726Z`
+- Report: `r6-retrieval-v0.2-20260906T081023Z`
 - Dataset: `r6-retrieval-v0.2` v0.2 (development)
 - Extractor: `rule-based-v1`; Policy: `policy-v1`
 - Eligible examples: 9; invalid: 0; skipped: 0
-- Disabled run: `r6-retrieval-v0.2-20260906T055726Z-disabled`; enabled traces: 7
+- Disabled run: `r6-retrieval-v0.2-20260906T081023Z-disabled`; enabled traces: 7
 - Result: **PASS**
 
 ## Metrics

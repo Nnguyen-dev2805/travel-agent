@@ -180,7 +180,7 @@ def test_trigger_missing_scope_returns_404(tmp_path: Path):
     assert _trigger(client, workspace_id, "cv_missing", {}).status_code == 404
 
 
-def test_trigger_workspace_mismatch_returns_409(tmp_path: Path):
+def test_trigger_workspace_mismatch_returns_404(tmp_path: Path):
     db_path = tmp_path / "travel_agent.sqlite3"
     client, conversation_service = _client(db_path)
     workspaces = SQLiteWorkspaceRepository(db_path=db_path)
@@ -188,7 +188,7 @@ def test_trigger_workspace_mismatch_returns_409(tmp_path: Path):
     second = _workspace_id(workspaces)
     conversation_id = _seed(client, conversation_service, first, PREFERENCE_TEXT)
 
-    assert _trigger(client, second, conversation_id, {}).status_code == 409
+    assert _trigger(client, second, conversation_id, {}).status_code == 404
 
 
 # 2. Run and candidate listing.
@@ -231,7 +231,7 @@ def test_list_runs_scope_errors(tmp_path: Path):
             f"/api/v1/workspaces/{other}/memory/extractions",
             params={"conversation_id": conversation_id},
         ).status_code
-        == 409
+        == 404
     )
 
 
@@ -274,7 +274,7 @@ def test_list_candidates_scope_errors(tmp_path: Path):
             f"/api/v1/workspaces/{other}/memory/candidates",
             params={"run_id": run_id},
         ).status_code
-        == 409
+        == 404
     )
     assert (
         client.get("/api/v1/workspaces/tw_missing/memory/candidates").status_code == 404

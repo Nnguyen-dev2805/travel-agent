@@ -7,8 +7,10 @@ or model-provider client, and no candidate returned here ever enters an
 answer: R5 is shadow-only.
 
 Memory records inherit scope from their parent workspace through the parent
-conversation. These routes implement no authentication, authorization, or
-tenant isolation, and must not be exposed publicly.
+conversation. Compatibility mode keeps these routes unauthenticated; when
+auth is enabled they resolve a server-side principal and authorize
+workspace ownership, and a conversation or run id from another workspace
+reports not-found. Compatibility behavior must not be exposed publicly.
 
 Logging records route, action, run, workspace, conversation, and candidate
 identifiers, counts, and failure class only. Message content, candidate text,
@@ -67,8 +69,6 @@ _STORAGE_ERROR_DETAIL = "Memory storage is unavailable."
 _WORKSPACE_NOT_FOUND_DETAIL = "Workspace not found."
 _CONVERSATION_NOT_FOUND_DETAIL = "Conversation not found."
 _RUN_NOT_FOUND_DETAIL = "Memory extraction run not found."
-_SCOPE_MISMATCH_DETAIL = "Conversation does not belong to this workspace."
-_RUN_SCOPE_MISMATCH_DETAIL = "Memory extraction run does not belong to this workspace."
 _EXTRACTION_FAILED_DETAIL = "Memory extraction could not complete."
 
 
@@ -150,8 +150,10 @@ def trigger_extraction(
             status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
         ) from error
     except MemoryScopeMismatchError as error:
-        logger.info("memory.extract mismatch failure_class=scope_mismatch")
-        raise HTTPException(status_code=409, detail=_SCOPE_MISMATCH_DETAIL) from error
+        logger.info("memory.extract miss failure_class=scope_mismatch")
+        raise HTTPException(
+            status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
+        ) from error
     except MemoryServiceError as error:
         logger.error("memory.extract failed failure_class=%s", type(error).__name__)
         raise HTTPException(
@@ -208,8 +210,10 @@ def list_extraction_runs(
             status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
         ) from error
     except MemoryScopeMismatchError as error:
-        logger.info("memory.runs mismatch failure_class=scope_mismatch")
-        raise HTTPException(status_code=409, detail=_SCOPE_MISMATCH_DETAIL) from error
+        logger.info("memory.runs miss failure_class=scope_mismatch")
+        raise HTTPException(
+            status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
+        ) from error
     except MemoryRepositoryError as error:
         logger.error("memory.runs failed failure_class=%s", type(error).__name__)
         raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
@@ -265,10 +269,13 @@ def list_candidates(
         logger.info("memory.candidates miss failure_class=run_not_found")
         raise HTTPException(status_code=404, detail=_RUN_NOT_FOUND_DETAIL) from error
     except MemoryScopeMismatchError as error:
-        logger.info("memory.candidates mismatch failure_class=scope_mismatch")
-        raise HTTPException(
-            status_code=409, detail=_RUN_SCOPE_MISMATCH_DETAIL
-        ) from error
+        logger.info("memory.candidates miss failure_class=scope_mismatch")
+        detail = (
+            _RUN_NOT_FOUND_DETAIL
+            if error.subject == "run"
+            else _CONVERSATION_NOT_FOUND_DETAIL
+        )
+        raise HTTPException(status_code=404, detail=detail) from error
     except MemoryRepositoryError as error:
         logger.error("memory.candidates failed failure_class=%s", type(error).__name__)
         raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
@@ -325,8 +332,10 @@ def promote_candidates(
             status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
         ) from error
     except MemoryScopeMismatchError as error:
-        logger.info("memory.promote mismatch failure_class=scope_mismatch")
-        raise HTTPException(status_code=409, detail=_SCOPE_MISMATCH_DETAIL) from error
+        logger.info("memory.promote miss failure_class=scope_mismatch")
+        raise HTTPException(
+            status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
+        ) from error
     except (MemoryServiceError, MemoryRepositoryError) as error:
         logger.error("memory.promote failed failure_class=%s", type(error).__name__)
         raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error

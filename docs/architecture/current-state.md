@@ -322,9 +322,11 @@ store marker `1000`, which a pre-R4 build reads as neither `0` nor its expected
 `1`, so an older build refuses the file rather than writing into a schema it does
 not understand.
 
-These routes are unauthenticated and must not be exposed publicly. `R4` claims no
-cross-user or cross-workspace isolation beyond deterministic repository filtering.
-Message `content` is stored, never logged, and never returned in an error body.
+Compatibility mode keeps these routes unauthenticated and they must not be
+exposed publicly. `R4` claims no cross-user or cross-workspace isolation
+beyond deterministic repository filtering. Message `content` is stored,
+never logged, and never returned in an error body. `R9` gates the same
+routes behind the bearer registry when auth is enabled.
 
 ## Implemented Memory Contracts
 
@@ -412,9 +414,10 @@ schema registry and the three repository adapters. `backend/rag`, including
 RAG evaluation, imports no memory module, and `backend/memory` imports no RAG
 or orchestration module.
 
-These routes are unauthenticated and must not be exposed publicly. `R5` claims
-no cross-user isolation and no deletion path. Candidate evidence is local
-development state only.
+Compatibility mode keeps these routes unauthenticated and they must not be
+exposed publicly. `R5` claims no cross-user isolation and no deletion path.
+Candidate evidence is local development state only. `R9` gates the same
+routes behind the bearer registry when auth is enabled.
 
 ## Implemented Memory Retrieval
 
@@ -454,10 +457,12 @@ Implemented rules:
    version 1; the R5 `memory` module stays at version 1. No memory data
    reaches Chroma or any vector store.
 
-These routes are unauthenticated and must not be exposed publicly. `R6`
+Compatibility mode keeps these routes unauthenticated and they must not be
+exposed publicly. `R6`
 claims no authenticated identity, no deletion path, and no default-on
 personalization. Answer-quality claims remain `INCONCLUSIVE` without a
-provider-backed judge.
+provider-backed judge. `R9` gates the same routes behind the bearer
+registry when auth is enabled.
 
 ## RAG Module Shape
 
@@ -558,8 +563,10 @@ Current gaps:
 2. Durable answer-eligible memory writes exist only through governed
    promotion. `R6` implements no default-on personalization, no vector
    memory store, and no deletion or edit path.
-3. No implemented user identity or authentication; workspace and conversation
-   routes are unauthenticated and `owner_user_id` is a local scope label only.
+3. Local bearer-token identity and owner authorization exist behind
+   `AUTH_REQUIRED`; workspace and conversation routes are unauthenticated
+   only in compatibility mode, where `owner_user_id` stays a local scope
+   label with no isolation claim.
 4. No implemented conversation summarization: `summary` has no column and no
    producer.
 5. Planner state exists as backend-only `R7` records, but no planner agent, LLM

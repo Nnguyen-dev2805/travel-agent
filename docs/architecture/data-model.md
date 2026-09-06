@@ -501,6 +501,13 @@ privacy, and operations work.
 
 ## Privacy and Deletion Semantics
 
+Implemented in `R9` for workspaces, conversations, and memory records:
+deletion requests move the workspace and active children to
+`deletion_requested`, which denies normal reads and writes at once, and
+confirmation moves them to `deleted` only after verification. Tombstoned
+rows remain in local SQLite with no hard deletion; planner state hides
+through workspace state; retrieval selects `active` records only.
+
 Target semantics:
 
 1. User-scoped and trip-scoped memory must be deletable or tombstoned according

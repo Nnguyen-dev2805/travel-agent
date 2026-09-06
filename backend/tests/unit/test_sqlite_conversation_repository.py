@@ -325,6 +325,30 @@ def test_list_hides_deletion_states(repository):
     assert len(listed) == len(states)
 
 
+def test_list_including_deletion_surfaces_tombstones_for_verifier(repository):
+    """R9 deletion verification reads tombstoned rows through one flag."""
+    repository.create(_conversation(title="Active"))
+    repository.create(
+        _conversation(
+            title="Deletion requested",
+            retention_state=ConversationRetentionState.DELETION_REQUESTED,
+        )
+    )
+    repository.create(
+        _conversation(
+            title="Deleted", retention_state=ConversationRetentionState.DELETED
+        )
+    )
+
+    assert repository.list_by_workspace(WORKSPACE) != ()
+    inclusive = repository.list_by_workspace(WORKSPACE, include_deletion=True)
+    assert {record.title for record in inclusive} == {
+        "Active",
+        "Deletion requested",
+        "Deleted",
+    }
+
+
 # 8 and 9. Sequence allocation starts at 1 and is per conversation.
 
 

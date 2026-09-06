@@ -123,8 +123,10 @@ async def enforce_request_body_limit(request: Request) -> Optional[JSONResponse]
 
     The `Content-Length` fast path avoids reading the body; requests with
     a missing or malformed length and a body-bearing method are measured
-    from the stream up to one byte past the limit. Returns `None` when
-    the request fits.
+    from the stream up to one byte past the limit. A fitting body is
+    stashed on the request cache Starlette itself uses, so downstream
+    parsing replays the measured bytes instead of seeing a consumed
+    stream. Returns `None` when the request fits.
     """
     limit = body_limit_bytes()
     length = request.headers.get("content-length")
@@ -140,12 +142,15 @@ async def enforce_request_body_limit(request: Request) -> Optional[JSONResponse]
     if request.method not in _BODY_METHODS:
         return None
     size = 0
+    chunks: list[bytes] = []
     async for chunk in request.stream():
+        chunks.append(chunk)
         size += len(chunk)
         if size > limit:
             return JSONResponse(
                 status_code=413, content={"detail": _BODY_TOO_LARGE_DETAIL}
             )
+    request._body = b"".join(chunks)
     return None
 
 

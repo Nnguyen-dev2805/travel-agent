@@ -89,7 +89,16 @@ class MemoryServiceError(Exception):
 
 
 class MemoryScopeMismatchError(MemoryServiceError):
-    """A conversation or run does not belong to the requested workspace."""
+    """A conversation or run does not belong to the requested workspace.
+
+    `subject` names the mismatched reference (`"conversation"` or `"run"`)
+    so routes can answer with the matching controlled not-found detail
+    instead of disclosing which foreign id exists.
+    """
+
+    def __init__(self, message: str, subject: str = "conversation") -> None:
+        super().__init__(message)
+        self.subject = subject
 
 
 class MemoryRunNotFoundError(MemoryServiceError):
@@ -549,7 +558,8 @@ class MemoryService:
         if self._memory.list_candidates(run_id=run_id):
             raise MemoryScopeMismatchError(
                 f"The extraction run '{run_id}' does not belong to workspace "
-                f"'{workspace_id}'."
+                f"'{workspace_id}'.",
+                subject="run",
             )
         raise MemoryRunNotFoundError("The memory extraction run does not exist.")
 

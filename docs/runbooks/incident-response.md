@@ -65,6 +65,15 @@ identifiers and counts only. Preserve the database file, record the reason
 code and component states, and never paste raw prompts, messages, provider
 payloads, paths, or stack traces into incident evidence.
 
+For suspected credential exposure, rotate the affected bearer token through
+the environment configuration and confirm the old value appears in no log,
+response, report, or committed file; token values are never persisted by the
+backend, so rotation is configuration-only. For deletion incidents, record
+the workspace retention states before and after, and never claim confirmed
+deletion until child transitions verify; a workspace left in
+`deletion_requested` after a partial failure stays denied to normal access
+while recovery retries.
+
 ## Contain
 
 **Goal:** stop or reduce ongoing exposure while preserving the ability to

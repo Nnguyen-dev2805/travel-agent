@@ -13,15 +13,15 @@
     "dataset_role": "development",
     "dataset_version": "0.2"
   },
-  "disabled_run_id": "r6-retrieval-v0.2-20260906T055726Z-disabled",
+  "disabled_run_id": "r6-retrieval-v0.2-20260906T081023Z-disabled",
   "enabled_trace_ids": [
-    "mtr_e15c77050a7e4f1b8f446b77edbe6d77",
-    "mtr_50ca5d3ff2ce4239a40f3e5f3e57a36f",
-    "mtr_78ab99d6ae2b49feb1664edd76938141",
-    "mtr_b966ddf1b0c4483e899a994b06aa84a4",
-    "mtr_81fe3521540f46b8ac9e4e432c05f2a7",
-    "mtr_dd0a869000cb4b78bd3ef94d4d325f9f",
-    "mtr_036c72df48ea4f5daab260bf75308c6a"
+    "mtr_9537e0f15b564a27a3b4b642b5ea27b9",
+    "mtr_31e12a5667214a7883b4d48c7ca442d7",
+    "mtr_9f2d47dfb94b4c84a70a861f6a779bbd",
+    "mtr_280d52e346d3409595e8bf63ae9a790a",
+    "mtr_c9291dbb93b54225bdda33a8bfcc1342",
+    "mtr_aede0a472853481197c2853930c53842",
+    "mtr_c39d6a5919f44ad4b562b324e1fc5c91"
   ],
   "environment": {
     "dirty_working_tree": true,
@@ -189,7 +189,7 @@
       "failures": [],
       "matched": 1,
       "selected_ids": [
-        "mem_c63528c9b6524b9e8b112457b5b92f1f"
+        "mem_6ee05167cdc0460b8d890742f2f4124d"
       ],
       "selection_reasons": [
         "promoted"
@@ -203,7 +203,7 @@
       "failures": [],
       "matched": 1,
       "selected_ids": [
-        "mem_889ab060c3354195a7d9c1e001ab18e5"
+        "mem_3c4bd868065942f788d615aeea340433"
       ],
       "selection_reasons": [
         "promoted"
@@ -217,7 +217,7 @@
       "failures": [],
       "matched": 1,
       "selected_ids": [
-        "mem_5759d77afbec4dbeae34cfc7fdef157b"
+        "mem_9a114795e30c4ef98beb718f2d210277"
       ],
       "selection_reasons": [
         "lexical_match"
@@ -231,7 +231,7 @@
       "failures": [],
       "matched": 1,
       "selected_ids": [
-        "mem_4e671f30ac004b618d0e1a51cb12bcad"
+        "mem_05b31a662e8b4e44b97413081fabaffd"
       ],
       "selection_reasons": [
         "lexical_match"
@@ -265,7 +265,7 @@
       "failures": [],
       "matched": 1,
       "selected_ids": [
-        "mem_e1183a0275c84ed3a8ca87a76a41ff3f"
+        "mem_b4b58affa8fb494b8886146aee2e2867"
       ],
       "selection_reasons": [
         "lexical_match"
@@ -293,6 +293,6 @@
       "slice": "deletion"
     }
   ],
-  "report_id": "r6-retrieval-v0.2-20260906T055726Z",
+  "report_id": "r6-retrieval-v0.2-20260906T081023Z",
   "result_state": "PASS"
 }

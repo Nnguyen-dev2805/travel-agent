@@ -66,10 +66,21 @@ class FakeConversationRepository:
         # records: list of [workspace_id, ConversationRetentionState]
         self.records = [list(item) for item in records]
         self.fail_on_transition = False
+        self.skip_transition = False
 
-    def list_by_workspace(self, workspace_id):
+    def list_by_workspace(self, workspace_id, include_deletion=False):
         from types import SimpleNamespace
 
+        # Mirrors the production SQLite filter: normal reads never surface
+        # tombstoned rows; only an explicit inclusive read sees them.
+        hidden = (
+            ()
+            if include_deletion
+            else (
+                ConversationRetentionState.DELETED,
+                ConversationRetentionState.DELETION_REQUESTED,
+            )
+        )
         return tuple(
             SimpleNamespace(
                 conversation_id=f"cv_{index}",
@@ -77,12 +88,14 @@ class FakeConversationRepository:
                 retention_state=item[1],
             )
             for index, item in enumerate(self.records)
-            if item[0] == workspace_id
+            if item[0] == workspace_id and item[1] not in hidden
         )
 
     def transition_workspace_conversations(self, workspace_id, to_state):
         if self.fail_on_transition:
             raise RuntimeError("conversation store unavailable")
+        if self.skip_transition:
+            return 0
         count = 0
         for item in self.records:
             if (
@@ -231,6 +244,20 @@ def test_confirm_moves_requested_children_to_deleted():
     assert workspaces.states["tw_a"] is RetentionState.DELETED
     assert conversations.records == [["tw_a", ConversationRetentionState.DELETED]]
     assert [item.status for item in memory.records] == [MemoryRecordStatus.DELETED]
+
+
+def test_confirm_sees_tombstoned_leftover_and_conflicts():
+    service, (workspaces, conversations, memory) = _service(
+        workspaces={"tw_a": RetentionState.DELETION_REQUESTED},
+        conversations=[["tw_a", ConversationRetentionState.DELETION_REQUESTED]],
+        memory=[],
+    )
+    conversations.skip_transition = True
+
+    with pytest.raises(DeletionConflictError):
+        service.confirm_workspace_deletion("tw_a")
+
+    assert workspaces.states["tw_a"] is RetentionState.DELETION_REQUESTED
 
 
 def test_confirm_deleted_is_idempotent_success():

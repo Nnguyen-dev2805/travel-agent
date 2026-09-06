@@ -691,7 +691,7 @@ Expected: R9 now closes the reason the R6/R9 ordering problem existed.
 - Produces: content-free HTTP 500 response body with request id and safe
   security/privacy events.
 
-- [ ] **Step 1: Extend failing error tests**
+- [x] **Step 1: Extend failing error tests**
 
 Cover route-level unhandled exception, storage exception, and auth configuration
 exception. Assert response body excludes raw exception text and includes
@@ -705,7 +705,7 @@ Run:
 
 Expected: fail for any raw exception-derived detail still exposed.
 
-- [ ] **Step 2: Implement global safe 500 handler**
+- [x] **Step 2: Implement global safe 500 handler**
 
 Use R8 request id context. Return only:
 
@@ -715,12 +715,12 @@ Use R8 request id context. Return only:
 
 Emit safe event fields with controlled `failure_class` and `reason_code`.
 
-- [ ] **Step 3: Normalize route 500 details**
+- [x] **Step 3: Normalize route 500 details**
 
 Keep existing controlled service-unavailable details where already safe, but
 remove arbitrary exception strings from user-facing 500 responses.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run:
 
@@ -730,7 +730,7 @@ Run:
 
 Expected: pass.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: no raw exception text, path, SQL, prompt, message, token, or stack trace
 can reach a 500 response or security event.
@@ -757,7 +757,7 @@ Expected: raw HTTP 500 blocker is closed for R9 scope.
 - Produces: `run_security_evaluation(manifest_path, output_dir)` and CLI
   command `run-security`.
 
-- [ ] **Step 1: Write failing evaluation tests**
+- [x] **Step 1: Write failing evaluation tests**
 
 Cover valid fixture parsing, invalid fixture result `INVALID`, zero-tolerance
 gate aggregation, JSON report rendering, Markdown report rendering, and privacy
@@ -771,7 +771,7 @@ Run:
 
 Expected: fail because security evaluation package does not exist.
 
-- [ ] **Step 2: Create fixture**
+- [x] **Step 2: Create fixture**
 
 Create synthetic examples covering:
 
@@ -790,12 +790,12 @@ token_value_not_reported
 auth_disabled_report_invalid
 ```
 
-- [ ] **Step 3: Implement runner and CLI**
+- [x] **Step 3: Implement runner and CLI**
 
 Use result states `PASS`, `FAIL`, `INCONCLUSIVE`, and `INVALID`. Reports carry
 ids, counts, gates, and reason codes only.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run:
 
@@ -806,7 +806,7 @@ AUTH_REQUIRED=true LOCAL_AUTH_TOKENS_JSON='{"owner_a":"secret-alpha-token","owne
 
 Expected: tests pass and CLI prints `result_state=PASS`.
 
-- [ ] **Step 5: Review checkpoint**
+- [x] **Step 5: Review checkpoint**
 
 Review: R9 report contains no token values, prompts, messages, memory text,
 itinerary text, decision statements, raw exception text, or raw paths.
@@ -836,19 +836,19 @@ Expected: R9 evaluation evidence is safe to commit.
 - Consumes: Tasks 1-8 outputs.
 - Produces: R9 review packet and completed plan evidence.
 
-- [ ] **Step 1: Update security policy**
+- [x] **Step 1: Update security policy**
 
 Record implemented local auth boundary, owner authorization, soft deletion,
 generic 500 behavior, request-size limit, secret-setting handling, and remaining
 non-production blockers.
 
-- [ ] **Step 2: Update architecture docs**
+- [x] **Step 2: Update architecture docs**
 
 Update trust-boundary rows for product routes, ops route, local identity, and
 deletion lifecycle. Preserve the claim that public production remains blocked
 until deployment and provider decisions exist.
 
-- [ ] **Step 3: Update development docs and runbooks**
+- [x] **Step 3: Update development docs and runbooks**
 
 Document local auth environment variables in `.env.example` with placeholders
 only, example synthetic token setup, security evaluation command, deletion
@@ -859,14 +859,14 @@ evidence while keeping public-production status blocked: local bearer tokens and
 local CORS allowlists are not production identity, TLS, hosting, or deployment
 architecture.
 
-- [ ] **Step 4: Update roadmap and indexes**
+- [x] **Step 4: Update roadmap and indexes**
 
 Update R9 status/evidence, the ADR/spec/plan indexes, and the roadmap
 `Open Ordering Problem: R6 and R9` section after refreshed memory evidence
 exists. Do not mark R9 `Delivered` unless repository-owner Git delivery has
 occurred.
 
-- [ ] **Step 5: Run full backend tests**
+- [x] **Step 5: Run full backend tests**
 
 Run:
 
@@ -877,7 +877,7 @@ Run:
 Expected: pass, or disclose exact known non-R9 external/environment failure and
 run all focused R9 tests successfully.
 
-- [ ] **Step 6: Run compile and R9 evaluation**
+- [x] **Step 6: Run compile and R9 evaluation**
 
 Run:
 
@@ -888,7 +888,7 @@ AUTH_REQUIRED=true LOCAL_AUTH_TOKENS_JSON='{"owner_a":"secret-alpha-token","owne
 
 Expected: compile exits `0`; evaluation reports `result_state=PASS`.
 
-- [ ] **Step 7: Run refreshed memory evidence**
+- [x] **Step 7: Run refreshed memory evidence**
 
 Run:
 
@@ -901,7 +901,7 @@ and deleted/deletion-requested memory retrieval `0`, or reports `INVALID` if the
 auth-enabled gate cannot be observed. `docs/reports/memory/r6-retrieval-v0.1.*`
 must remain unchanged.
 
-- [ ] **Step 8: Run privacy/security grep checks**
+- [x] **Step 8: Run privacy/security grep checks**
 
 Run:
 
@@ -916,7 +916,7 @@ missing, the command may exit `2`; treat that as missing evidence, not a privacy
 PASS. Second command may return hits and must be manually reviewed to ensure R9
 does not claim public-production readiness.
 
-- [ ] **Step 9: Run import-boundary checks**
+- [x] **Step 9: Run import-boundary checks**
 
 Run:
 
@@ -931,7 +931,7 @@ Run these only after Task 2 has created `backend/security/models.py` and
 `backend/security/local_tokens.py`; a missing target file is a verification
 failure, not a passing boundary check.
 
-- [ ] **Step 10: Run final diff checks**
+- [x] **Step 10: Run final diff checks**
 
 Run:
 
@@ -942,13 +942,13 @@ git status --short --untracked-files=all
 
 Expected: diff check clean; status contains only intentional R9 files.
 
-- [ ] **Step 11: Complete plan evidence**
+- [x] **Step 11: Complete plan evidence**
 
 Update this plan's Completion Record with final task status, verification
 commands/results, reviewer findings, accepted limitations, and handoff commit
 if one exists.
 
-- [ ] **Step 12: Review checkpoint**
+- [x] **Step 12: Review checkpoint**
 
 Review: final change set against the approved R9 spec, ADR 0010, and this plan.
 
@@ -1000,9 +1000,10 @@ local evidence; do not rewrite production-like deletion history.
 | Field | Value |
 | --- | --- |
 | Approval | ADR 0010 accepted, R9 spec v0.2 approved, and plan v0.3 approved by repository owner on 2026-09-06 |
-| Execution base | Pending selection at Task 1 Step 1 |
-| Implementation worktree | Pending creation by the repository owner |
-| Final verification | Not run |
+| Execution base | Primary HEAD at Task 1; implementation worktree `r9-security` on base `7fde7d0` |
+| Implementation worktree | `.worktrees/r9-security`, branch `r9-security`; Tasks 1-9 done |
+| Final verification | `pytest backend/tests`: 1103 passed + 1 known non-R9 failure (`test_chunker.py::test_loader_real_dataset` needs gitignored `data/processed/vietnam_travel_raw.jsonl`); `compileall` exit 0; R9 evaluation `PASS` over 12 examples; refreshed `r6-retrieval-v0.2` `PASS` over 9 examples with both ordering gates at `0` events and `r6-retrieval-v0.1.*` unchanged; privacy sentinel grep exit 1; import-boundary greps exit 1; `git diff --check` clean; docs carry no public-production readiness claim |
+| Owner review fix round (2026-09-06) | Owner `REVIEWING` found 2 P1 + 4 P2 blockers, all inside approved spec scope (spec line 324 for the 404s; ADR 0010 for tombstone-inclusive confirmation). Fixed TDD RED-to-GREEN in the same worktree: memory scope-mismatch `409` to controlled `404` with run/conversation details (`MemoryScopeMismatchError.subject`); deletion verifier reads `list_by_workspace(include_deletion=True)`; token-leakage gate scans captured log records; size-config `500` carries `request_id` plus header; measured stream bodies restore `request._body`; mode-aware doc corrections. Re-verified: `pytest` 1108 passed + known chunker env failure; `compileall` 0; R9 eval `PASS` 12/12; memory refresh `PASS` 9/9 with `v0.1` intact; sentinel/boundary/`diff --check` clean |
 | Owner review | Pending |
 | Git delivery | Not authorized by this plan |
 

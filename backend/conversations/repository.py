@@ -72,12 +72,16 @@ class ConversationRepository(Protocol):
         """Return the stored conversation, or None when no record exists."""
         ...
 
-    def list_by_workspace(self, workspace_id: str) -> tuple[Conversation, ...]:
+    def list_by_workspace(
+        self, workspace_id: str, include_deletion: bool = False
+    ) -> tuple[Conversation, ...]:
         """Return conversations for one workspace in governed order.
 
         Ordering is `updated_at` descending, then `created_at` descending, then
-        `conversation_id` ascending. Records in `deleted` retention state are
-        excluded.
+        `conversation_id` ascending. Records in `deleted` and
+        `deletion_requested` retention states are excluded unless
+        `include_deletion` is true; only the privacy deletion verifier takes
+        the inclusive read, so normal product paths never surface tombstones.
         """
         ...
 

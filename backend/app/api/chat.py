@@ -50,6 +50,7 @@ router = APIRouter()
 
 _CONVERSATION_NOT_FOUND_DETAIL = "Conversation not found."
 _CONVERSATION_STORAGE_DETAIL = "Conversation storage is unavailable."
+_GENERATION_FAILED_DETAIL = "Chat generation failed."
 
 # Global RAG service instance
 _rag_service = None
@@ -243,7 +244,7 @@ def chat_endpoint(
             failure_class=type(ve).__name__,
             reason_code="validation_error",
         )
-        raise HTTPException(status_code=500, detail=str(ve))
+        raise HTTPException(status_code=500, detail=_GENERATION_FAILED_DETAIL) from ve
     except Exception as e:
         emit_event(
             EventName.MODEL_CALL_FAILED,
@@ -252,4 +253,4 @@ def chat_endpoint(
             failure_class=type(e).__name__,
             reason_code="unhandled_exception",
         )
-        raise HTTPException(status_code=500, detail=f"LLM RAG Service Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_GENERATION_FAILED_DETAIL) from e

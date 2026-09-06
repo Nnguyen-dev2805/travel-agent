@@ -227,6 +227,83 @@ def test_memory_endpoints_deny_cross_owner(tmp_path: Path):
     )
 
 
+def test_memory_endpoints_hide_cross_owner_child_ids(tmp_path: Path):
+    db_path = tmp_path / "t.sqlite3"
+    client = _client(db_path)
+    ws_a, ws_b, cv_b = _seed(db_path)
+
+    seed_message = client.post(
+        f"/api/v1/conversations/{cv_b}/messages",
+        json={
+            "role": "user",
+            "content": "Remember I prefer aisle seats",
+            "source": "ui",
+            "trace_visibility": "included",
+        },
+        headers=HEADERS_B,
+    )
+    assert seed_message.status_code == 201
+    run_b = client.post(
+        f"/api/v1/workspaces/{ws_b}/conversations/{cv_b}/memory/extractions",
+        json={},
+        headers=HEADERS_B,
+    )
+    assert run_b.status_code == 201
+    run_id_b = run_b.json()["run_id"]
+
+    cross_extract = client.post(
+        f"/api/v1/workspaces/{ws_a}/conversations/{cv_b}/memory/extractions",
+        json={},
+        headers=HEADERS_A,
+    )
+    missing_extract = client.post(
+        f"/api/v1/workspaces/{ws_a}/conversations/cv_missing/memory/extractions",
+        json={},
+        headers=HEADERS_A,
+    )
+    assert cross_extract.status_code == 404
+    assert cross_extract.json() == missing_extract.json()
+
+    cross_runs = client.get(
+        f"/api/v1/workspaces/{ws_a}/memory/extractions",
+        params={"conversation_id": cv_b},
+        headers=HEADERS_A,
+    )
+    missing_runs = client.get(
+        f"/api/v1/workspaces/{ws_a}/memory/extractions",
+        params={"conversation_id": "cv_missing"},
+        headers=HEADERS_A,
+    )
+    assert cross_runs.status_code == 404
+    assert cross_runs.json() == missing_runs.json()
+
+    cross_candidates = client.get(
+        f"/api/v1/workspaces/{ws_a}/memory/candidates",
+        params={"run_id": run_id_b},
+        headers=HEADERS_A,
+    )
+    missing_candidates = client.get(
+        f"/api/v1/workspaces/{ws_a}/memory/candidates",
+        params={"run_id": "mer_missing"},
+        headers=HEADERS_A,
+    )
+    assert cross_candidates.status_code == 404
+    assert cross_candidates.json() == missing_candidates.json()
+
+    cross_promote = client.post(
+        f"/api/v1/workspaces/{ws_a}/memory/promotions",
+        params={"conversation_id": cv_b},
+        headers=HEADERS_A,
+    )
+    missing_promote = client.post(
+        f"/api/v1/workspaces/{ws_a}/memory/promotions",
+        params={"conversation_id": "cv_missing"},
+        headers=HEADERS_A,
+    )
+    assert cross_promote.status_code == 404
+    assert cross_promote.json() == missing_promote.json()
+
+
 def test_planner_endpoints_deny_cross_owner(tmp_path: Path):
     client = _client(tmp_path / "t.sqlite3")
     _, ws_b, _ = _seed(tmp_path / "t.sqlite3")

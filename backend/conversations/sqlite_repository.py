@@ -115,10 +115,17 @@ _SELECT_CONVERSATION_BY_ID = (
 
 # Listing excludes `deleted` and `deletion_requested` records. Normal
 # product reads never surface conversations pending or under deletion; the
-# privacy service reads tombstoned rows through `get` for coordination.
+# privacy deletion verifier reads tombstoned rows through the inclusive
+# variant for coordination.
 _SELECT_CONVERSATIONS_BY_WORKSPACE = f"""
 SELECT {_CONVERSATION_COLUMNS} FROM {CONVERSATION_TABLE}
 WHERE workspace_id = ? AND retention_state NOT IN (?, ?)
+ORDER BY updated_at DESC, created_at DESC, conversation_id ASC
+"""
+
+_SELECT_CONVERSATIONS_BY_WORKSPACE_INCLUDING_DELETION = f"""
+SELECT {_CONVERSATION_COLUMNS} FROM {CONVERSATION_TABLE}
+WHERE workspace_id = ?
 ORDER BY updated_at DESC, created_at DESC, conversation_id ASC
 """
 
@@ -291,18 +298,30 @@ class SQLiteConversationRepository:
 
         return None if row is None else self._row_to_conversation(row)
 
-    def list_by_workspace(self, workspace_id: str) -> tuple[Conversation, ...]:
-        """Return workspace-scoped conversations in governed order."""
+    def list_by_workspace(
+        self, workspace_id: str, include_deletion: bool = False
+    ) -> tuple[Conversation, ...]:
+        """Return workspace-scoped conversations in governed order.
+
+        The privacy deletion verifier passes `include_deletion` to observe
+        tombstoned rows; every other caller keeps the default exclusion.
+        """
         connection = self._connect()
         try:
-            rows = connection.execute(
-                _SELECT_CONVERSATIONS_BY_WORKSPACE,
-                (
-                    workspace_id,
-                    ConversationRetentionState.DELETED.value,
-                    ConversationRetentionState.DELETION_REQUESTED.value,
-                ),
-            ).fetchall()
+            if include_deletion:
+                rows = connection.execute(
+                    _SELECT_CONVERSATIONS_BY_WORKSPACE_INCLUDING_DELETION,
+                    (workspace_id,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    _SELECT_CONVERSATIONS_BY_WORKSPACE,
+                    (
+                        workspace_id,
+                        ConversationRetentionState.DELETED.value,
+                        ConversationRetentionState.DELETION_REQUESTED.value,
+                    ),
+                ).fetchall()
         except sqlite3.Error as error:
             raise ConversationStorageError(
                 "Could not list conversation records."

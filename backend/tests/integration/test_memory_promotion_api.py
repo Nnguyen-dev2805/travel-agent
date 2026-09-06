@@ -200,7 +200,7 @@ def test_promotion_scope_errors(tmp_path: Path):
             f"/api/v1/workspaces/{other}/memory/promotions",
             params={"conversation_id": conversation_id},
         ).status_code
-        == 409
+        == 404
     )
     assert (
         client.post(

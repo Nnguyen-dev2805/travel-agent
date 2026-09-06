@@ -1,0 +1,12 @@
+{"example_id": "r9a-missing-token", "slice": "authentication", "scenario": "missing_token_denied"}
+{"example_id": "r9a-invalid-token", "slice": "authentication", "scenario": "invalid_token_denied"}
+{"example_id": "r9x-workspace", "slice": "cross_owner", "scenario": "cross_owner_workspace_denied"}
+{"example_id": "r9x-conversation", "slice": "cross_owner", "scenario": "cross_owner_conversation_denied"}
+{"example_id": "r9x-memory", "slice": "cross_owner", "scenario": "cross_owner_memory_denied"}
+{"example_id": "r9x-planner", "slice": "cross_owner", "scenario": "cross_owner_planner_denied"}
+{"example_id": "r9d-memory-selected", "slice": "deletion", "scenario": "deleted_memory_not_selected"}
+{"example_id": "r9d-writes-rejected", "slice": "deletion", "scenario": "deleted_workspace_rejects_writes"}
+{"example_id": "r9e-500-redacted", "slice": "error_hardening", "scenario": "raw_500_detail_redacted"}
+{"example_id": "r9e-oversized", "slice": "error_hardening", "scenario": "oversized_request_denied"}
+{"example_id": "r9p-tokens", "slice": "privacy", "scenario": "token_value_not_reported"}
+{"example_id": "r9p-auth-off", "slice": "privacy", "scenario": "auth_disabled_report_invalid"}
