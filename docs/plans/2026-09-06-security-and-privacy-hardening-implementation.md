@@ -603,7 +603,7 @@ Expected: deletion hard gate is now testable.
 - Produces: refreshed memory evidence for authenticated cross-user isolation and
   deleted-memory retrieval gates.
 
-- [ ] **Step 1: Write failing memory evidence tests**
+- [x] **Step 1: Write failing memory evidence tests**
 
 Cover:
 
@@ -622,7 +622,7 @@ AUTH_REQUIRED=true LOCAL_AUTH_TOKENS_JSON='{"owner_a":"secret-alpha-token","owne
 
 Expected: fail because refreshed R9 memory evidence does not exist.
 
-- [ ] **Step 2: Create the refreshed fixture suite**
+- [x] **Step 2: Create the refreshed fixture suite**
 
 `backend/memory/evaluation/runner.py` derives report file names from the manifest
 `dataset_id` through `_report_stem`, not from `--suite`. Reusing the
@@ -635,14 +635,14 @@ R6 cases needed for the two formerly unobservable hard gates and add
 authenticated cross-owner and confirmed-deletion cases. Leave the
 `r6-retrieval-v0.1` fixture and its reports untouched.
 
-- [ ] **Step 3: Extend memory evaluation output**
+- [x] **Step 3: Extend memory evaluation output**
 
 Add a R9-owned path that writes `r6-retrieval-v0.2` evidence or an equivalent
 explicit memory gate appendix. The output must name the prior
 `r6-retrieval-v0.1` label-based limitation and replace it with authenticated
 evidence for only the two formerly unobservable gates.
 
-- [ ] **Step 4: Run refreshed memory evidence**
+- [x] **Step 4: Run refreshed memory evidence**
 
 Run:
 
@@ -658,13 +658,13 @@ rewritten, stop and restore them before continuing. If the implementation uses a
 different command or report id, record the exact command in the Completion
 Record.
 
-- [ ] **Step 5: Update roadmap ordering problem**
+- [x] **Step 5: Update roadmap ordering problem**
 
 Update `docs/roadmap/master-roadmap.md` so `Open Ordering Problem: R6 and R9`
 is no longer an unresolved blocker after the refreshed evidence exists. Preserve
 the historical note that `r6-retrieval-v0.1` was label-based.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: R9 does not claim all R6 quality gates were re-run unless they were.
 Only the two formerly unobservable hard gates are upgraded by this task, and the

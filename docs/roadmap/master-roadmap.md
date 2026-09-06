@@ -152,9 +152,14 @@ events, so `R6` reports these as limited or fixture-seeded rather than as
 authenticated evidence. `R6` therefore cannot discharge `R9`'s privacy gate, and
 `R9` should not be read as waiting only on `R6`.
 
-Recording this is not a resolution. Changing the milestone order requires the
-normal specification and implementation-plan workflow under Roadmap Change Rules
-item 2.
+This ordering problem is resolved by refreshed evidence, not by reordering:
+`docs/reports/memory/r6-retrieval-v0.2` measures both gates with
+authentication enabled — cross-user isolation between token-registry
+identities at `0` events and deleted-memory retrieval after confirmed
+deletion at `0` events — while the delivered `r6-retrieval-v0.1` reports
+remain byte-for-byte intact as historical label-based evidence. Changing
+the milestone order itself still requires the normal specification and
+implementation-plan workflow under Roadmap Change Rules item 2.
 
 ## Documentation Package Roadmap
 

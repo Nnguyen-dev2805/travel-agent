@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr
 
 from backend.memory.evaluation.cli import main as cli_main
 from backend.memory.evaluation.models import MemoryEvaluationResult
@@ -345,3 +346,184 @@ def test_run_records_follow_promoted_ids_not_timestamps():
     selected = _run_promoted_records([other, promoted], ("mem_promoted",))
 
     assert [record.memory_id for record in selected] == ["mem_promoted"]
+
+
+# R9 authenticated hard-gate evidence.
+
+
+def _write_auth_suite(tmp_path: Path, examples, dataset_id="r6-auth-test") -> Path:
+    suite_dir = tmp_path / "suite"
+    suite_dir.mkdir(exist_ok=True)
+    manifest = {
+        "dataset_id": dataset_id,
+        "dataset_version": "0.2-test",
+        "dataset_role": "development",
+        "examples_file": "examples.jsonl",
+        "requires_auth": True,
+    }
+    (suite_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (suite_dir / "examples.jsonl").write_text(
+        "\n".join(json.dumps(item, ensure_ascii=False) for item in examples) + "\n",
+        encoding="utf-8",
+    )
+    return suite_dir / "manifest.json"
+
+
+def _auth_env(monkeypatch, enabled=True, registry=None):
+    from backend.app.config import settings
+
+    monkeypatch.setattr(settings, "AUTH_REQUIRED", enabled)
+    monkeypatch.setattr(
+        settings,
+        "LOCAL_AUTH_TOKENS_JSON",
+        SecretStr(
+            registry
+            if registry is not None
+            else '{"owner_a": "secret-alpha-token", "owner_b": "secret-beta-token"}'
+        ),
+    )
+
+
+def _xuser_example(example_id="x-1", **overrides):
+    payload = {
+        "example_id": example_id,
+        "kind": "retrieval",
+        "slice": "cross-user",
+        "owner": "owner_a",
+        "seeds": [
+            {
+                "alias": "foreign",
+                "owner": "owner_b",
+                "scope": "user",
+                "memory_type": "preference",
+                "status": "active",
+                "text": "Người khác ăn mặn.",
+                "confidence": 0.9,
+                "sensitivity_label": "none",
+            },
+            {
+                "alias": "local",
+                "scope": "user",
+                "memory_type": "preference",
+                "status": "active",
+                "text": "Tôi ăn chay trường mỗi ngày.",
+                "confidence": 0.9,
+                "sensitivity_label": "none",
+            },
+        ],
+        "queries": [{"query": "ăn chay", "expected_aliases": ["local"]}],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _deleted_example(example_id="d-1", **overrides):
+    payload = {
+        "example_id": example_id,
+        "kind": "retrieval",
+        "slice": "deleted-memory",
+        "owner": "owner_a",
+        "seeds": [
+            {
+                "alias": "live",
+                "scope": "user",
+                "memory_type": "preference",
+                "status": "active",
+                "text": "Tôi ăn chay trường mỗi ngày.",
+                "confidence": 0.9,
+                "sensitivity_label": "none",
+            },
+            {
+                "alias": "gone",
+                "scope": "user",
+                "memory_type": "preference",
+                "status": "deleted",
+                "text": "Tôi từng ăn mặn.",
+                "confidence": 0.9,
+                "sensitivity_label": "none",
+            },
+            {
+                "alias": "going",
+                "scope": "user",
+                "memory_type": "preference",
+                "status": "deletion_requested",
+                "text": "Tôi từng đi tàu hỏa.",
+                "confidence": 0.9,
+                "sensitivity_label": "none",
+            },
+        ],
+        "queries": [{"query": "ăn chay", "expected_aliases": ["live"]}],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _deletion_lifecycle_example(example_id="l-1", **overrides):
+    payload = {
+        "example_id": example_id,
+        "kind": "deletion",
+        "slice": "deleted-memory",
+        "owner": "owner_a",
+        "messages": [
+            {
+                "role": "user",
+                "source": "ui",
+                "trace_visibility": "included",
+                "content": PREFERENCE_MESSAGE,
+            }
+        ],
+        "queries": [{"query": "ăn chay", "expected_aliases": []}],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _gate_events(report, name):
+    return next(item.events for item in report.hard_gates if item.gate == name)
+
+
+def test_auth_suite_reports_pass_with_zero_gate_events(tmp_path: Path, monkeypatch):
+    _auth_env(monkeypatch)
+    manifest = _write_auth_suite(
+        tmp_path,
+        [
+            _promotion_example(example_id="p-9", owner="owner_a"),
+            _retrieval_example(example_id="r-9", owner="owner_a"),
+            _xuser_example(),
+            _deleted_example(),
+            _deletion_lifecycle_example(),
+        ],
+    )
+
+    report = run_retrieval_evaluation(manifest, tmp_path / "out")
+
+    assert report.result_state is MemoryEvaluationResult.PASS
+    assert _gate_events(report, "cross_user_leakage") == 0
+    assert _gate_events(report, "deleted_memory_retrieval") == 0
+
+
+def test_auth_disabled_makes_evidence_invalid(tmp_path: Path, monkeypatch):
+    _auth_env(monkeypatch, enabled=False)
+    manifest = _write_auth_suite(tmp_path, [_xuser_example()])
+
+    report = run_retrieval_evaluation(manifest, tmp_path / "out")
+
+    assert report.result_state is MemoryEvaluationResult.INVALID
+
+
+def test_malformed_registry_makes_evidence_invalid(tmp_path: Path, monkeypatch):
+    _auth_env(monkeypatch, registry="not-json{{{")
+    manifest = _write_auth_suite(tmp_path, [_xuser_example()])
+
+    report = run_retrieval_evaluation(manifest, tmp_path / "out")
+
+    assert report.result_state is MemoryEvaluationResult.INVALID
+
+
+def test_unbound_owner_makes_evidence_invalid(tmp_path: Path, monkeypatch):
+    _auth_env(monkeypatch)
+    manifest = _write_auth_suite(tmp_path, [_xuser_example(owner="owner_c")])
+
+    report = run_retrieval_evaluation(manifest, tmp_path / "out")
+
+    assert report.result_state is MemoryEvaluationResult.INVALID

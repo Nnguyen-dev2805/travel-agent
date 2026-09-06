@@ -72,6 +72,7 @@ from backend.memory.promotion import MEMORY_PROMOTION_MIN_CONFIDENCE
 from backend.memory.retrieval import MEMORY_MAX_SELECTED, MemoryRetrievalService
 from backend.memory.service import MemoryService
 from backend.memory.sqlite_repository import SQLiteMemoryRepository
+from backend.privacy.deletion import DeletionService
 from backend.workspaces.models import (
     PlanningStatus,
     RetentionState,
@@ -757,6 +758,19 @@ def run_retrieval_evaluation(
 
     started = datetime.now(timezone.utc)
     report_id = f"{manifest['dataset_id']}-{started.strftime('%Y%m%dT%H%M%SZ')}"
+    if manifest.get("requires_auth"):
+        auth_problem = _check_auth_evidence(valid)
+        if auth_problem is not None:
+            report = _invalid_retrieval_report(
+                report_id, manifest, len(valid), len(invalid), notes=(auth_problem,)
+            )
+            _write_reports(
+                out_dir,
+                retrieval_report_to_dict(report),
+                _render_retrieval_markdown(report),
+                _report_stem(report.dataset_id),
+            )
+            return report
     if invalid:
         report = _invalid_retrieval_report(
             report_id, manifest, len(valid), len(invalid)
@@ -782,8 +796,57 @@ def run_retrieval_evaluation(
     return report
 
 
+def _check_auth_evidence(examples: list[dict[str, Any]]) -> str | None:
+    """Require an enabled auth gate with registry-bound owners.
+
+    Returns a report note describing the problem, or None when the
+    authenticated evidence can be observed: auth on, a parseable
+    non-empty token registry, and every example, seed, and query owner a
+    registry member. Owner labels outside the registry cannot produce
+    authenticated evidence.
+    """
+    from backend.app.config import settings
+    from backend.security.local_tokens import parse_local_token_registry
+    from backend.security.models import SecurityConfigurationError
+
+    if not settings.AUTH_REQUIRED:
+        return (
+            "Authenticated evidence requires AUTH_REQUIRED=true; the gate "
+            "was off, so cross-user and deleted-memory gates are "
+            "unobservable."
+        )
+    try:
+        registry = parse_local_token_registry(
+            settings.LOCAL_AUTH_TOKENS_JSON.get_secret_value()
+        )
+    except SecurityConfigurationError:
+        return (
+            "Authenticated evidence requires a valid synthetic token "
+            "registry; the registry was missing or malformed."
+        )
+    owners: set[str] = set()
+    for example in examples:
+        owners.add(example.get("owner", "eval-owner"))
+        for seed in example.get("seeds", []):
+            if "owner" in seed:
+                owners.add(seed["owner"])
+        for query in example.get("queries", []):
+            if "owner" in query:
+                owners.add(query["owner"])
+    if not owners <= set(registry):
+        return (
+            "Authenticated evidence requires every example owner to be a "
+            "token registry member."
+        )
+    return None
+
+
 def _invalid_retrieval_report(
-    report_id: str, manifest: Mapping[str, Any], eligible: int, invalid: int
+    report_id: str,
+    manifest: Mapping[str, Any],
+    eligible: int,
+    invalid: int,
+    notes: tuple[str, ...] | None = None,
 ) -> MemoryRetrievalReport:
     na = MetricScore("n/a", None, 0, 0, "n/a")
     return MemoryRetrievalReport(
@@ -810,7 +873,12 @@ def _invalid_retrieval_report(
         constraint_delta=na,
         result_state=MemoryEvaluationResult.INVALID,
         notes=(
-            "Suite evidence is missing or malformed; quality cannot be interpreted.",
+            notes
+            if notes is not None
+            else (
+                "Suite evidence is missing or malformed; quality cannot be "
+                "interpreted.",
+            )
         ),
     )
 
@@ -867,6 +935,48 @@ def _parse_retrieval_example(index: int, raw: Any) -> dict[str, Any] | None:
             "messages_before": raw.get("messages_before", []),
             "messages": messages,
             "expected": expected,
+        }
+    if kind == "deletion":
+        messages = raw.get("messages")
+        queries = raw.get("queries")
+        if not isinstance(messages, list) or not messages:
+            return None
+        if not isinstance(queries, list) or not queries:
+            return None
+        for message in messages:
+            if not isinstance(message, dict):
+                return None
+            if any(key not in message for key in _REQUIRED_MESSAGE_KEYS):
+                return None
+            if (
+                not isinstance(message["content"], str)
+                or not message["content"].strip()
+            ):
+                return None
+            try:
+                MessageRole(message["role"])
+                MessageSource(message["source"])
+                TraceVisibility(message["trace_visibility"])
+            except ValueError:
+                return None
+        for query in queries:
+            if not isinstance(query, dict):
+                return None
+            if any(key not in query for key in _REQUIRED_QUERY_KEYS):
+                return None
+            if not isinstance(query["query"], str) or not query["query"].strip():
+                return None
+            if not isinstance(query["expected_aliases"], list) or not all(
+                isinstance(alias, str) for alias in query["expected_aliases"]
+            ):
+                return None
+        return {
+            "example_id": raw["example_id"],
+            "slice": raw["slice"],
+            "kind": "deletion",
+            "owner": raw.get("owner", "eval-owner"),
+            "messages": messages,
+            "queries": queries,
         }
     if kind == "retrieval":
         seeds = raw.get("seeds")
@@ -977,6 +1087,12 @@ def _score_retrieval_examples(
         if example["kind"] == "promotion":
             scored.append(
                 _score_promotion_example(stores, example, workspace_id, conversation_id)
+            )
+        elif example["kind"] == "deletion":
+            scored.append(
+                _score_deletion_example(
+                    stores, example, workspace_id, conversation_id, owner, gates, traces
+                )
             )
         else:
             scored.append(
@@ -1116,6 +1232,66 @@ def _score_promotion_example(
             "expected_superseded": example["expected"]["superseded"],
             "actual_superseded": newly_superseded,
         },
+    }
+
+
+def _score_deletion_example(
+    stores: dict[str, Any],
+    example: dict[str, Any],
+    workspace_id: str,
+    conversation_id: str,
+    owner: str,
+    gates: dict[str, int],
+    traces: list[str],
+) -> dict[str, Any]:
+    """Promote fixture messages, delete them for real, then query.
+
+    The promotion phase runs through the real extraction and promotion
+    use cases; the deletion phase runs the real ordered privacy flow
+    (request then confirm), so the queries measure confirmed deletion
+    rather than seeded statuses. Promoted records enter the evidence
+    multisets as matched `promoted:` markers: a promotion miss surfaces
+    as `memory_missed` through the shared failure derivation, while any
+    post-deletion selection surfaces as `memory_false_write` plus a
+    `deleted_memory_retrieval` gate event.
+    """
+    _append_fixture_messages(stores, conversation_id, example["messages"])
+    stores["memory_service"].run_conversation_extraction(
+        workspace_id, conversation_id, MemoryExtractionTrigger.EVALUATION
+    )
+    result = stores["memory_service"].promote_workspace(workspace_id, conversation_id)
+    deletion = DeletionService(
+        stores["workspaces"], stores["conversations"], stores["memory"]
+    )
+    deletion.request_workspace_deletion(workspace_id)
+    deletion.confirm_workspace_deletion(workspace_id)
+    query_scored = _score_retrieval_queries(
+        stores,
+        {**example, "seeds": []},
+        workspace_id,
+        conversation_id,
+        owner,
+        gates,
+        traces,
+    )
+    if result.promoted_memory_ids:
+        promoted_markers = [
+            f"promoted:{memory_id}" for memory_id in result.promoted_memory_ids
+        ]
+    else:
+        promoted_markers = ["promoted:missing"]
+    return {
+        "example_id": example["example_id"],
+        "slice": example["slice"],
+        "expected": promoted_markers + query_scored["expected"],
+        "actual": (promoted_markers if result.promoted_memory_ids else [])
+        + query_scored["actual"],
+        "matched": (len(promoted_markers) if result.promoted_memory_ids else 0)
+        + query_scored["matched"],
+        "selected_ids": query_scored["selected_ids"],
+        "selection_reasons": query_scored["selection_reasons"],
+        "query_hits": query_scored["query_hits"],
+        "query_irrelevant": query_scored["query_irrelevant"],
     }
 
 
@@ -1428,6 +1604,31 @@ def _build_retrieval_report(
         constraint_delta=None,
         slice_precisions=[item.precision for item in slices],
     )
+    base_notes = [
+        "R6 retrieval report: promotion, scope, retrieval, and lifecycle "
+        "gates are measured end to end; answer-quality fields stay "
+        "INCONCLUSIVE without a provider-backed judge, per the limitation "
+        "accepted at R6 approval time.",
+        "The disabled branch executes the gate-off path over the identical "
+        "query set, which selects nothing by definition; the paired "
+        "comparison is enabled selections versus that empty baseline. No "
+        "answer is generated on either branch without a provider.",
+    ]
+    if manifest.get("requires_auth"):
+        base_notes.append(
+            "R9 refreshed evidence: cross-user isolation is measured "
+            "between token-registry identities with authentication "
+            "enabled, and deleted-memory retrieval is measured after "
+            "confirmed deletion through the ordered privacy flow. The "
+            "R6 v0.1 label-based limitation no longer applies to this "
+            "suite; quality metrics cover carried cases only, not a full "
+            "re-run."
+        )
+    else:
+        base_notes.append(
+            "Cross-user isolation is measured by the local owner label, not "
+            "authenticated identity, per the open R6/R9 ordering problem."
+        )
     return MemoryRetrievalReport(
         report_id=report_id,
         dataset_id=str(manifest["dataset_id"]),
@@ -1491,18 +1692,7 @@ def _build_retrieval_report(
         enabled_trace_ids=tuple(traces),
         result_state=result_state,
         environment=_evaluation_environment(),
-        notes=(
-            "R6 retrieval report: promotion, scope, retrieval, and lifecycle "
-            "gates are measured end to end; answer-quality fields stay "
-            "INCONCLUSIVE without a provider-backed judge, per the limitation "
-            "accepted at R6 approval time.",
-            "The disabled branch executes the gate-off path over the identical "
-            "query set, which selects nothing by definition; the paired "
-            "comparison is enabled selections versus that empty baseline. No "
-            "answer is generated on either branch without a provider.",
-            "Cross-user isolation is measured by the local owner label, not "
-            "authenticated identity, per the open R6/R9 ordering problem.",
-        ),
+        notes=tuple(base_notes),
     )
 
 
