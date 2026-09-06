@@ -382,7 +382,7 @@ exposes `X-Request-ID`.
 - Produces: content-free events for chat, RAG, model-provider, memory, planner,
   and schema compatibility outcomes.
 
-- [ ] **Step 1: Write failing log-safety tests**
+- [x] **Step 1: Write failing log-safety tests**
 
 Use synthetic strings such as:
 
@@ -408,19 +408,19 @@ Run:
 
 Expected: fail while prompt-prefix logging still exists.
 
-- [ ] **Step 2: Remove prompt-prefix logging**
+- [x] **Step 2: Remove prompt-prefix logging**
 
 Replace `logger.info(f"Received chat request: '{user_message[:50]}...'")` with a
 content-free `chat.request.accepted` event.
 
-- [ ] **Step 3: Replace unsafe exception logging on chat path**
+- [x] **Step 3: Replace unsafe exception logging on chat path**
 
 Use controlled `failure_class` and `reason_code` fields. Do not place arbitrary
 exception strings in log event payloads for chat path failures. Do not change
 HTTP response bodies in this step; raw exception-derived HTTP 500 detail
 hardening remains outside R8.
 
-- [ ] **Step 4: Add success/degraded events**
+- [x] **Step 4: Add success/degraded events**
 
 Emit:
 
@@ -438,7 +438,7 @@ storage.schema.failed
 Use ids, counts, status, selected counts, result ids, duration, and reason codes
 only.
 
-- [ ] **Step 5: Run focused privacy tests**
+- [x] **Step 5: Run focused privacy tests**
 
 Run:
 
@@ -448,7 +448,7 @@ Run:
 
 Expected: pass.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: instrumentation does not change business return values, persistence,
 evaluation scoring, or route response bodies.
@@ -472,7 +472,7 @@ prompt-prefix logging.
 - Produces: `build_readiness_snapshot() -> ReadinessSnapshot` and
   `GET /api/v1/ops/readiness`.
 
-- [ ] **Step 1: Write failing readiness unit tests**
+- [x] **Step 1: Write failing readiness unit tests**
 
 Cover:
 
@@ -494,7 +494,7 @@ Run:
 
 Expected: fail.
 
-- [ ] **Step 2: Write failing ops API tests**
+- [x] **Step 2: Write failing ops API tests**
 
 Cover:
 
@@ -513,13 +513,13 @@ Run:
 
 Expected: fail until route is mounted.
 
-- [ ] **Step 3: Implement read-only probes**
+- [x] **Step 3: Implement read-only probes**
 
 Implement local metadata probes. Do not instantiate constructors that create
 state. Use direct read-only SQLite connection only when the DB file already
 exists. Use relative report paths only when reporting existing docs evidence.
 
-- [ ] **Step 4: Implement ops route**
+- [x] **Step 4: Implement ops route**
 
 Mount under `settings.API_V1_STR`:
 
@@ -530,7 +530,7 @@ GET /api/v1/ops/readiness
 The route calls the readiness service and returns the serialized snapshot. It
 contains no SQL, Chroma calls, filesystem traversal, or redaction policy.
 
-- [ ] **Step 5: Run focused readiness tests**
+- [x] **Step 5: Run focused readiness tests**
 
 Run:
 
@@ -540,7 +540,7 @@ Run:
 
 Expected: pass.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: readiness probes are read-only and `/health` compatibility remains
 intact.
@@ -567,7 +567,7 @@ Expected: no test creates the default developer app DB or Chroma path.
 - Produces: `run_readiness_evaluation(manifest_path, output_dir)` and CLI
   command `run-readiness`.
 
-- [ ] **Step 1: Write failing evaluation tests**
+- [x] **Step 1: Write failing evaluation tests**
 
 Cover:
 
@@ -588,7 +588,7 @@ Run:
 
 Expected: fail.
 
-- [ ] **Step 2: Create fixture suite**
+- [x] **Step 2: Create fixture suite**
 
 Create at least 12 synthetic examples across these slices:
 
@@ -608,13 +608,13 @@ Fixtures and generated reports must stay under the tracked `docs/evaluation/`
 and `docs/reports/` paths listed in the File Responsibility Map, not under
 gitignored `data/`.
 
-- [ ] **Step 3: Implement runner and report renderer**
+- [x] **Step 3: Implement runner and report renderer**
 
 Use D5 result states: `PASS`, `FAIL`, `INCONCLUSIVE`, and `INVALID`. Include
 per-slice counts, gate outcomes, and failure reason codes. This is a
 milestone-scoped R8 harness and must not create a new D5 protocol document.
 
-- [ ] **Step 4: Implement CLI**
+- [x] **Step 4: Implement CLI**
 
 Command:
 
@@ -630,7 +630,7 @@ eligible_examples=<count>
 output_dir=docs/reports/ops
 ```
 
-- [ ] **Step 5: Run evaluation**
+- [x] **Step 5: Run evaluation**
 
 Run:
 
@@ -641,7 +641,7 @@ Run:
 Expected: exit `0`; report result is `PASS`; `docs/reports/ops/` now exists with
 both report artifacts, which the Task 8 sentinel check depends on.
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Review: report claims match fixture outputs and do not contain unsafe sentinel
 strings.

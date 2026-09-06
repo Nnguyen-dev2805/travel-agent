@@ -21,7 +21,9 @@ Raised `SchemaRegistryError` messages are safe for a controlled HTTP 500
 response: they never include the local database path, full SQL text,
 credentials, or user content.
 
-This module depends on the Python standard library only.
+This module depends on the Python standard library plus the observability
+event API for compatibility-failure evidence, which itself is standard
+library only.
 """
 
 from __future__ import annotations
@@ -30,6 +32,13 @@ import logging
 import sqlite3
 from pathlib import Path
 from typing import Callable
+
+from backend.observability.events import emit_event
+from backend.observability.models import (
+    EventComponent,
+    EventName,
+    EventResult,
+)
 
 logger = logging.getLogger("travel_agent_storage")
 
@@ -108,6 +117,17 @@ def open_application_database(db_path: Path) -> sqlite3.Connection:
             elif observed == SENTINEL_USER_VERSION:
                 connection.execute(_CREATE_REGISTRY_TABLE)
             else:
+                emit_event(
+                    EventName.STORAGE_SCHEMA_FAILED,
+                    EventComponent.STORAGE,
+                    EventResult.FAILURE,
+                    failure_class="SchemaRegistryError",
+                    reason_code="store_marker_mismatch",
+                    counters={
+                        "observed": int(observed),
+                        "expected": SENTINEL_USER_VERSION,
+                    },
+                )
                 raise SchemaRegistryError(
                     f"The local application database reports store marker {observed}, "
                     f"but this build recognizes marker {SENTINEL_USER_VERSION}. "
@@ -155,6 +175,14 @@ def register_module_schema(
                 return
 
             if recorded != version:
+                emit_event(
+                    EventName.STORAGE_SCHEMA_FAILED,
+                    EventComponent.STORAGE,
+                    EventResult.FAILURE,
+                    failure_class="SchemaRegistryError",
+                    reason_code="schema_version_mismatch",
+                    counters={"recorded": int(recorded), "expected": int(version)},
+                )
                 raise SchemaRegistryError(
                     f"Schema module '{module}' is recorded at version {recorded}, "
                     f"but this build supports version {version}. "

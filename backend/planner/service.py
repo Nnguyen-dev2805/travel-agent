@@ -31,6 +31,12 @@ from backend.planner.models import (
     generate_operation_id,
     require_text,
 )
+from backend.observability.events import emit_event
+from backend.observability.models import (
+    EventComponent,
+    EventName,
+    EventResult,
+)
 from backend.planner.repository import PlannerRepository
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -142,23 +148,33 @@ class PlannerService:
             created_at=draft.created_at or moment,
         )
         version_id = generate_itinerary_version_id()
+        operation = self._build_operation(
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            operation_type=PlannerOperationType.CREATE_ITINERARY,
+            source_message_id=source_message_id,
+            result_itinerary_version_id=version_id,
+            input_summary=f"status={stamped.status.value}",
+            created_at=moment,
+        )
         stored = self._planner.create_itinerary_version(
-            stamped,
-            version_id,
-            operation=self._build_operation(
-                workspace_id=workspace_id,
-                conversation_id=conversation_id,
-                operation_type=PlannerOperationType.CREATE_ITINERARY,
-                source_message_id=source_message_id,
-                result_itinerary_version_id=version_id,
-                input_summary=f"status={stamped.status.value}",
-                created_at=moment,
-            ),
+            stamped, version_id, operation=operation
         )
         logger.info(
             "planner.itinerary created workspace_id=%s version_number=%s",
             workspace_id,
             stored.version_number,
+        )
+        emit_event(
+            EventName.PLANNER_OPERATION_APPLIED,
+            EventComponent.PLANNER,
+            EventResult.SUCCESS,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            operation_id=operation.operation_id,
+            itinerary_version_id=version_id,
+            reason_code="create_itinerary",
+            counters={"version_number": stored.version_number},
         )
         return stored
 
@@ -201,23 +217,32 @@ class PlannerService:
         if current.status is ItineraryStatus.ACCEPTED:
             return current
         moment = _utc_now()
+        operation = self._build_operation(
+            workspace_id=workspace_id,
+            conversation_id=None,
+            operation_type=PlannerOperationType.ACCEPT_ITINERARY,
+            source_message_id=None,
+            result_itinerary_version_id=itinerary_version_id,
+            input_summary="status=accepted",
+            created_at=moment,
+        )
         stored = self._planner.accept_itinerary_version(
-            workspace_id,
-            itinerary_version_id,
-            operation=self._build_operation(
-                workspace_id=workspace_id,
-                conversation_id=None,
-                operation_type=PlannerOperationType.ACCEPT_ITINERARY,
-                source_message_id=None,
-                result_itinerary_version_id=itinerary_version_id,
-                input_summary="status=accepted",
-                created_at=moment,
-            ),
+            workspace_id, itinerary_version_id, operation=operation
         )
         logger.info(
             "planner.itinerary accepted workspace_id=%s version_number=%s",
             workspace_id,
             stored.version_number,
+        )
+        emit_event(
+            EventName.PLANNER_OPERATION_APPLIED,
+            EventComponent.PLANNER,
+            EventResult.SUCCESS,
+            workspace_id=workspace_id,
+            operation_id=operation.operation_id,
+            itinerary_version_id=itinerary_version_id,
+            reason_code="accept_itinerary",
+            counters={"version_number": stored.version_number},
         )
         return stored
 
@@ -239,24 +264,35 @@ class PlannerService:
                 "cannot be archived."
             )
         moment = _utc_now()
+        operation = self._build_operation(
+            workspace_id=workspace_id,
+            conversation_id=None,
+            operation_type=PlannerOperationType.ARCHIVE_ITINERARY,
+            source_message_id=None,
+            result_itinerary_version_id=itinerary_version_id,
+            input_summary="status=archived",
+            created_at=moment,
+        )
         stored = self._planner.update_itinerary_status(
             workspace_id,
             itinerary_version_id,
             ItineraryStatus.ARCHIVED,
-            operation=self._build_operation(
-                workspace_id=workspace_id,
-                conversation_id=None,
-                operation_type=PlannerOperationType.ARCHIVE_ITINERARY,
-                source_message_id=None,
-                result_itinerary_version_id=itinerary_version_id,
-                input_summary="status=archived",
-                created_at=moment,
-            ),
+            operation=operation,
         )
         logger.info(
             "planner.itinerary archived workspace_id=%s version_number=%s",
             workspace_id,
             stored.version_number,
+        )
+        emit_event(
+            EventName.PLANNER_OPERATION_APPLIED,
+            EventComponent.PLANNER,
+            EventResult.SUCCESS,
+            workspace_id=workspace_id,
+            operation_id=operation.operation_id,
+            itinerary_version_id=itinerary_version_id,
+            reason_code="archive_itinerary",
+            counters={"version_number": stored.version_number},
         )
         return stored
 
@@ -280,28 +316,39 @@ class PlannerService:
             )
         moment = _utc_now()
         superseding = draft.supersedes_decision_id is not None
+        operation = self._build_operation(
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            operation_type=(
+                PlannerOperationType.SUPERSEDE_DECISION
+                if superseding
+                else PlannerOperationType.RECORD_DECISION
+            ),
+            source_message_id=source_message_id,
+            result_decision_id=draft.decision_id,
+            input_summary=(
+                f"status={draft.status.value} type={draft.decision_type.value}"
+            ),
+            created_at=moment,
+        )
         stored = self._planner.create_decision(
             self._with_decision_provenance(draft, source_message_id),
-            operation=self._build_operation(
-                workspace_id=workspace_id,
-                conversation_id=conversation_id,
-                operation_type=(
-                    PlannerOperationType.SUPERSEDE_DECISION
-                    if superseding
-                    else PlannerOperationType.RECORD_DECISION
-                ),
-                source_message_id=source_message_id,
-                result_decision_id=draft.decision_id,
-                input_summary=(
-                    f"status={draft.status.value} type={draft.decision_type.value}"
-                ),
-                created_at=moment,
-            ),
+            operation=operation,
         )
         logger.info(
             "planner.decision recorded workspace_id=%s superseding=%s",
             workspace_id,
             superseding,
+        )
+        emit_event(
+            EventName.PLANNER_OPERATION_APPLIED,
+            EventComponent.PLANNER,
+            EventResult.SUCCESS,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            decision_id=draft.decision_id,
+            operation_id=operation.operation_id,
+            reason_code=("supersede_decision" if superseding else "record_decision"),
         )
         return stored
 
@@ -325,24 +372,31 @@ class PlannerService:
                 f"to '{target.value}'."
             )
         moment = _utc_now()
+        operation = self._build_operation(
+            workspace_id=workspace_id,
+            conversation_id=None,
+            operation_type=PlannerOperationType.UPDATE_DECISION_STATUS,
+            source_message_id=None,
+            result_decision_id=decision_id,
+            input_summary=f"status={target.value}",
+            created_at=moment,
+        )
         stored = self._planner.update_decision_status(
-            workspace_id,
-            decision_id,
-            target,
-            operation=self._build_operation(
-                workspace_id=workspace_id,
-                conversation_id=None,
-                operation_type=PlannerOperationType.UPDATE_DECISION_STATUS,
-                source_message_id=None,
-                result_decision_id=decision_id,
-                input_summary=f"status={target.value}",
-                created_at=moment,
-            ),
+            workspace_id, decision_id, target, operation=operation
         )
         logger.info(
             "planner.decision status workspace_id=%s status=%s",
             workspace_id,
             stored.status.value,
+        )
+        emit_event(
+            EventName.PLANNER_OPERATION_APPLIED,
+            EventComponent.PLANNER,
+            EventResult.SUCCESS,
+            workspace_id=workspace_id,
+            decision_id=decision_id,
+            operation_id=operation.operation_id,
+            reason_code="update_decision_status",
         )
         return stored
 

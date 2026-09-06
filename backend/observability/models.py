@@ -348,6 +348,15 @@ class ReadinessComponent:
         )
         object.__setattr__(self, "details", require_counters(self.details, "details"))
 
+    def to_dict(self) -> dict[str, Any]:
+        """Render the component as plain JSON-serializable data."""
+        return {
+            "name": self.name,
+            "status": self.status.value,
+            "reason_code": self.reason_code,
+            "details": dict(self.details),
+        }
+
 
 @dataclass(frozen=True)
 class ReadinessSnapshot:
@@ -372,6 +381,14 @@ class ReadinessSnapshot:
                     "ReadinessComponent entries."
                 )
         object.__setattr__(self, "components", components)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Render the snapshot as plain JSON-serializable data."""
+        return {
+            "status": self.status.value,
+            "checked_at": self.checked_at.isoformat(),
+            "components": [item.to_dict() for item in self.components],
+        }
 
 
 __all__ = [

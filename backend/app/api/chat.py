@@ -28,6 +28,12 @@ from backend.conversations.service import ConversationNotFoundError
 from backend.memory.repository import MemoryRepositoryError
 from backend.memory.retrieval import MemoryRetrievalService
 from backend.memory.sqlite_repository import SQLiteMemoryRepository
+from backend.observability.events import emit_event
+from backend.observability.models import (
+    EventComponent,
+    EventName,
+    EventResult,
+)
 from backend.orchestration.conversation_orchestrator import (
     ConversationOrchestrator,
     MemoryComponents,
@@ -121,7 +127,12 @@ def chat_endpoint(
     if not user_message:
         raise HTTPException(status_code=400, detail="Message content cannot be empty.")
 
-    logger.info(f"Received chat request: '{user_message[:50]}...'")
+    emit_event(
+        EventName.CHAT_REQUEST_ACCEPTED,
+        EventComponent.CHAT,
+        EventResult.SUCCESS,
+        conversation_id=request.conversation_id,
+    )
 
     try:
         outcome = orchestrator.handle_turn(
@@ -152,6 +163,34 @@ def chat_endpoint(
             else None
         )
 
+        emit_event(
+            EventName.CHAT_TURN_COMPLETED,
+            EventComponent.CHAT,
+            EventResult.SUCCESS,
+            conversation_id=(
+                outcome.conversation.conversation_id
+                if outcome.conversation is not None
+                else None
+            ),
+            message_id=(
+                outcome.conversation.user_message_id
+                if outcome.conversation is not None
+                else None
+            ),
+            counters={
+                "citations": len(outcome.citations),
+                "memory_selected": (
+                    len(outcome.memory.selected_memory_ids)
+                    if outcome.memory is not None
+                    else 0
+                ),
+                "persisted": (
+                    outcome.conversation.persisted
+                    if outcome.conversation is not None
+                    else False
+                ),
+            },
+        )
         return ChatResponse(
             reply=outcome.reply,
             model=outcome.model,
@@ -181,8 +220,20 @@ def chat_endpoint(
         logger.info("chat.turn rejected failure_class=validation")
         raise HTTPException(status_code=422, detail=str(error)) from error
     except ValueError as ve:
-        logger.error(f"Validation error in RAG Chat: {str(ve)}")
+        emit_event(
+            EventName.MODEL_CALL_FAILED,
+            EventComponent.MODEL_PROVIDER,
+            EventResult.FAILURE,
+            failure_class=type(ve).__name__,
+            reason_code="validation_error",
+        )
         raise HTTPException(status_code=500, detail=str(ve))
     except Exception as e:
-        logger.error(f"Error executing RAG Chat Endpoint: {str(e)}")
+        emit_event(
+            EventName.MODEL_CALL_FAILED,
+            EventComponent.MODEL_PROVIDER,
+            EventResult.FAILURE,
+            failure_class=type(e).__name__,
+            reason_code="unhandled_exception",
+        )
         raise HTTPException(status_code=500, detail=f"LLM RAG Service Error: {str(e)}")

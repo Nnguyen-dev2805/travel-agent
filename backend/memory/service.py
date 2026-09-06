@@ -55,6 +55,12 @@ from backend.memory.models import (
 from backend.memory.policy import MemoryPolicy
 from backend.memory.promotion import MemoryPromotionPolicy
 from backend.memory.repository import MemoryRepository
+from backend.observability.events import emit_event
+from backend.observability.models import (
+    EventComponent,
+    EventName,
+    EventResult,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from backend.conversations.repository import ConversationRepository
@@ -229,6 +235,19 @@ class MemoryService:
             rejected,
             needs_action,
             invalid,
+        )
+        emit_event(
+            EventName.MEMORY_EXTRACTION_COMPLETED,
+            EventComponent.MEMORY,
+            EventResult.SUCCESS,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            counters={
+                "accepted": accepted,
+                "rejected": rejected,
+                "needs_user_action": needs_action,
+                "invalid": invalid,
+            },
         )
         return persisted
 

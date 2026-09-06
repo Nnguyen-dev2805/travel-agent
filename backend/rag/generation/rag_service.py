@@ -12,6 +12,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+from backend.observability.events import emit_event
+from backend.observability.models import (
+    EventComponent,
+    EventName,
+    EventResult,
+)
 from backend.rag.contracts import ContextBundle
 from backend.rag.generation.context import ContextAssembler
 from backend.rag.generation.llm import LLMGenerator
@@ -77,10 +83,15 @@ class RAGService:
 
         resolved_top_k = top_k if top_k is not None else self.top_k
 
-        logger.info(f"Processing RAG request for: '{user_text[:50]}...'")
-
         results = self.retriever.retrieve(user_text, top_k=resolved_top_k)
-        return self.context_assembler.assemble(results)
+        bundle = self.context_assembler.assemble(results)
+        emit_event(
+            EventName.RAG_RETRIEVAL_COMPLETED,
+            EventComponent.RAG,
+            EventResult.SUCCESS,
+            counters={"evidence": len(results), "top_k": resolved_top_k},
+        )
+        return bundle
 
     def generate_from_context(
         self, user_message: str, bundle: ContextBundle
@@ -91,15 +102,28 @@ class RAGService:
         an orchestrator-composed memory section in `prompt_context` does not
         alter citation attribution.
         """
-        generated = self.generator.generate(user_message.strip(), bundle)
+        try:
+            generated = self.generator.generate(user_message.strip(), bundle)
+        except Exception as error:
+            emit_event(
+                EventName.MODEL_CALL_FAILED,
+                EventComponent.MODEL_PROVIDER,
+                EventResult.FAILURE,
+                failure_class=type(error).__name__,
+                reason_code="generation_failed",
+            )
+            raise
 
         citations_list = [
             {"title": citation.title, "url": citation.url}
             for citation in generated.citations
         ]
 
-        logger.info(
-            f"Successfully generated RAG response with {len(citations_list)} citations."
+        emit_event(
+            EventName.MODEL_CALL_COMPLETED,
+            EventComponent.MODEL_PROVIDER,
+            EventResult.SUCCESS,
+            counters={"citations": len(citations_list)},
         )
 
         return {

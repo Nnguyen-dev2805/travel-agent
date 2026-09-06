@@ -1,0 +1,121 @@
+{
+  "dataset_id": "r8-operational-readiness-v0.1",
+  "dataset_version": "0.1",
+  "result_state": "PASS",
+  "counts": {
+    "eligible_examples": 14
+  },
+  "gates": [
+    {
+      "gate": "request_correlation",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "log_privacy",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "readiness_degradation",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "storage_schema",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "evaluation_report_evidence",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    },
+    {
+      "gate": "runbook_routing",
+      "applicable": true,
+      "passed": true,
+      "events": 0
+    }
+  ],
+  "per_example": [
+    {
+      "example_id": "rc-1",
+      "slice": "request_correlation",
+      "failures": []
+    },
+    {
+      "example_id": "rc-2",
+      "slice": "request_correlation",
+      "failures": []
+    },
+    {
+      "example_id": "lp-1",
+      "slice": "log_privacy",
+      "failures": []
+    },
+    {
+      "example_id": "lp-2",
+      "slice": "log_privacy",
+      "failures": []
+    },
+    {
+      "example_id": "lp-3",
+      "slice": "log_privacy",
+      "failures": []
+    },
+    {
+      "example_id": "rd-1",
+      "slice": "readiness_degradation",
+      "failures": []
+    },
+    {
+      "example_id": "rd-2",
+      "slice": "readiness_degradation",
+      "failures": []
+    },
+    {
+      "example_id": "ss-1",
+      "slice": "storage_schema",
+      "failures": []
+    },
+    {
+      "example_id": "ss-2",
+      "slice": "storage_schema",
+      "failures": []
+    },
+    {
+      "example_id": "er-1",
+      "slice": "evaluation_report_evidence",
+      "failures": []
+    },
+    {
+      "example_id": "er-2",
+      "slice": "evaluation_report_evidence",
+      "failures": []
+    },
+    {
+      "example_id": "rb-1",
+      "slice": "runbook_routing",
+      "failures": []
+    },
+    {
+      "example_id": "rb-2",
+      "slice": "runbook_routing",
+      "failures": []
+    },
+    {
+      "example_id": "rb-3",
+      "slice": "runbook_routing",
+      "failures": []
+    }
+  ],
+  "environment": {
+    "evaluation": "local-synthetic"
+  }
+}

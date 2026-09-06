@@ -53,6 +53,12 @@ from backend.memory.models import MemorySelectionReason, MemorySelectionStatus
 from backend.memory.repository import MemoryRepositoryError
 from backend.memory.retrieval import MEMORY_MAX_SELECTED
 from backend.memory.service import MemoryServiceError
+from backend.observability.events import emit_event
+from backend.observability.models import (
+    EventComponent,
+    EventName,
+    EventResult,
+)
 from backend.orchestration.memory_context import (
     compose_memory_section,
     compose_turn_context,
@@ -261,6 +267,14 @@ class ConversationOrchestrator:
                 conversation_id,
                 type(error).__name__,
             )
+            emit_event(
+                EventName.MEMORY_RETRIEVAL_COMPLETED,
+                EventComponent.MEMORY,
+                EventResult.SKIPPED,
+                conversation_id=conversation_id,
+                failure_class=type(error).__name__,
+                reason_code="memory_unavailable",
+            )
             return self._generate(message), TurnMemory(
                 enabled=True,
                 status=MemorySelectionStatus.SKIPPED,
@@ -270,6 +284,14 @@ class ConversationOrchestrator:
 
         section = compose_memory_section(selections)
         if not section:
+            emit_event(
+                EventName.MEMORY_RETRIEVAL_COMPLETED,
+                EventComponent.MEMORY,
+                EventResult.SUCCESS,
+                conversation_id=conversation_id,
+                counters={"selected": 0},
+                reason_code="none_selected",
+            )
             return self._generate(message), TurnMemory(
                 enabled=True,
                 status=MemorySelectionStatus.NONE_SELECTED,
@@ -287,6 +309,13 @@ class ConversationOrchestrator:
             "chat.turn memory_selected conversation_id=%s count=%s",
             conversation_id,
             len(selections),
+        )
+        emit_event(
+            EventName.MEMORY_RETRIEVAL_COMPLETED,
+            EventComponent.MEMORY,
+            EventResult.SUCCESS,
+            conversation_id=conversation_id,
+            counters={"selected": len(selections)},
         )
         return generated, TurnMemory(
             enabled=True,
