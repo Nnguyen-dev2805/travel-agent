@@ -14,32 +14,26 @@ const ITEM_TYPE_CONFIG = {
   meal: {
     label: 'Ăn uống',
     icon: Utensils,
-    color: 'bg-amber-100 text-amber-800 border-amber-200',
   },
   lodging: {
     label: 'Chỗ ở',
     icon: Hotel,
-    color: 'bg-teal-100 text-teal-800 border-teal-200',
   },
   transport: {
     label: 'Di chuyển',
     icon: Navigation,
-    color: 'bg-blue-100 text-blue-800 border-blue-200',
   },
   activity: {
     label: 'Tham quan',
     icon: Camera,
-    color: 'bg-emerald-100 text-emerald-800 border-emerald-200',
   },
   free_time: {
     label: 'Tự do',
     icon: Coffee,
-    color: 'bg-purple-100 text-purple-800 border-purple-200',
   },
   note: {
     label: 'Ghi chú',
     icon: FileText,
-    color: 'bg-stone-100 text-stone-800 border-stone-200',
   },
 };
 
@@ -48,22 +42,22 @@ export default function ItineraryItemCard({ item }) {
   const IconComponent = config.icon;
 
   return (
-    <div className="group relative bg-surface-card rounded-xl p-3.5 border border-surface-border shadow-xs hover:shadow-md hover:border-terracotta/40 transition-all">
+    <div className="group relative bg-pure-white rounded-lg p-3.5 border border-hairline hover:bg-hover-veil transition-colors font-sans">
       <div className="flex items-start gap-3">
-        {/* Type Icon */}
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${config.color}`}>
-          <IconComponent className="w-4 h-4" />
+        {/* Type Icon: Minimalist monochrome */}
+        <div className="w-7 h-7 rounded border border-hairline bg-sidebar-mist flex items-center justify-center shrink-0 text-graphite-ink">
+          <IconComponent className="w-3.5 h-3.5 stroke-[1.8]" aria-hidden="true" />
         </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-center justify-between gap-2">
-            <h4 className="font-semibold text-sm text-stone-900 leading-snug truncate">
+            <h4 className="font-medium text-caption text-graphite-ink leading-snug truncate">
               {item.title}
             </h4>
             {item.start_time && (
-              <span className="flex items-center gap-1 text-[11px] font-medium text-stone-500 font-mono shrink-0">
-                <Clock className="w-3 h-3 text-stone-400" />
+              <span className="flex items-center gap-1 text-[11px] font-medium text-mid-ash font-mono shrink-0">
+                <Clock className="w-3 h-3 text-mid-ash" aria-hidden="true" />
                 {item.start_time}
                 {item.end_time ? ` - ${item.end_time}` : ''}
               </span>
@@ -71,14 +65,14 @@ export default function ItineraryItemCard({ item }) {
           </div>
 
           {item.location && (
-            <div className="flex items-center gap-1 text-xs text-stone-500 truncate">
-              <MapPin className="w-3 h-3 text-terracotta shrink-0" />
+            <div className="flex items-center gap-1 text-[12px] text-mid-ash truncate">
+              <MapPin className="w-3 h-3 text-mid-ash shrink-0" aria-hidden="true" />
               <span className="truncate">{item.location}</span>
             </div>
           )}
 
           {item.notes && (
-            <p className="text-xs text-stone-600 font-serif leading-relaxed mt-1 line-clamp-2">
+            <p className="text-[12px] text-mid-ash leading-relaxed mt-1">
               {item.notes}
             </p>
           )}

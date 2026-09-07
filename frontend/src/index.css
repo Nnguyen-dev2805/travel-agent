@@ -1,20 +1,81 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Colors */
+  --color-sidebar-mist: #f9f9f9;
+  --color-pure-white: #ffffff;
+  --color-graphite-ink: #0d0d0d;
+  --color-mid-ash: #5d5d5d;
+  --color-hollow: #8f8f8f;
+  --color-hairline: #0000001a;
+  --color-hover-veil: #0000000d;
+  --color-ink-press: #000000;
+  --color-deep-charcoal: #00000080;
+  --color-edge-gray: #e6e6e6;
+
+  /* Typography — Font Families */
+  --font-apple-system-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+
+  /* Typography — Scale */
+  --text-caption: 14px;
+  --leading-caption: 1.43;
+  --text-body: 16px;
+  --leading-body: 1.5;
+  --text-heading: 24px;
+  --leading-heading: 1.33;
+
+  /* Typography — Weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* Spacing */
+  --spacing-6: 6px;
+  --spacing-8: 8px;
+  --spacing-10: 10px;
+  --spacing-12: 12px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+
+  /* Layout */
+  --page-max-width: 1200px;
+  --section-gap: 24px;
+  --card-padding: 16px;
+  --element-gap: 6px;
+
+  /* Border Radius */
+  --radius-lg: 10px;
+  --radius-2xl: 16px;
+
+  /* Named Radii */
+  --radius-nav: 10px;
+  --radius-cards: 10px;
+  --radius-links: 16px;
+  --radius-badges: 0px;
+  --radius-buttons: 10px;
+
+  /* Surfaces */
+  --surface-sidebar-canvas: #f9f9f9;
+  --surface-conversation-canvas: #ffffff;
+  --surface-elevated-panel: #ffffff;
+}
+
 @layer base {
   body {
-    @apply bg-surface-base text-stone-900 antialiased font-sans;
-    background-color: #FDFBF7;
+    background-color: #ffffff;
+    color: #0d0d0d;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* Custom Scrollbar for Chat & Planner */
+/* Minimal Flat Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -22,10 +83,10 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #EADBCC;
+  background: #0000001a;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #D4C3AF;
+  background: #00000033;
 }

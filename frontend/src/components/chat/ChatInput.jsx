@@ -1,24 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2 } from 'lucide-react';
+import { ArrowUp, Loader2, Plus } from 'lucide-react';
 
-const SUGGESTION_CHIPS = [
-  '🍜 Gợi ý đặc sản địa phương',
-  '💰 Dự toán chi phí chi tiết',
-  '🛵 Phương tiện di chuyển tốt nhất',
-  '🏨 Chỗ nghỉ view đẹp, giá hợp lý',
-];
-
-export default function ChatInput({ onSendMessage, isLoading = false, disabled = false }) {
+export default function ChatInput({
+  onSendMessage,
+  isLoading = false,
+  disabled = false,
+  onAttachClick,
+  placeholder = 'Hỏi bất kỳ điều gì…',
+}) {
   const [text, setText] = useState('');
   const textareaRef = useRef(null);
 
-  // Auto-grow textarea
+  // Auto-grow textarea smoothly
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${Math.min(
         textareaRef.current.scrollHeight,
-        140
+        200
       )}px`;
     }
   }, [text]);
@@ -26,7 +25,7 @@ export default function ChatInput({ onSendMessage, isLoading = false, disabled =
   const handleSubmit = (e) => {
     e?.preventDefault();
     if (!text.trim() || isLoading || disabled) return;
-    onSendMessage(text);
+    onSendMessage(text.trim());
     setText('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -40,53 +39,68 @@ export default function ChatInput({ onSendMessage, isLoading = false, disabled =
     }
   };
 
-  const handleChipClick = (chip) => {
-    if (isLoading || disabled) return;
-    onSendMessage(chip);
-  };
+  const hasContent = Boolean(text.trim());
 
   return (
-    <div className="p-4 bg-surface-card border-t border-surface-border space-y-2.5">
-      {/* Quick Suggestion Chips */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-        {SUGGESTION_CHIPS.map((chip, idx) => (
-          <button
-            key={idx}
-            type="button"
-            disabled={isLoading || disabled}
-            onClick={() => handleChipClick(chip)}
-            className="px-2.5 py-1 rounded-full text-xs bg-surface-muted hover:bg-terracotta/10 text-stone-600 hover:text-terracotta border border-surface-border whitespace-nowrap transition-colors disabled:opacity-50"
-          >
-            {chip}
-          </button>
-        ))}
-      </div>
+    <div className="w-full max-w-[768px] mx-auto px-4 pb-3 pt-1 font-sans">
+      <form
+        onSubmit={handleSubmit}
+        className="relative flex items-end gap-2 bg-pure-white rounded-[26px] border border-hairline p-2 pl-3 transition-colors focus-within:border-graphite-ink focus-within:ring-1 focus-within:ring-graphite-ink group"
+      >
+        {/* Plus / Options Button matching ChatGPT */}
+        <button
+          type="button"
+          onClick={onAttachClick}
+          aria-label="Tùy chọn bổ sung"
+          title="Tùy chọn"
+          className="w-8 h-8 rounded-full flex items-center justify-center text-graphite-ink hover:bg-hover-veil transition-colors shrink-0 mb-0.5 focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none"
+        >
+          <Plus className="w-4 h-4 stroke-[2]" aria-hidden="true" />
+        </button>
 
-      {/* Textarea Input Container */}
-      <form onSubmit={handleSubmit} className="relative flex items-end gap-2 bg-surface-base rounded-2xl border border-surface-border p-2 focus-within:ring-2 focus-within:ring-terracotta/30 focus-within:border-terracotta transition-all shadow-xs">
+        <label htmlFor="chat_message_input" className="sr-only">
+          Nội dung câu hỏi
+        </label>
         <textarea
+          id="chat_message_input"
+          name="chat_message"
+          autoComplete="off"
+          spellCheck="false"
           ref={textareaRef}
           rows={1}
           value={text}
           disabled={disabled || isLoading}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Hỏi trợ lý về địa điểm, lịch trình, ẩm thực... (Enter để gửi)"
-          className="flex-1 bg-transparent border-none text-sm text-stone-800 placeholder-stone-400 focus:outline-none resize-none py-1.5 px-2 max-h-36"
+          placeholder={placeholder}
+          className="flex-1 bg-transparent border-none text-body leading-body text-graphite-ink placeholder-hollow focus:outline-none resize-none py-1.5 px-1 max-h-48 font-sans"
         />
 
-        <button
-          type="submit"
-          disabled={!text.trim() || isLoading || disabled}
-          className="w-9 h-9 rounded-xl bg-terracotta hover:bg-terracotta-hover text-white flex items-center justify-center disabled:opacity-40 disabled:hover:bg-terracotta transition-all shadow-xs shrink-0"
-        >
-          {isLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Send className="w-4 h-4" />
-          )}
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0 mb-0.5 pr-1">
+          <button
+            type="submit"
+            aria-label="Gửi câu hỏi"
+            disabled={!hasContent || isLoading || disabled}
+            className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none ${
+              hasContent && !isLoading
+                ? 'bg-graphite-ink hover:bg-ink-press text-pure-white cursor-pointer'
+                : 'bg-sidebar-mist text-hollow cursor-not-allowed border border-hairline'
+            }`}
+            title="Gửi câu hỏi"
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin text-mid-ash motion-reduce:animate-none" aria-hidden="true" />
+            ) : (
+              <ArrowUp className="w-4 h-4 stroke-[2.2]" aria-hidden="true" />
+            )}
+          </button>
+        </div>
       </form>
+
+      {/* Production Grade Clean Disclaimer */}
+      <div className="text-center mt-2.5 text-[12px] text-hollow select-none">
+        Travel Agent có thể mắc lỗi. Hãy kiểm tra lại các thông tin du lịch quan trọng.
+      </div>
     </div>
   );
 }

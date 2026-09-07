@@ -4,8 +4,8 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
-  Layers,
   Sparkles,
+  Layers,
   Award,
   RefreshCw,
 } from 'lucide-react';
@@ -19,22 +19,18 @@ import {
 const STATUS_BADGE = {
   accepted: {
     label: 'Đã Phê Duyệt',
-    color: 'bg-teal-100 text-teal-800 border-teal-300',
     icon: CheckCircle2,
   },
   proposed: {
     label: 'Đề Xuất',
-    color: 'bg-amber-100 text-amber-800 border-amber-300',
     icon: Sparkles,
   },
   draft: {
     label: 'Bản Nháp',
-    color: 'bg-stone-100 text-stone-700 border-stone-300',
     icon: Clock,
   },
   superseded: {
     label: 'Đã Thay Thế',
-    color: 'bg-stone-100 text-stone-400 border-stone-200 line-through',
     icon: Clock,
   },
 };
@@ -59,20 +55,17 @@ export default function PlannerPanel({ workspaceId, reloadTrigger }) {
       setDecisions(decisionsData || []);
 
       if (versionsData && versionsData.length > 0) {
-        const accepted = versionsData.find((v) => v.status === 'accepted');
-        const latest = versionsData[versionsData.length - 1];
-        const target = accepted || latest;
-
-        const fullVersion = await getItinerary(
+        // Default to the first version (usually newest)
+        const detailed = await getItinerary(
           workspaceId,
-          target.itinerary_version_id
+          versionsData[0].itinerary_version_id
         );
-        setActiveVersion(fullVersion);
+        setActiveVersion(detailed);
       } else {
         setActiveVersion(null);
       }
     } catch (err) {
-      console.error('Lỗi tải dữ liệu Planner:', err);
+      console.error('Lỗi khi tải dữ liệu kế hoạch:', err);
     } finally {
       setIsLoading(false);
     }
@@ -85,23 +78,23 @@ export default function PlannerPanel({ workspaceId, reloadTrigger }) {
   const handleSelectVersion = async (versionId) => {
     try {
       setIsLoading(true);
-      const full = await getItinerary(workspaceId, versionId);
-      setActiveVersion(full);
+      const detailed = await getItinerary(workspaceId, versionId);
+      setActiveVersion(detailed);
     } catch (err) {
-      console.error('Lỗi chọn phiên bản:', err);
+      console.error('Lỗi khi xem chi tiết phiên bản:', err);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleAcceptVersion = async () => {
-    if (!activeVersion || isAccepting) return;
+    if (!activeVersion) return;
     try {
       setIsAccepting(true);
       await acceptItinerary(workspaceId, activeVersion.itinerary_version_id);
       await fetchPlannerData();
     } catch (err) {
-      console.error('Lỗi phê duyệt phiên bản:', err);
+      console.error('Lỗi khi phê duyệt lịch trình:', err);
     } finally {
       setIsAccepting(false);
     }
@@ -112,12 +105,12 @@ export default function PlannerPanel({ workspaceId, reloadTrigger }) {
   const StatusIcon = statusConfig.icon;
 
   return (
-    <div className="w-full lg:w-96 xl:w-[420px] bg-surface-card border-l border-surface-border flex flex-col h-full shrink-0 shadow-xs">
+    <div className="w-full lg:w-96 xl:w-[420px] bg-pure-white border-l border-hairline flex flex-col h-full shrink-0 font-sans">
       {/* Panel Header */}
-      <div className="h-16 px-5 border-b border-surface-border flex items-center justify-between bg-surface-muted/30">
+      <div className="h-[52px] px-5 border-b border-hairline flex items-center justify-between bg-pure-white">
         <div className="flex items-center gap-2">
-          <Calendar className="w-5 h-5 text-terracotta" />
-          <h2 className="font-bold text-sm text-stone-900">
+          <Calendar className="w-4 h-4 text-graphite-ink stroke-[1.8]" aria-hidden="true" />
+          <h2 className="font-semibold text-caption text-graphite-ink">
             Lịch Trình Chi Tiết
           </h2>
         </div>
@@ -127,22 +120,24 @@ export default function PlannerPanel({ workspaceId, reloadTrigger }) {
           onClick={fetchPlannerData}
           disabled={isLoading}
           title="Tải lại kế hoạch"
-          className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-200/50 transition-colors disabled:opacity-50"
+          aria-label="Tải lại kế hoạch"
+          className="p-1.5 rounded-lg text-mid-ash hover:text-graphite-ink hover:bg-hover-veil transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none"
         >
-          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
         </button>
       </div>
 
       {/* Version Selector Bar */}
       {itineraries.length > 0 && activeVersion && (
-        <div className="p-4 border-b border-surface-border bg-surface-muted/20 space-y-3">
+        <div className="p-4 border-b border-hairline bg-sidebar-mist space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5">
-              <Layers className="w-4 h-4 text-stone-400" />
+              <Layers className="w-3.5 h-3.5 text-mid-ash" aria-hidden="true" />
               <select
+                aria-label="Chọn phiên bản lịch trình"
                 value={activeVersion.itinerary_version_id}
                 onChange={(e) => handleSelectVersion(e.target.value)}
-                className="text-xs font-bold text-stone-800 bg-white border border-surface-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-terracotta"
+                className="text-[12px] font-medium text-graphite-ink bg-pure-white border border-hairline rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-graphite-ink"
               >
                 {itineraries.map((v) => (
                   <option key={v.itinerary_version_id} value={v.itinerary_version_id}>
@@ -153,10 +148,8 @@ export default function PlannerPanel({ workspaceId, reloadTrigger }) {
             </div>
 
             {/* Status Badge */}
-            <span
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${statusConfig.color}`}
-            >
-              <StatusIcon className="w-3.5 h-3.5" />
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-hairline bg-pure-white text-[11px] font-medium text-graphite-ink">
+              <StatusIcon className="w-3 h-3 text-graphite-ink" aria-hidden="true" />
               <span>{statusConfig.label}</span>
             </span>
           </div>
@@ -167,17 +160,17 @@ export default function PlannerPanel({ workspaceId, reloadTrigger }) {
               type="button"
               disabled={isAccepting}
               onClick={handleAcceptVersion}
-              className="w-full py-2 px-3 rounded-xl bg-teal hover:bg-teal-hover text-white text-xs font-bold shadow-xs hover:shadow transition-all flex items-center justify-center gap-1.5 disabled:opacity-60"
+              className="w-full py-2 px-3 rounded-lg bg-graphite-ink hover:bg-black text-pure-white text-[12px] font-medium transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none"
             >
-              <Award className="w-4 h-4" />
+              <Award className="w-3.5 h-3.5" aria-hidden="true" />
               <span>
-                {isAccepting ? 'Đang phê duyệt...' : 'Phê duyệt phiên bản này'}
+                {isAccepting ? 'Đang phê duyệt…' : 'Phê duyệt phiên bản này'}
               </span>
             </button>
           )}
 
           {activeVersion.summary && (
-            <p className="text-xs text-stone-600 font-serif leading-relaxed italic bg-white/70 p-2.5 rounded-lg border border-surface-border/60">
+            <p className="text-[12px] text-mid-ash leading-relaxed italic bg-pure-white p-2.5 rounded-lg border border-hairline">
               &ldquo;{activeVersion.summary}&rdquo;
             </p>
           )}
@@ -187,15 +180,15 @@ export default function PlannerPanel({ workspaceId, reloadTrigger }) {
       {/* Main Itinerary Content Scroll Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {itineraries.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-6 text-stone-400 space-y-3">
-            <div className="w-12 h-12 rounded-xl bg-surface-muted flex items-center justify-center text-stone-400">
-              <Calendar className="w-6 h-6" />
+          <div className="h-full flex flex-col items-center justify-center text-center p-6 text-mid-ash space-y-3">
+            <div className="w-10 h-10 rounded-lg border border-hairline bg-sidebar-mist flex items-center justify-center text-graphite-ink">
+              <Calendar className="w-5 h-5 stroke-[1.8]" aria-hidden="true" />
             </div>
-            <h4 className="font-bold text-sm text-stone-700">
+            <h4 className="font-semibold text-caption text-graphite-ink">
               Chưa có lịch trình nào
             </h4>
-            <p className="text-xs text-stone-500 max-w-xs">
-              Hãy yêu cầu AI trong khung chat: &ldquo;Lên lịch trình 3 ngày...&rdquo;, hệ thống sẽ tự động tổng hợp và hiển thị tại đây!
+            <p className="text-[12px] text-mid-ash max-w-xs leading-relaxed">
+              Hãy yêu cầu AI trong khung chat: &ldquo;Lên lịch trình 3 ngày…&rdquo;, hệ thống sẽ tự động tổng hợp và hiển thị tại đây!
             </p>
           </div>
         ) : (
@@ -205,22 +198,22 @@ export default function PlannerPanel({ workspaceId, reloadTrigger }) {
 
             {/* Confirmed Trip Decisions Section */}
             {decisions.length > 0 && (
-              <div className="pt-4 border-t border-surface-border space-y-2.5">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-teal" />
+              <div className="pt-4 border-t border-hairline space-y-2.5">
+                <h4 className="text-[11px] font-medium uppercase tracking-wider text-mid-ash flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-graphite-ink" aria-hidden="true" />
                   <span>Các quyết định đã chốt ({decisions.length})</span>
                 </h4>
                 <div className="space-y-1.5">
                   {decisions.map((dec) => (
                     <div
                       key={dec.decision_id}
-                      className="p-2.5 rounded-lg bg-surface-muted/50 border border-surface-border text-xs text-stone-700 space-y-1"
+                      className="p-2.5 rounded-lg bg-sidebar-mist border border-hairline text-[12px] text-graphite-ink space-y-0.5"
                     >
-                      <div className="font-semibold text-stone-800">
+                      <div className="font-medium text-graphite-ink">
                         {dec.statement}
                       </div>
                       {dec.rationale && (
-                        <div className="text-[11px] text-stone-500 font-serif">
+                        <div className="text-[11px] text-mid-ash">
                           {dec.rationale}
                         </div>
                       )}

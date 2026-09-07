@@ -1,86 +1,57 @@
 import React from 'react';
-import { Menu, MessageSquare, Calendar, MapPin, Compass } from 'lucide-react';
+import { PanelLeftOpen } from 'lucide-react';
+import { isAuthenticated } from '../../services/auth';
 
 export default function Header({
-  activeWorkspace,
-  mobileActiveTab,
-  onMobileTabChange,
   onToggleSidebar,
+  onLoginClick,
 }) {
+  const isAuth = isAuthenticated();
+
   return (
-    <header className="h-16 px-4 lg:px-6 bg-surface-card border-b border-surface-border flex items-center justify-between shrink-0">
-      {/* Left section: Hamburger button & Workspace metadata */}
-      <div className="flex items-center gap-3 min-w-0">
+    <header className="h-14 px-4 sm:px-6 bg-pure-white flex items-center justify-between shrink-0 font-sans z-10 relative">
+      {/* Skip Link for Screen Readers & Keyboard Navigation */}
+      <a
+        href="#chat-main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-4 focus:z-50 focus:px-3 focus:py-1 focus:bg-ink-press focus:text-pure-white focus:rounded-lg focus:text-caption focus:font-medium focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none"
+      >
+        Chuyển đến nội dung chính
+      </a>
+
+      {/* Left section: Mobile menu drawer button only */}
+      <div className="flex items-center min-w-0">
         <button
           type="button"
           onClick={onToggleSidebar}
-          className="p-2 rounded-lg text-stone-600 hover:bg-surface-muted lg:hidden"
-          title="Mở menu danh sách chuyến đi"
+          aria-label="Mở thanh bên"
+          className="p-2 rounded-lg text-graphite-ink hover:bg-hover-veil transition-colors lg:hidden focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer"
+          title="Mở thanh bên"
         >
-          <Menu className="w-5 h-5" />
+          <PanelLeftOpen className="w-5 h-5 stroke-[1.8]" aria-hidden="true" />
         </button>
-
-        {activeWorkspace ? (
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold text-stone-900 truncate">
-                {activeWorkspace.title}
-              </h1>
-              {activeWorkspace.planning_status && (
-                <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold bg-teal/10 text-teal border border-teal/20 capitalize">
-                  {activeWorkspace.planning_status}
-                </span>
-              )}
-            </div>
-            {activeWorkspace.destination_scope && (
-              <div className="flex items-center gap-1 text-xs text-stone-500 truncate">
-                <MapPin className="w-3 h-3 text-terracotta shrink-0" />
-                <span className="truncate">{activeWorkspace.destination_scope}</span>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <Compass className="w-5 h-5 text-terracotta" />
-            <span className="text-sm font-semibold text-stone-800">
-              Chưa chọn chuyến đi
-            </span>
-          </div>
-        )}
       </div>
 
-      {/* Center/Right section: Mobile Tab Switcher (Visible only on < lg) */}
-      {activeWorkspace && (
-        <div className="flex items-center lg:hidden">
-          <div className="flex p-1 rounded-xl bg-surface-muted border border-surface-border">
+      {/* Right section: Pill Actions matching ChatGPT reference */}
+      <div className="flex items-center gap-2">
+        {!isAuth && (
+          <>
             <button
               type="button"
-              onClick={() => onMobileTabChange('chat')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                mobileActiveTab === 'chat'
-                  ? 'bg-surface-card text-terracotta shadow-xs'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
+              onClick={onLoginClick}
+              className="px-3.5 py-1.5 rounded-full bg-graphite-ink hover:bg-black text-pure-white text-caption font-medium transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer"
             >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>Trò chuyện</span>
+              Đăng nhập
             </button>
-
             <button
               type="button"
-              onClick={() => onMobileTabChange('planner')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                mobileActiveTab === 'planner'
-                  ? 'bg-surface-card text-terracotta shadow-xs'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
+              onClick={onLoginClick}
+              className="px-3.5 py-1.5 rounded-full bg-pure-white border border-hairline hover:bg-hover-veil text-graphite-ink text-caption font-medium transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer"
             >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Lịch trình</span>
+              Đăng ký miễn phí
             </button>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </div>
     </header>
   );
 }

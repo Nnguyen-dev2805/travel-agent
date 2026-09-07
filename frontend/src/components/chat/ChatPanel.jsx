@@ -1,16 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useRef, useEffect } from 'react';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
-import CitationDrawer from './CitationDrawer';
-import { Compass, Sparkles } from 'lucide-react';
+import { Compass } from 'lucide-react';
 
 export default function ChatPanel({
   messages = [],
   onSendMessage,
   isLoading = false,
-  onViewPlanner,
+  onAttachClick,
 }) {
-  const [selectedCitation, setSelectedCitation] = useState(null);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -22,59 +20,76 @@ export default function ChatPanel({
   }, [messages, isLoading]);
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-surface-base overflow-hidden relative">
-      {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto px-4 lg:px-6 py-4 space-y-2">
-        {messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-8 text-stone-400 space-y-3">
-            <div className="w-14 h-14 rounded-2xl bg-surface-muted flex items-center justify-center text-terracotta/70 border border-surface-border">
-              <Compass className="w-7 h-7" />
-            </div>
-            <h3 className="font-bold text-base text-stone-700">
-              Bắt đầu trò chuyện với Trợ lý AI
-            </h3>
-            <p className="text-xs text-stone-500 max-w-sm leading-relaxed">
-              Bạn có thể hỏi về điểm tham quan, ẩm thực đặc sản, gợi ý khách sạn hoặc yêu cầu lên lịch trình chi tiết cho chuyến đi này!
-            </p>
-          </div>
-        ) : (
-          messages.map((msg, index) => (
-            <ChatMessage
-              key={msg.message_id || index}
-              message={msg}
-              onCitationClick={(cit) => setSelectedCitation(cit)}
-              onViewPlanner={onViewPlanner}
+    <main id="chat-main" className="flex-1 flex flex-col h-full bg-pure-white overflow-hidden relative font-sans">
+      {messages.length === 0 ? (
+        /* Empty State: Centered Hero & Input matching exact ChatGPT Screenshot */
+        <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 max-w-[768px] mx-auto w-full animate-fade-in -mt-10">
+          <h1 className="text-[30px] sm:text-[34px] font-medium text-graphite-ink tracking-tight mb-8 text-center select-none">
+            Where should we begin?
+          </h1>
+
+          {/* Centered Input Box */}
+          <div className="w-full">
+            <ChatInput
+              onSendMessage={onSendMessage}
+              isLoading={isLoading}
+              onAttachClick={onAttachClick}
+              placeholder="Ask anything"
             />
-          ))
-        )}
+          </div>
+        </div>
+      ) : (
+        /* Active Conversation Mode */
+        <>
+          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 pb-28">
+            <div className="max-w-[768px] mx-auto w-full min-h-full flex flex-col justify-between">
+              <div className="space-y-2 divide-y divide-hairline">
+                {messages.map((msg, index) => (
+                  <ChatMessage
+                    key={msg.message_id || index}
+                    message={msg}
+                  />
+                ))}
 
-        {/* Loading Spinner Indicator */}
-        {isLoading && (
-          <div className="flex items-center gap-3 py-3 animate-pulse">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-terracotta to-amber text-white flex items-center justify-center text-xs shadow-xs">
-              <Sparkles className="w-4 h-4 animate-spin-slow" />
-            </div>
-            <div className="px-4 py-3 rounded-2xl rounded-tl-xs bg-surface-card border border-surface-border text-xs text-stone-500 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-terracotta animate-bounce" />
-              <span className="w-1.5 h-1.5 rounded-full bg-amber animate-bounce [animation-delay:0.2s]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-teal animate-bounce [animation-delay:0.4s]" />
-              <span className="ml-1">Đang tìm kiếm cẩm nang & tổng hợp câu trả lời...</span>
+                {/* Minimal Loading Indicator */}
+                {isLoading && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="flex gap-3.5 py-4 items-center animate-fade-in"
+                  >
+                    <div className="w-7 h-7 rounded-lg border border-hairline bg-pure-white text-graphite-ink flex items-center justify-center shrink-0">
+                      <Compass className="w-4 h-4 stroke-[1.8]" aria-hidden="true" />
+                    </div>
+                    <div className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sidebar-mist border border-hairline text-caption text-mid-ash">
+                      <span className="w-1.5 h-1.5 rounded-full bg-graphite-ink animate-pulse motion-reduce:animate-none" aria-hidden="true" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-mid-ash animate-pulse [animation-delay:150ms] motion-reduce:animate-none" aria-hidden="true" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-hollow animate-pulse [animation-delay:300ms] motion-reduce:animate-none" aria-hidden="true" />
+                      <span className="ml-1.5 text-mid-ash">
+                        Đang tạo câu trả lời…
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div ref={messagesEndRef} className="h-6 shrink-0" />
             </div>
           </div>
-        )}
 
-        <div ref={messagesEndRef} />
-      </div>
+          {/* Bottom Gradient Mask (pure white fade) */}
+          <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-pure-white via-pure-white/90 to-transparent pointer-events-none z-10" />
 
-      {/* Input Area */}
-      <ChatInput onSendMessage={onSendMessage} isLoading={isLoading} />
-
-      {/* Slide-over Citation Drawer */}
-      <CitationDrawer
-        citation={selectedCitation}
-        isOpen={Boolean(selectedCitation)}
-        onClose={() => setSelectedCitation(null)}
-      />
-    </div>
+          {/* Bottom Input Dock */}
+          <div className="relative z-20">
+            <ChatInput
+              onSendMessage={onSendMessage}
+              isLoading={isLoading}
+              onAttachClick={onAttachClick}
+            />
+          </div>
+        </>
+      )}
+    </main>
   );
 }

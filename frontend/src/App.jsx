@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
 import ChatPanel from './components/chat/ChatPanel';
-import PlannerPanel from './components/planner/PlannerPanel';
 import WelcomeView from './components/welcome/WelcomeView';
 import LoginModal from './components/auth/LoginModal';
 import CreateTripModal from './components/workspace/CreateTripModal';
@@ -30,9 +29,23 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [mobileActiveTab, setMobileActiveTab] = useState('chat'); // 'chat' | 'planner'
-  const [plannerReloadTrigger, setPlannerReloadTrigger] = useState(0);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return localStorage.getItem('travel_agent_sidebar_collapsed') === 'true';
+    }
+    return false;
+  });
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+  const handleToggleSidebarCollapse = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem('travel_agent_sidebar_collapsed', String(next));
+      }
+      return next;
+    });
+  };
 
   // 1. Fetch workspaces when authenticated
   const loadWorkspaces = async (preferredWorkspaceId = null) => {
@@ -67,6 +80,18 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuth]);
+
+  // Global ⌘K / Ctrl+K keyboard shortcut to create new trip
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCreateModalOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
 
   // 2. Select and load a workspace
   const handleSelectWorkspace = async (workspaceId) => {
@@ -133,9 +158,6 @@ export default function App() {
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
-
-      // Trigger planner reload in case itinerary version/decision was created
-      setPlannerReloadTrigger((prev) => prev + 1);
     } catch (err) {
       console.error('Lỗi gửi tin nhắn:', err);
       const errorMsg = {
@@ -228,7 +250,7 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden bg-surface-base text-stone-900 font-sans">
+    <div className="h-screen w-screen flex overflow-hidden bg-pure-white text-graphite-ink font-sans">
       {/* Login Modal if not authenticated */}
       {!isAuth && (
         <LoginModal
@@ -253,55 +275,34 @@ export default function App() {
         onNewTripClick={() => setIsCreateModalOpen(true)}
         onDeleteWorkspace={handleDeleteWorkspace}
         onLogout={handleLogout}
+        onLoginClick={() => setIsAuth(false)}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={handleToggleSidebarCollapse}
       />
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {/* Top Header */}
+      {/* Main Content Area: Seamless full-height canvas (ChatGPT style) */}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         <Header
-          activeWorkspace={activeWorkspace}
-          mobileActiveTab={mobileActiveTab}
-          onMobileTabChange={(tab) => setMobileActiveTab(tab)}
           onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+          onLoginClick={() => setIsAuth(false)}
         />
 
-        {/* Dynamic Main Body: WelcomeView vs Dual Pane */}
+        {/* Dynamic Main Body: WelcomeView vs Centered Chat Hero */}
         {!activeWorkspace ? (
           <WelcomeView
             onSelectTemplate={handleSelectTemplate}
             onOpenCreateModal={() => setIsCreateModalOpen(true)}
           />
         ) : (
-          <div className="flex-1 flex overflow-hidden">
-            {/* Left/Center Pane: Chat Panel */}
-            <div
-              className={`flex-1 h-full flex flex-col ${
-                mobileActiveTab === 'chat' ? 'flex' : 'hidden lg:flex'
-              }`}
-            >
-              <ChatPanel
-                messages={messages}
-                onSendMessage={handleSendMessage}
-                isLoading={isChatLoading}
-                onViewPlanner={() => setMobileActiveTab('planner')}
-              />
-            </div>
-
-            {/* Right Pane: Planner Panel */}
-            <div
-              className={`h-full ${
-                mobileActiveTab === 'planner'
-                  ? 'flex flex-1 lg:flex-none'
-                  : 'hidden lg:flex'
-              }`}
-            >
-              <PlannerPanel
-                workspaceId={activeWorkspaceId}
-                reloadTrigger={plannerReloadTrigger}
-              />
-            </div>
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <ChatPanel
+              messages={messages}
+              onSendMessage={handleSendMessage}
+              isLoading={isChatLoading}
+              onAttachClick={() => setIsCreateModalOpen(true)}
+            />
           </div>
         )}
       </div>

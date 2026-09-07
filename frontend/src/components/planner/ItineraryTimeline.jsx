@@ -5,9 +5,9 @@ import { Calendar, Compass } from 'lucide-react';
 export default function ItineraryTimeline({ items = [] }) {
   if (!items || items.length === 0) {
     return (
-      <div className="p-8 text-center text-stone-400 space-y-2">
-        <Compass className="w-8 h-8 mx-auto opacity-40 text-terracotta" />
-        <p className="text-xs">Chưa có hoạt động nào trong phiên bản lịch trình này.</p>
+      <div className="p-8 text-center text-mid-ash space-y-2 font-sans">
+        <Compass className="w-8 h-8 mx-auto opacity-40 text-graphite-ink stroke-[1.5]" aria-hidden="true" />
+        <p className="text-caption text-mid-ash">Chưa có hoạt động nào trong phiên bản lịch trình này.</p>
       </div>
     );
   }
@@ -26,7 +26,7 @@ export default function ItineraryTimeline({ items = [] }) {
     .sort((a, b) => a - b);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
       {sortedDays.map((day) => {
         const dayItems = groupedByDay[day].sort(
           (a, b) => (a.position || 0) - (b.position || 0)
@@ -36,21 +36,21 @@ export default function ItineraryTimeline({ items = [] }) {
           <div key={day} className="relative space-y-3">
             {/* Day Header */}
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-terracotta text-white shadow-xs">
-                <Calendar className="w-3.5 h-3.5" />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-hairline bg-sidebar-mist text-caption font-semibold text-graphite-ink">
+                <Calendar className="w-3.5 h-3.5 stroke-[1.8]" aria-hidden="true" />
                 <span>Ngày {day}</span>
               </span>
-              <span className="text-xs text-stone-400 font-medium">
+              <span className="text-[12px] text-mid-ash font-medium">
                 ({dayItems.length} hoạt động)
               </span>
             </div>
 
             {/* Day Items List with vertical line */}
-            <div className="relative pl-3 ml-3 border-l-2 border-surface-border space-y-3">
+            <div className="relative pl-3 ml-3 border-l border-hairline space-y-2.5">
               {dayItems.map((item, idx) => (
                 <div key={item.itinerary_item_id || idx} className="relative">
                   {/* Timeline Dot */}
-                  <div className="absolute -left-[19px] top-4 w-2.5 h-2.5 rounded-full bg-terracotta border-2 border-white shadow-xs" />
+                  <div className="absolute -left-[17px] top-4 w-2 h-2 rounded-full bg-graphite-ink" aria-hidden="true" />
                   <ItineraryItemCard item={item} />
                 </div>
               ))}

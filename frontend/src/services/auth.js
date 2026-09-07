@@ -9,17 +9,17 @@ const USER_STORAGE_KEY = 'travel_agent_auth_user';
 export const PRESET_USERS = [
   {
     id: 'user_alice',
-    name: 'Alice (Đà Nẵng & Hội An)',
+    name: 'Alice',
     token: 'token_alice_secret',
     badge: 'Alice',
-    color: 'bg-amber-100 text-amber-800 border-amber-300',
+    color: 'bg-sidebar-mist text-graphite-ink border-hairline',
   },
   {
     id: 'user_bob',
-    name: 'Bob (Hà Giang Explorer)',
+    name: 'Bob',
     token: 'token_bob_secret',
     badge: 'Bob',
-    color: 'bg-teal-100 text-teal-800 border-teal-300',
+    color: 'bg-sidebar-mist text-graphite-ink border-hairline',
   },
 ];
 
@@ -46,7 +46,7 @@ export const setToken = (token, userName = '') => {
   const storage = getStorage();
   storage.setItem(TOKEN_STORAGE_KEY, token.trim());
   if (userName) {
-    storage.setItem(USER_STORAGE_KEY, userName.trim());
+    storage.setItem(USER_STORAGE_KEY, userName.replace(/\s*\(.*?\)/g, '').trim());
   } else {
     const preset = PRESET_USERS.find((u) => u.token === token.trim());
     if (preset) {
@@ -69,11 +69,12 @@ export const isAuthenticated = () => {
 
 export const getUserProfile = () => {
   const token = getToken();
-  const name = getStorage().getItem(USER_STORAGE_KEY) || 'Người dùng';
+  let name = getStorage().getItem(USER_STORAGE_KEY) || 'Người dùng';
+  name = name.replace(/\s*\(.*?\)/g, '').trim() || 'Người dùng';
   const preset = PRESET_USERS.find((u) => u.token === token);
   return {
     token,
-    name,
+    name: preset?.name || name,
     isPreset: Boolean(preset),
     presetId: preset?.id || null,
   };
