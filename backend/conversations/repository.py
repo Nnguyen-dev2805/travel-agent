@@ -85,6 +85,17 @@ class ConversationRepository(Protocol):
         """
         ...
 
+    def list_by_owner(
+        self, owner_user_id: str, include_deletion: bool = False
+    ) -> tuple[Conversation, ...]:
+        """Return conversations directly owned by one user in governed order.
+
+        Per ADR 0011 ownership is direct and the workspace association is
+        optional, so this read includes standalone conversations with no
+        workspace. Ordering and deletion filtering match `list_by_workspace`.
+        """
+        ...
+
     def transition_workspace_conversations(
         self, workspace_id: str, to_state: ConversationRetentionState
     ) -> int:

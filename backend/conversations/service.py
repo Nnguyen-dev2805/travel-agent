@@ -82,11 +82,15 @@ class ConversationService:
     def create_conversation(
         self, conversation_input: ConversationCreate
     ) -> Conversation:
-        """Create one conversation under an existing workspace.
+        """Create one standalone or workspace-bound conversation.
 
         `ConversationCreate` has already normalized and validated its fields, so
         invalid input raises before this method is reached and no storage write
-        occurs.
+        occurs. A `None` workspace means a standalone conversation owned
+        directly by `owner_user_id`; no hidden or default workspace is
+        created and the workspace repository is not consulted. A present
+        workspace must exist and be owned by the same owner, otherwise the
+        request is rejected without disclosing which foreign id exists.
 
         A generated-identity collision is retried exactly once with a fresh
         identity. A second collision raises `ConversationStorageError` rather
@@ -94,7 +98,8 @@ class ConversationService:
 
         Raises:
             ConversationValidationError: The input is not a `ConversationCreate`.
-            WorkspaceNotFoundError: The parent workspace does not exist.
+            WorkspaceNotFoundError: The parent workspace does not exist or
+                does not belong to the requesting owner.
             ConversationStorageError: Identity generation collided twice or
                 storage failed.
         """
@@ -103,12 +108,16 @@ class ConversationService:
                 "create_conversation requires a ConversationCreate input."
             )
 
-        self._require_workspace(conversation_input.workspace_id)
+        if conversation_input.workspace_id is not None:
+            self._require_workspace_for_owner(
+                conversation_input.workspace_id, conversation_input.owner_user_id
+            )
 
         moment = utc_now()
         for remaining in reversed(range(MAX_IDENTITY_ATTEMPTS)):
             candidate = Conversation(
                 conversation_id=generate_conversation_id(),
+                owner_user_id=conversation_input.owner_user_id,
                 workspace_id=conversation_input.workspace_id,
                 title=conversation_input.title,
                 created_at=moment,
@@ -189,6 +198,41 @@ class ConversationService:
         scope = require_text(workspace_id, "workspace_id")
         self._require_workspace(scope)
         return tuple(self._conversations.list_by_workspace(scope))
+
+    def list_conversations_by_owner(
+        self, owner_user_id: str
+    ) -> tuple[Conversation, ...]:
+        """Return directly owned conversations in repository order.
+
+        Includes standalone conversations with no workspace. Ordering is
+        owned by the repository and is not mutated here.
+
+        Raises:
+            ConversationValidationError: The owner identifier is blank.
+        """
+        owner = require_text(owner_user_id, "owner_user_id")
+        return tuple(self._conversations.list_by_owner(owner))
+
+    def get_conversation_for_owner(
+        self, conversation_id: str, owner_user_id: str
+    ) -> Conversation | None:
+        """Return one owned conversation, or None when absent or foreign.
+
+        Foreign, missing, and deletion-hidden conversations all read as
+        absent so ownership cannot be enumerated. No message content is
+        carried in any error.
+
+        Raises:
+            ConversationValidationError: An identifier is blank.
+        """
+        identifier = require_text(conversation_id, "conversation_id")
+        owner = require_text(owner_user_id, "owner_user_id")
+        conversation = self.get_conversation(identifier)
+        if conversation is None:
+            return None
+        if conversation.owner_user_id != owner:
+            return None
+        return conversation
 
     def append_message(
         self,
@@ -304,6 +348,23 @@ class ConversationService:
         if self._workspaces.get(workspace_id) is None:
             raise WorkspaceNotFoundError("The parent workspace does not exist.")
         if self._is_deletion_hidden_workspace(workspace_id):
+            raise WorkspaceNotFoundError("The parent workspace does not exist.")
+
+    def _require_workspace_for_owner(
+        self, workspace_id: str, owner_user_id: str
+    ) -> None:
+        """Require an existing workspace owned by the requesting owner.
+
+        Missing, deletion-hidden, and foreign workspaces all raise the same
+        controlled `WorkspaceNotFoundError` so ownership cannot be
+        enumerated. No workspace content is carried in the error.
+        """
+        workspace = self._workspaces.get(workspace_id)
+        if workspace is None:
+            raise WorkspaceNotFoundError("The parent workspace does not exist.")
+        if workspace.retention_state.value in _DELETION_HIDDEN_RETENTION_VALUES:
+            raise WorkspaceNotFoundError("The parent workspace does not exist.")
+        if workspace.owner_user_id != owner_user_id:
             raise WorkspaceNotFoundError("The parent workspace does not exist.")
 
     def _require_conversation(self, conversation_id: str) -> None:

@@ -45,6 +45,7 @@ MOMENT = datetime(2026, 9, 4, 12, 0, 0, tzinfo=timezone.utc)
 def _conversation(**overrides) -> Conversation:
     payload = {
         "conversation_id": generate_conversation_id(),
+        "owner_user_id": "user_owner",
         "workspace_id": "tw_example",
         "title": "Da Nang food plan",
         "created_at": MOMENT,
@@ -119,49 +120,95 @@ def test_create_and_draft_contracts_expose_no_server_owned_fields():
     assert "sequence" not in _field_names(MessageDraft)
 
 
-# 3. `workspace_id` is stripped and required.
+# 3. `owner_user_id` is stripped and required; `workspace_id` is optional.
 
 
-def test_workspace_id_is_stripped():
+def test_owner_is_an_exposed_contract_field():
+    assert "owner_user_id" in _field_names(ConversationCreate)
+    assert "owner_user_id" in _field_names(Conversation)
+
+
+def test_owner_user_id_is_stripped():
     assert (
-        ConversationCreate(workspace_id="  tw_example  ").workspace_id == "tw_example"
+        ConversationCreate(owner_user_id="  user_owner  ").owner_user_id == "user_owner"
+    )
+    assert _conversation(owner_user_id="  user_owner  ").owner_user_id == "user_owner"
+
+
+@pytest.mark.parametrize("value", ["", "   ", None, 7])
+def test_owner_user_id_is_required(value):
+    with pytest.raises(ConversationValidationError):
+        ConversationCreate(owner_user_id=value)
+
+    with pytest.raises(ConversationValidationError):
+        _conversation(owner_user_id=value)
+
+
+def test_workspace_id_is_optional_and_stripped():
+    assert ConversationCreate(owner_user_id="user_owner").workspace_id is None
+    assert _conversation(workspace_id=None).workspace_id is None
+    assert (
+        ConversationCreate(
+            owner_user_id="user_owner", workspace_id="  tw_example  "
+        ).workspace_id
+        == "tw_example"
     )
     assert _conversation(workspace_id="  tw_example  ").workspace_id == "tw_example"
 
 
-@pytest.mark.parametrize("value", ["", "   ", None, 7])
-def test_workspace_id_is_required(value):
+@pytest.mark.parametrize("value", ["", "   ", 7])
+def test_non_null_workspace_id_is_validated(value):
     with pytest.raises(ConversationValidationError):
-        ConversationCreate(workspace_id=value)
+        ConversationCreate(owner_user_id="user_owner", workspace_id=value)
+
+    with pytest.raises(ConversationValidationError):
+        _conversation(workspace_id=value)
 
 
 # 4 and 5. `title` is optional, stripped, bounded, and blank means absent.
 
 
 def test_title_is_optional_and_stripped():
-    assert ConversationCreate(workspace_id="tw_example").title is None
     assert (
-        ConversationCreate(workspace_id="tw_example", title="  Da Nang  ").title
+        ConversationCreate(owner_user_id="user_owner", workspace_id="tw_example").title
+        is None
+    )
+    assert (
+        ConversationCreate(
+            owner_user_id="user_owner", workspace_id="tw_example", title="  Da Nang  "
+        ).title
         == "Da Nang"
     )
 
 
 @pytest.mark.parametrize("value", ["", "   ", "\n\t "])
 def test_blank_title_normalizes_to_absent_rather_than_raising(value):
-    assert ConversationCreate(workspace_id="tw_example", title=value).title is None
+    assert (
+        ConversationCreate(
+            owner_user_id="user_owner", workspace_id="tw_example", title=value
+        ).title
+        is None
+    )
     assert _conversation(title=value).title is None
 
 
 def test_title_at_the_maximum_length_is_accepted():
     exact = "t" * TITLE_MAX_LENGTH
     assert TITLE_MAX_LENGTH == 120
-    assert ConversationCreate(workspace_id="tw_example", title=exact).title == exact
+    assert (
+        ConversationCreate(
+            owner_user_id="user_owner", workspace_id="tw_example", title=exact
+        ).title
+        == exact
+    )
 
 
 def test_title_over_the_maximum_length_raises():
     with pytest.raises(ConversationValidationError):
         ConversationCreate(
-            workspace_id="tw_example", title="t" * (TITLE_MAX_LENGTH + 1)
+            owner_user_id="user_owner",
+            workspace_id="tw_example",
+            title="t" * (TITLE_MAX_LENGTH + 1),
         )
 
     with pytest.raises(ConversationValidationError):
@@ -170,7 +217,9 @@ def test_title_over_the_maximum_length_raises():
 
 def test_non_string_title_raises():
     with pytest.raises(ConversationValidationError):
-        ConversationCreate(workspace_id="tw_example", title=42)
+        ConversationCreate(
+            owner_user_id="user_owner", workspace_id="tw_example", title=42
+        )
 
 
 # 6 and 7. `content` is required, and deliberately unbounded.

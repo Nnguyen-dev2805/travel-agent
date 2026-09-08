@@ -180,7 +180,9 @@ def _seeded_conversation(
     service: ConversationService, title: str | None = "Da Nang food plan"
 ) -> Conversation:
     return service.create_conversation(
-        ConversationCreate(workspace_id=EXISTING_WORKSPACE, title=title)
+        ConversationCreate(
+            owner_user_id="local-user", workspace_id=EXISTING_WORKSPACE, title=title
+        )
     )
 
 
@@ -191,7 +193,11 @@ def test_create_under_a_missing_workspace_raises_and_writes_nothing(
     service, repository, workspaces
 ):
     with pytest.raises(WorkspaceNotFoundError):
-        service.create_conversation(ConversationCreate(workspace_id=MISSING_WORKSPACE))
+        service.create_conversation(
+            ConversationCreate(
+                owner_user_id="local-user", workspace_id=MISSING_WORKSPACE
+            )
+        )
 
     assert repository.writes == []
     assert workspaces.calls == [("get", MISSING_WORKSPACE)]
@@ -221,7 +227,9 @@ def test_create_persists_through_the_repository(service, repository):
 
 def test_an_invalid_title_writes_nothing(repository, service):
     with pytest.raises(ConversationValidationError):
-        ConversationCreate(workspace_id=EXISTING_WORKSPACE, title="t" * 121)
+        ConversationCreate(
+            owner_user_id="local-user", workspace_id=EXISTING_WORKSPACE, title="t" * 121
+        )
 
     assert repository.writes == []
 
