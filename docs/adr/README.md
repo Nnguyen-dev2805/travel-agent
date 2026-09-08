@@ -152,6 +152,6 @@ evidence.
 | 0012 | Versioned Semantic Memory in PostgreSQL | Accepted | 2026-09-07 | [ADR 0012](./0012-versioned-semantic-memory-in-postgresql.md) |
 | 0013 | Model-assisted Extraction and Deterministic Resolution | Accepted | 2026-09-07 | [ADR 0013](./0013-model-assisted-extraction-and-deterministic-resolution.md) |
 | 0014 | Transactional Outbox and Idempotent Memory Workers | Accepted | 2026-09-07 | [ADR 0014](./0014-transactional-outbox-and-idempotent-memory-workers.md) |
-| 0015 | Memory Sensitivity and Confirmed User Control | Accepted | 2026-09-07 | [ADR 0015](./0015-memory-sensitivity-and-confirmed-user-control.md) |
+| 0015 | Memory Sensitivity and Confirmed User Control | Superseded | 2026-09-07 | [ADR 0015](./0015-memory-sensitivity-and-confirmed-user-control.md) |
 | 0016 | Focused Memory Write Evaluation and Rollout | Accepted | 2026-09-07 | [ADR 0016](./0016-focused-memory-write-evaluation-and-rollout.md) |
-| 0017 | Risk-based Memory Confirmation | Proposed | 2026-09-07 | [ADR 0017](./0017-risk-based-memory-confirmation.md) |
+| 0017 | Risk-based Memory Confirmation | Accepted | 2026-09-07 | [ADR 0017](./0017-risk-based-memory-confirmation.md) |

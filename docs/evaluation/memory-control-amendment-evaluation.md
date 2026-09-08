@@ -5,7 +5,7 @@
 | Status | In Review |
 | Version | 0.1 |
 | Date | 2026-09-07 |
-| Governing spec | [Risk-based Memory Control Amendment](../specs/2026-09-07-risk-based-memory-control-amendment.md), In Review v0.1 |
+| Governing spec | [Risk-based Memory Control Amendment](../specs/2026-09-07-risk-based-memory-control-amendment.md), Approved v0.1 |
 | Base protocol | [Basic Memory Write Pipeline Evaluation](./memory-write-pipeline-evaluation.md), Approved v0.1 |
 
 ## Changed Scenario Table
@@ -27,4 +27,3 @@
 
 Not approved. On approval it amends S01, S09, S16-S17 and the confirmation hard
 gate in the base protocol while preserving every unrelated metric and gate.
-

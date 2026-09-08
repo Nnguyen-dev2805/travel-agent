@@ -2,9 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In Review |
+| Status | Approved |
 | Version | 0.1 |
 | Date | 2026-09-07 |
+| Approved | 2026-09-08 |
 | Change class | Level 3 - Architecture Amendment |
 | Decision owner | Repository owner |
 | Scope | Confirmation, application-owned save feedback, sensitive no-store policy, ambiguous conflicts, and Shadow semantics |
@@ -103,7 +104,7 @@ for the user.
 
 ## Approval Record
 
-Not approved. Approval will authorize ADR 0017 acceptance and superseding
-updates to the evaluation and implementation artifacts; it will not by itself
-authorize runtime code changes beyond separately approved amended plans.
-
+Version 0.1 was approved by the repository owner on 2026-09-08. This approval
+authorizes ADR 0017 acceptance and superseding updates to affected evaluation
+and implementation artifacts. It does not by itself authorize runtime code
+changes; amended implementation plans retain their own approval gate.

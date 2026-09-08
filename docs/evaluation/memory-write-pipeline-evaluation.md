@@ -9,6 +9,15 @@
 | Governing spec | [Basic Semantic Memory Write Pipeline Design](../specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md), Approved v0.1 |
 | Scope | Candidate, policy, conflict, persistence, trigger, confirmation, isolation, deletion-safety, and operational evidence for the first semantic key |
 
+## Approved Design Amendment and Evaluation Hold
+
+The [Risk-based Memory Control Amendment](../specs/2026-09-07-risk-based-memory-control-amendment.md)
+v0.1 is Approved and supersedes this protocol's confirm-all expectations.
+Affected scenarios and metrics remain non-executable until the separate
+[Risk-based Memory Control Evaluation Amendment](./memory-control-amendment-evaluation.md)
+is approved. Do not freeze or implement the historical S01, S09, S16-S17 or
+unconfirmed-mutation expectations as current product behavior.
+
 ## Purpose
 
 This protocol defines how the first deployable semantic Write Pipeline is

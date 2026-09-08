@@ -38,16 +38,17 @@ This document is not approved merely because the broader architecture contains
 confirmed direction. Implementation remains blocked until this exact version
 and its exact implementation plan receive repository-owner approval.
 
-## Amendment in Review
+## Approved Amendment
 
 [Risk-based Memory Control Amendment](./2026-09-07-risk-based-memory-control-amendment.md)
-v0.1 proposes replacing this version's confirm-all behavior with application-
+v0.1 is approved and replaces this version's confirm-all behavior with application-
 owned low-risk save feedback, sensitive no-store/no-prompt behavior, bounded
 confirmation for bulk delete and scope expansion, and clarified conflict/Shadow
-semantics. Until that amendment and ADR 0017 are approved, implementation of
-the affected command, UI, and evaluation behavior is on hold. Unrelated
-standalone-conversation, pure-domain, and PostgreSQL foundation plans remain
-reviewable.
+semantics. It has normative precedence over requirements 4, the Explicit
+trigger row, the explicit flow, Security and Privacy rule 7, Acceptance
+Criterion 4, and every other confirm-all statement in this historical base.
+ADR 0017 is Accepted and ADR 0015 is Superseded. Affected runtime tasks remain
+on hold only until their amended implementation plan is separately approved.
 
 ## Current-state Evidence
 
@@ -334,6 +335,7 @@ Before implementation, review and accept:
 4. [ADR 0014: Transactional Outbox and Idempotent Memory Workers](../adr/0014-transactional-outbox-and-idempotent-memory-workers.md).
 5. [ADR 0015: Memory Sensitivity and Confirmed User Control](../adr/0015-memory-sensitivity-and-confirmed-user-control.md).
 6. [ADR 0016: Focused Memory Write Evaluation and Rollout](../adr/0016-focused-memory-write-evaluation-and-rollout.md).
+7. [ADR 0017: Risk-based Memory Confirmation](../adr/0017-risk-based-memory-confirmation.md), which supersedes ADR 0015.
 
 ## Documentation Deliverable Matrix
 

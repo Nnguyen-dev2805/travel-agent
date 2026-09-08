@@ -10,8 +10,9 @@ write-specific safety evidence. This umbrella remains the owner of broader
 memory read/use, summary, episodic, personalization, and later promotion gates.
 
 [Risk-based Memory Control Evaluation Amendment](./memory-control-amendment-evaluation.md)
-is currently In Review and identifies the exact focused scenarios that change
-if the risk-based control amendment is approved.
+is currently In Review under the approved risk-based control design and
+identifies the exact focused scenarios that will change after this evaluation
+amendment receives its separate approval.
 
 ## Scope
 

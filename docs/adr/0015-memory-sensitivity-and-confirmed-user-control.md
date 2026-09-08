@@ -2,15 +2,20 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted |
+| Status | Superseded |
 | Date | 2026-09-07 |
 | Decision owners | Repository owner |
 | Scope | Sensitivity classification, prohibited content, confirmation, Memory Manager, and deletion behavior |
 | Governing spec | [Basic Semantic Memory Write Pipeline Design](../specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md), version 0.1 (Approved) |
 | Superseded ADR | None; this record extends [ADR 0010](./0010-local-identity-authorization-and-deletion-boundary.md) and supersedes V2 sensitivity assumptions only through ADR 0013's replacement of ADR 0006 |
-| Superseded by | None |
+| Superseded by | [ADR 0017](./0017-risk-based-memory-confirmation.md) |
 
 ## Context
+
+> **Supersession note:** ADR 0017 now owns sensitivity disposition, user-action
+> confirmation, application save feedback, ambiguous-conflict prompting, and
+> Shadow semantics. ADR 0017 retains the layered sensitivity taxonomy and
+> deterministic no-downgrade rule while replacing confirm-all behavior.
 
 Owner-linked memory is personal data. Sensitivity is contextual: a food
 preference may reveal religion or health, while future travel dates and exact

@@ -1,7 +1,7 @@
 # Risk-based Memory Control Amendment Implementation Plan
 
-> **For agentic workers:** This amendment plan is review-only until approved.
-> It replaces confirmation behavior in the existing approved master and
+> **For agentic workers:** Execute affected tasks only with their approved
+> child plan and this approved amendment delta. It replaces confirmation behavior in the existing approved master and
 > user-control plans without widening unrelated runtime scope.
 
 **Goal:** Align approved implementation artifacts with risk-based confirmation,
@@ -14,11 +14,11 @@ low-risk actions; retain them for bulk delete and scope expansion.
 
 **Tech Stack:** FastAPI, Pydantic, React/Vite, pytest, Vitest.
 
-**Spec:** Risk-based Memory Control Amendment v0.1, In Review.
+**Spec:** Risk-based Memory Control Amendment v0.1, Approved.
 
 | Field | Value |
 | --- | --- |
-| Status | In Review |
+| Status | Approved |
 | Version | 0.1 |
 | Date | 2026-09-07 |
 | Scope | Documentation and later implementation deltas for master Tasks 5, 8-9, 11-12 only |
@@ -57,6 +57,8 @@ rollback that changes user-visible confirmation semantics requires owner review.
 
 ## Approval Record
 
-Not approved. Approval will supersede the affected portions of the approved
-master and user-control plans; unrelated child plans remain valid.
-
+Version 0.1 was approved by the repository owner on 2026-09-08. It supersedes
+the affected portions of the approved master, semantic-domain policy,
+user-control, background, and evaluation plans. Unrelated child plans remain
+valid. Runtime implementation still requires the applicable approved child
+plan, isolated-worktree preflight, review, and verification.

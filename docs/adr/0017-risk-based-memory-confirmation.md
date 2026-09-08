@@ -2,12 +2,13 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-09-07 |
+| Accepted | 2026-09-08 |
 | Decision owners | Repository owner |
 | Scope | User-memory confirmation, application save feedback, sensitive no-store, conflict prompting, and Shadow meaning |
-| Governing spec | [Risk-based Memory Control Amendment](../specs/2026-09-07-risk-based-memory-control-amendment.md), version 0.1 (In Review) |
-| Superseded ADR | [ADR 0015](./0015-memory-sensitivity-and-confirmed-user-control.md) after amendment approval |
+| Governing spec | [Risk-based Memory Control Amendment](../specs/2026-09-07-risk-based-memory-control-amendment.md), version 0.1 (Approved) |
+| Superseded ADR | [ADR 0015](./0015-memory-sensitivity-and-confirmed-user-control.md) |
 | Superseded by | None |
 
 ## Context
@@ -25,6 +26,12 @@ delete and conversation-to-user scope expansion use preview plus one-time
 confirmation. Sensitive content is no-store/no-prompt in the focused scope.
 Ambiguous conflicts stay pending and are clarified only when relevant. Shadow
 means valid but lacks promotion authority.
+
+The layered bands remain `ordinary_personal`, `contextually_sensitive`,
+`restricted`, and `prohibited_secret`. Deterministic secret detection and the
+registry sensitivity floor run before contextual classification; model output
+may raise but never lower sensitivity. In this focused slice only ordinary
+personal memory may become durable.
 
 ## Alternatives
 
@@ -58,9 +65,9 @@ state/Undo elsewhere. Selected.
 
 ## Migration
 
-Block execution of the approved confirm-all user-control plan. After this ADR
-is accepted, amend the focused evaluation, master plan, and user-control child
-plan before implementation.
+Do not execute the superseded confirm-all behavior. Amend and separately
+approve the focused evaluation, master plan, semantic-domain policy task, and
+user-control child plan before implementing affected runtime behavior.
 
 ## Validation
 
@@ -72,4 +79,3 @@ strict Shadow/non-Shadow outcome semantics.
 
 1. Governing amendment.
 2. [ADR 0015](./0015-memory-sensitivity-and-confirmed-user-control.md).
-

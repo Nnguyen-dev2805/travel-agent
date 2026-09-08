@@ -28,9 +28,9 @@ Approved.
 ## Execution Hold
 
 The affected confirmation, sensitivity, conflict-prompt, and Shadow scenarios
-remain on hold until the risk-based control amendment and its evaluation
-amendment are approved. Unrelated harness structure may be reviewed but must not
-freeze obsolete S01, S09, S16, or S17 expectations.
+remain on hold. The risk-based control amendment is approved; its evaluation
+amendment retains a separate approval gate. Unrelated harness structure may be
+reviewed but must not freeze obsolete S01, S09, S16, or S17 expectations.
 
 ## Task Table
 

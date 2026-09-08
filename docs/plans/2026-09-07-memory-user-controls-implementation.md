@@ -14,7 +14,9 @@ contracts.
 
 **Tech Stack:** FastAPI, Pydantic, React/Vite, Vitest, pytest.
 
-**Spec:** Approved focused spec v0.1; ADR 0015 Accepted.
+**Spec:** Approved focused spec v0.1 as amended by the approved Risk-based
+Memory Control Amendment; ADR 0015 is Superseded by Accepted ADR 0017. Execute
+this child together with the approved amendment implementation delta.
 
 | Field | Value |
 | --- | --- |
@@ -24,13 +26,15 @@ contracts.
 | Scope | Master Tasks 8-9 only |
 | Verification | Backend command/API and frontend interaction/accessibility tests |
 
-## Execution Hold
+## Approved Amendment Authority
 
-This approved plan is not executable while the
+The
 [Risk-based Memory Control Amendment](../specs/2026-09-07-risk-based-memory-control-amendment.md)
-v0.1 and [ADR 0017](../adr/0017-risk-based-memory-confirmation.md) are under
-review. The amendment replaces confirm-all behavior. Implementing this version
-before that decision completes would knowingly build superseded UX.
+v0.1 and [ADR 0017](../adr/0017-risk-based-memory-confirmation.md) are approved
+and replace confirm-all behavior. The approved amendment implementation plan is
+the normative delta for this child: low-risk actions commit directly and expose
+application-owned save/Undo state; only bulk delete and scope expansion use
+preview plus one-time confirmation.
 
 ## Task Table
 

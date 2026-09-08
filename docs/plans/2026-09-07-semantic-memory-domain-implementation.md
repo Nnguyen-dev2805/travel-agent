@@ -14,7 +14,9 @@ write permission.
 
 **Tech Stack:** Python standard library, dataclasses, enums, pytest.
 
-**Spec:** Approved focused spec v0.1; ADRs 0013 and 0015 Accepted.
+**Spec:** Approved focused spec v0.1 as amended by the approved Risk-based
+Memory Control Amendment v0.1; ADRs 0013 and 0017 Accepted; ADR 0015
+Superseded.
 
 | Field | Value |
 | --- | --- |
@@ -24,6 +26,13 @@ write permission.
 | Approved specification | Basic Semantic Memory Write Pipeline Design v0.1 |
 | Scope | Master Tasks 3-5 only |
 | Verification | Pure unit tests with no database/network/model provider |
+
+## Approved Amendment Authority
+
+All three tasks are executable under this approved child plan together with the
+approved Risk-based Memory Control Amendment Implementation Plan v0.1. Task 3
+must implement risk-based policy only; historical confirm-all disposition is
+superseded.
 
 ## Task Table
 
@@ -81,9 +90,15 @@ resolve_change(candidate: MemoryCandidate,
 
 - [ ] Write RED tests for authenticated user evidence, invalid actor/source,
   deleted source, ordinary preference, restricted hold, prohibited secret,
-  unknown key, and background shadow disposition.
+  unknown key, explicit low-risk direct-write eligibility without a second
+  confirmation, sensitive no-store/no-prompt disposition, and background
+  shadow disposition.
 - [ ] Implement deterministic secret detection and registry-floor escalation;
-  contextual model output may only raise sensitivity.
+  contextual model output may only raise sensitivity. `decide_candidate`
+  returns policy data only: it never mutates storage, issues UI save state, or
+  creates confirmation tokens. Valid low-risk explicit candidates are eligible
+  for the later direct-commit path; valid background candidates are `SHADOW`;
+  hard-policy failures are never `SHADOW`.
 - [ ] Require GREEN with no raw prohibited value in logs or assertion text.
 - [ ] Review the separation between extraction meaning and policy permission.
 

@@ -42,10 +42,12 @@ This plan is a review artifact only. Do not execute Task 1 until:
 2. an isolated implementation worktree is created under repository workflow;
 3. the primary worktree and target paths are checked for overlapping changes.
 
-Tasks 5, 8-9, 11-12 additionally remain on hold while the
+The
 [Risk-based Memory Control Amendment](../specs/2026-09-07-risk-based-memory-control-amendment.md)
-v0.1 and its plan are In Review. Do not implement confirm-all behavior merely
-because this historical master version was approved.
+v0.1, ADR 0017, and the exact amendment implementation plan are approved.
+Tasks 5, 8-9, and 11 execute under that amendment delta rather than historical
+confirm-all behavior. Task 12 remains on hold until the evaluation amendment
+is separately approved.
 
 ## Global Constraints
 
@@ -54,7 +56,10 @@ because this historical master version was approved.
 2. User and conversation scopes execute; workspace scope remains compatible but
    is not a new behavior surface.
 3. Background extraction is shadow-only and creates zero active versions.
-4. Every user-initiated memory mutation requires confirmation.
+4. Risk-based confirmation governs user mutations: explicit low-risk remember,
+   delete-one, and toggle operations commit directly with application-owned
+   saved/Undo state; bulk delete and conversation-to-user scope expansion use
+   preview plus one-time confirmation; sensitive data is no-store/no-prompt.
 5. Model output never owns authorization, sensitivity downgrades, lifecycle
    mutation, SQL, or transaction boundaries.
 6. Secrets and prohibited payment/authentication values never reach durable
