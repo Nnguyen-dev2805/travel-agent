@@ -2,13 +2,13 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted |
+| Status | Superseded |
 | Date | 2026-09-04 |
 | Decision owners | Repository owner |
 | Scope | R5 memory candidate ownership, shadow extraction boundary, promotion policy boundary, storage adapter direction, privacy and evaluation evidence for memory candidates |
 | Governing spec | [Shadow Memory Extraction Design](../specs/2026-09-04-shadow-memory-extraction-design.md), version 0.1 (Approved) |
 | Superseded ADR | None |
-| Superseded by | None |
+| Superseded by | [ADR 0013](./0013-model-assisted-extraction-and-deterministic-resolution.md) for the V2 write path; R5 remains historical compatibility and evaluation evidence until migration |
 
 ## Context
 

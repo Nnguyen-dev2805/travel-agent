@@ -1,5 +1,18 @@
 # Memory Evaluation Protocol
 
+## Focused Protocols
+
+The umbrella protocol delegates the first V2 semantic-memory write vertical
+slice to [Basic Memory Write Pipeline Evaluation](./memory-write-pipeline-evaluation.md).
+That focused protocol owns canonical-key, immutable decision, conflict,
+confirmation, PostgreSQL atomicity, idempotency, background shadow, and
+write-specific safety evidence. This umbrella remains the owner of broader
+memory read/use, summary, episodic, personalization, and later promotion gates.
+
+[Risk-based Memory Control Evaluation Amendment](./memory-control-amendment-evaluation.md)
+is currently In Review and identifies the exact focused scenarios that change
+if the risk-based control amendment is approved.
+
 ## Scope
 
 This document is the canonical quality and safety protocol for Travel Agent

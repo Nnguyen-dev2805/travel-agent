@@ -2,13 +2,13 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted |
+| Status | Superseded |
 | Date | 2026-09-04 |
 | Decision owners | Repository owner |
 | Scope | Coordination ownership for one chat turn, module dependency direction between product state and RAG execution, chat request and response compatibility, and write authority over assistant turns |
 | Governing spec | [Conversation Persistence Design](../specs/2026-09-04-conversation-persistence-design.md), version 0.1 (Approved) |
 | Superseded ADR | None |
-| Superseded by | None |
+| Superseded by | [ADR 0011](./0011-authenticated-standalone-conversations.md); the orchestration seam and persistence ordering carry forward, while omitted `conversation_id` now creates a persistent owned conversation |
 
 ## Context
 

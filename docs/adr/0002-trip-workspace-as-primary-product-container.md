@@ -2,13 +2,13 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted |
+| Status | Superseded |
 | Date | 2026-09-03 |
 | Decision owners | Repository owner |
 | Scope | Product identity and data ownership boundary for trip-scoped runtime records |
 | Governing spec | [Trip Workspace Foundation Design](../specs/2026-09-03-trip-workspace-foundation-design.md), version 0.1 (Approved) |
 | Superseded ADR | None |
-| Superseded by | None |
+| Superseded by | [ADR 0011](./0011-authenticated-standalone-conversations.md); a workspace remains an optional future project/trip association rather than the mandatory parent for every conversation |
 
 ## Context
 

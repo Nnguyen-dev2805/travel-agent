@@ -2,13 +2,13 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted |
+| Status | Superseded |
 | Date | 2026-09-04 |
 | Decision owners | Repository owner |
 | Scope | Local relational storage ownership, schema version bookkeeping, and cross-module storage boundary for prototype product records |
 | Governing spec | [Conversation Persistence Design](../specs/2026-09-04-conversation-persistence-design.md), version 0.1 (Approved) |
 | Superseded ADR | None |
-| Superseded by | None |
+| Superseded by | [ADR 0012](./0012-versioned-semantic-memory-in-postgresql.md); SQLite and the local schema registry remain migration-era compatibility evidence only |
 
 ## Context
 
