@@ -105,6 +105,24 @@ class Settings(BaseModel):
     ALLOWED_CORS_ORIGINS: str = os.getenv(
         "ALLOWED_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
     )
+    # PostgreSQL for the memory write pipeline (Master Tasks 6-7). Host,
+    # port, database, and user resolve from the environment with local
+    # defaults; the password stays a secret-bearing value and must never
+    # appear in settings representations, logs, or error messages.
+    PG_HOST: str = os.getenv("PG_HOST", "localhost")
+    PG_PORT: int = int(os.getenv("PG_PORT", "5433"))
+    PG_DB: str = os.getenv("PG_DB", "travel_agent")
+    PG_USER: str = os.getenv("PG_USER", "travel_agent")
+    PG_PASSWORD: SecretStr = SecretStr(os.getenv("POSTGRES_PASSWORD", ""))
+
+
+def pg_dsn(password: str, host: str, port: int, db: str, user: str) -> str:
+    """Build a psycopg DSN from explicit parts.
+
+    Kept outside `Settings` so the assembled credential-bearing string is
+    never stored on the settings object or rendered by accident.
+    """
+    return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{db}"
 
 
 settings = Settings()
