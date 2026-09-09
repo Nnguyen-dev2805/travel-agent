@@ -30,6 +30,7 @@ from backend.app.api.chat import router as chat_router, get_rag_service
 from backend.app.api.workspaces import router as workspaces_router
 from backend.app.api.conversations import router as conversations_router
 from backend.app.api.memory import router as memory_router
+from backend.app.api.memory_controls import router as memory_controls_router
 from backend.app.api.ops import router as ops_router
 from backend.app.api.planner import router as planner_router
 
@@ -215,5 +216,6 @@ app.include_router(chat_router, prefix=settings.API_V1_STR)
 app.include_router(workspaces_router, prefix=settings.API_V1_STR)
 app.include_router(conversations_router, prefix=settings.API_V1_STR)
 app.include_router(memory_router, prefix=settings.API_V1_STR)
+app.include_router(memory_controls_router, prefix=settings.API_V1_STR)
 app.include_router(ops_router, prefix=settings.API_V1_STR)
 app.include_router(planner_router, prefix=settings.API_V1_STR)

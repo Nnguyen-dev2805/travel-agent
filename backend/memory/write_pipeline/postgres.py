@@ -26,6 +26,7 @@ from sqlalchemy import (
     Text,
     exc as sa_exc,
     select,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Connection, Engine
@@ -47,6 +48,12 @@ from backend.memory.write_pipeline.uow import (
     MemoryWriteError,
     MemoryWriteResult,
     StaleVersionError,
+)
+from backend.memory.write_pipeline.service import (
+    DELETION_TARGET_TYPE,
+    MemoryCommandNotFoundError,
+    MemoryCommandStaleError,
+    UndoDescriptor,
 )
 from backend.security.models import AuthenticatedPrincipal
 from backend.storage.postgres import (
@@ -759,3 +766,154 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
             change.reason,
         )
         return result
+
+
+def pg_list_active_versions(engine: Engine, owner: str) -> tuple[MemoryVersion, ...]:
+    """List one owner's active versions, oldest first (PG read seam)."""
+    with engine.connect() as connection:
+        rows = (
+            connection.execute(
+                text(
+                    "SELECT v.version_id, v.owner_user_id, a.scope, a.scope_id, "
+                    "a.canonical_key, a.subject_key, a.condition_fingerprint, "
+                    "v.normalized_value, "
+                    "v.value_payload ->> 'display_text' AS display_text, "
+                    "v.authority, v.sensitivity, v.status, v.valid_from, "
+                    "v.supersedes_version_id "
+                    "FROM memory_versions AS v "
+                    "JOIN memory_assertions AS a "
+                    "ON v.assertion_id = a.assertion_id "
+                    "WHERE v.owner_user_id = :owner AND v.status = 'active' "
+                    "ORDER BY v.valid_from ASC, v.version_id ASC"
+                ),
+                {"owner": owner},
+            )
+            .mappings()
+            .fetchall()
+        )
+    return tuple(
+        MemoryVersion(
+            version_id=row["version_id"],
+            owner_user_id=row["owner_user_id"],
+            scope=row["scope"],
+            scope_id=row["scope_id"],
+            canonical_key=row["canonical_key"],
+            subject_key=row["subject_key"],
+            condition_fingerprint=row["condition_fingerprint"],
+            normalized_value=row["normalized_value"],
+            display_text=row["display_text"] or row["normalized_value"],
+            authority=row["authority"],
+            sensitivity=row["sensitivity"],
+            status=row["status"],
+            valid_from=row["valid_from"],
+            supersedes_version_id=row["supersedes_version_id"],
+        )
+        for row in rows
+    )
+
+
+def pg_commit_delete_one(
+    engine: Engine, owner: str, version_id: str, reason: str
+) -> UndoDescriptor:
+    """Tombstone one active version plus a deletion-ledger row, atomically.
+
+    The version flips to superseded without a successor; the ledger row
+    is the source of truth that the transition was a delete. The
+    descriptor names the restore target; nothing is restored implicitly.
+    """
+    now = datetime.now(timezone.utc)
+    ledger_id = f"mdel_{uuid.uuid4().hex}"
+    with transaction(engine) as connection:
+        set_tenant(connection, owner)
+        require_tenant_context(connection)
+        row = (
+            connection.execute(
+                text(
+                    "SELECT status FROM memory_versions "
+                    "WHERE version_id = :version AND owner_user_id = :owner "
+                    "FOR UPDATE"
+                ),
+                {"version": version_id, "owner": owner},
+            )
+            .mappings()
+            .fetchone()
+        )
+        if row is None:
+            raise MemoryCommandNotFoundError("The memory entry does not exist.")
+        if row["status"] != "active":
+            raise MemoryCommandStaleError("The memory entry already changed.")
+        connection.execute(
+            text(
+                "UPDATE memory_versions SET status = 'superseded' "
+                "WHERE version_id = :version AND status = 'active'"
+            ),
+            {"version": version_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO memory_deletion_ledger "
+                "(ledger_id, owner_user_id, target_type, target_id, "
+                "deleted_at, reason) "
+                "VALUES (:ledger, :owner, :type, :target, :at, :reason)"
+            ),
+            {
+                "ledger": ledger_id,
+                "owner": owner,
+                "type": DELETION_TARGET_TYPE,
+                "target": version_id,
+                "at": now,
+                "reason": reason,
+            },
+        )
+    return UndoDescriptor(
+        action="restore",
+        version_ids=(version_id,),
+        note="Restore keeps history; re-check scope before restoring.",
+    )
+
+
+def pg_commit_bulk_delete(
+    engine: Engine, owner: str, version_ids: tuple[str, ...], reason: str
+) -> UndoDescriptor:
+    """Tombstone every target plus ledger rows in one transaction.
+
+    The affected count must match exactly; any drift aborts the whole
+    commit so a bulk delete never partially lands.
+    """
+    identities = tuple(version_ids)
+    now = datetime.now(timezone.utc)
+    with transaction(engine) as connection:
+        set_tenant(connection, owner)
+        require_tenant_context(connection)
+        result = connection.execute(
+            text(
+                "UPDATE memory_versions SET status = 'superseded' "
+                "WHERE owner_user_id = :owner AND status = 'active' "
+                "AND version_id = ANY(:versions)"
+            ),
+            {"owner": owner, "versions": list(identities)},
+        )
+        if result.rowcount != len(identities):
+            raise MemoryCommandStaleError("The memory entries already changed.")
+        for version_id in identities:
+            connection.execute(
+                text(
+                    "INSERT INTO memory_deletion_ledger "
+                    "(ledger_id, owner_user_id, target_type, target_id, "
+                    "deleted_at, reason) "
+                    "VALUES (:ledger, :owner, :type, :target, :at, :reason)"
+                ),
+                {
+                    "ledger": f"mdel_{uuid.uuid4().hex}",
+                    "owner": owner,
+                    "type": DELETION_TARGET_TYPE,
+                    "target": version_id,
+                    "at": now,
+                    "reason": reason,
+                },
+            )
+    return UndoDescriptor(
+        action="restore",
+        version_ids=identities,
+        note="Restore keeps history; re-check scope before restoring.",
+    )

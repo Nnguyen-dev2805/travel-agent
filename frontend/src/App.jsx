@@ -5,6 +5,7 @@ import ChatPanel from './components/chat/ChatPanel';
 import WelcomeView from './components/welcome/WelcomeView';
 import LoginModal from './components/auth/LoginModal';
 import CreateTripModal from './components/workspace/CreateTripModal';
+import MemoryManager from './components/memory/MemoryManager';
 
 import { clearToken, isAuthenticated } from './services/auth';
 import {
@@ -36,6 +37,12 @@ export default function App() {
     return false;
   });
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isMemoryOpen, setIsMemoryOpen] = useState(false);
+
+  const handleCloseMemory = () => {
+    setIsMemoryOpen(false);
+    document.getElementById('memory-manager-toggle')?.focus?.();
+  };
 
   const handleToggleSidebarCollapse = () => {
     setIsSidebarCollapsed((prev) => {
@@ -287,6 +294,7 @@ export default function App() {
         <Header
           onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
           onLoginClick={() => setIsAuth(false)}
+          onMemoryClick={() => setIsMemoryOpen(true)}
         />
 
         {/* Dynamic Main Body: WelcomeView vs Centered Chat Hero */}
@@ -306,6 +314,20 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* Memory manager overlay entry */}
+      {isMemoryOpen && (
+        <div className="fixed inset-0 z-40 flex justify-end">
+          <div
+            className="fixed inset-0 bg-[#00000080]"
+            onClick={handleCloseMemory}
+            aria-hidden="true"
+          />
+          <div className="relative z-10 h-full w-full max-w-md overflow-y-auto bg-white shadow-xl">
+            <MemoryManager onClose={handleCloseMemory} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
