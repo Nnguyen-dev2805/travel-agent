@@ -33,6 +33,7 @@ from sqlalchemy.engine import Connection, Engine
 
 from backend.memory.write_pipeline.models import (
     AssertionIdentity,
+    DecisionOutcome,
     MemoryChangeSet,
     MemoryDecisionDraft,
     MemoryEvidence,
@@ -356,7 +357,18 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
         assert identity is not None  # narrowed by the caller
 
         operation = change.operation
-        if operation in (MemoryOperation.REJECT, MemoryOperation.NOOP):
+        if operation is MemoryOperation.REJECT:
+            return MemoryWriteResult(
+                operation=operation,
+                version_id=None,
+                superseded_version_ids=(),
+                reference_version_id=None,
+                decision_id=None,
+                reason=change.reason,
+            )
+        if operation is MemoryOperation.NOOP and (
+            decision is None or decision.outcome == DecisionOutcome.DIRECT_WRITE
+        ):
             return MemoryWriteResult(
                 operation=operation,
                 version_id=None,
@@ -416,7 +428,7 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
             version_id = None
             superseded = ()
             reference = change.reference_version_id
-        elif operation is MemoryOperation.PENDING_CONFLICT:
+        elif operation in (MemoryOperation.PENDING_CONFLICT, MemoryOperation.NOOP):
             version_id = None
             superseded = ()
             reference = None
@@ -758,7 +770,13 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
             decision_id=decision_id,
             reason=change.reason,
         )
-        if idempotency_key is not None and change.operation in _WRITING_OPERATIONS:
+        should_record_idempotency = (
+            idempotency_key is not None and (
+                change.operation in _WRITING_OPERATIONS
+                or (change.operation is MemoryOperation.NOOP and decision_id is not None)
+            )
+        )
+        if should_record_idempotency:
             self._record_idempotency(connection, idempotency_key, owner, result)
         logger.info(
             "memory.write applied operation=%s reason=%s",

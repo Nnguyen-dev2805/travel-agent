@@ -34,6 +34,7 @@ from typing import Any, Callable
 from backend.memory.write_pipeline.models import (
     Authority,
     MemoryCandidate,
+    MemoryChangeSet,
     MemoryEvidence,
     MemoryOperation,
     MemoryRelation,
@@ -64,6 +65,8 @@ from backend.memory.write_pipeline.secrets import detect_prohibited_content
 from backend.memory.write_pipeline.uow import (
     CrossOwnerDeniedError,
     MemoryUnitOfWork,
+    MemoryWriteError,
+    MemoryWriteResult,
 )
 from backend.security.models import AuthenticatedPrincipal
 
@@ -355,6 +358,71 @@ class MemoryCommandService:
             scope=scope,
             idempotency_key=idempotency_key,
             utterance=text,
+        )
+
+    def record_shadow_candidate(
+        self,
+        principal: AuthenticatedPrincipal,
+        candidate: MemoryCandidate,
+        evidence: MemoryEvidence,
+        *,
+        context: DecisionContext | None = None,
+        idempotency_key: str | None = None,
+    ) -> MemoryWriteResult:
+        """Record a background-extracted candidate strictly as shadow evidence.
+
+        Enforces hard invariants:
+        - Must never create active versions (MemoryOperation.NOOP).
+        - Revalidates owner boundary on principal, candidate, and evidence.
+        - Outcomes restricted to SHADOW, HELD_SENSITIVE, REJECTED, or INVALID.
+        """
+        owner = principal.owner_user_id
+        if candidate.owner_user_id != owner:
+            raise CrossOwnerDeniedError(
+                "Candidate owner does not match authenticated principal."
+            )
+        if evidence.owner_user_id != owner:
+            raise CrossOwnerDeniedError(
+                "Evidence owner does not match authenticated principal."
+            )
+
+        if context is None:
+            context = DecisionContext(
+                actor=Actor.USER,
+                authenticated=True,
+                origin=Origin.BACKGROUND_CHAT,
+                source_deleted=False,
+            )
+
+        decision = decide_candidate(candidate, context)
+
+        # Invariant: background extraction MUST NOT create active versions
+        allowed_outcomes = {
+            DecisionOutcome.SHADOW,
+            DecisionOutcome.HELD_SENSITIVE,
+            DecisionOutcome.REJECTED,
+            DecisionOutcome.INVALID,
+        }
+        if decision.outcome not in allowed_outcomes:
+            raise MemoryWriteError(
+                f"Background extraction produced disallowed outcome '{decision.outcome}'."
+            )
+
+        change = MemoryChangeSet(
+            operation=MemoryOperation.NOOP,
+            identity=assertion_identity(candidate),
+            new_version=None,
+            superseded_version_ids=(),
+            reference_version_id=None,
+            reason=decision.reason.value if hasattr(decision.reason, "value") else str(decision.reason),
+        )
+
+        return self._uow.apply_memory_change(
+            change,
+            principal,
+            evidence=(evidence,),
+            decision=decision,
+            idempotency_key=idempotency_key,
         )
 
     def list_memories(self, principal, scope: str | None = None):

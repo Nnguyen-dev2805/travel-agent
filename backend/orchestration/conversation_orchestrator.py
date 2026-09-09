@@ -47,7 +47,7 @@ from typing import (
     Tuple,
 )
 
-from backend.conversations.models import MessageRole, MessageSource
+from backend.conversations.models import MessageRole, MessageSource, OutboxIntent
 from backend.conversations.repository import ConversationRepositoryError
 from backend.memory.models import MemorySelectionReason, MemorySelectionStatus
 from backend.memory.repository import MemoryRepositoryError
@@ -143,6 +143,7 @@ class ConversationOrchestrator:
         memory_enabled: bool = False,
         memory_provider: Optional[Callable[[], Optional[MemoryComponents]]] = None,
         max_selected: int = MEMORY_MAX_SELECTED,
+        outbox_enabled: bool = False,
     ) -> None:
         self._rag_service = rag_service
         self._conversation_service_provider = conversation_service_provider
@@ -150,6 +151,7 @@ class ConversationOrchestrator:
         self._memory_enabled = memory_enabled
         self._memory_provider = memory_provider
         self._max_selected = max_selected
+        self._outbox_enabled = outbox_enabled
 
     def handle_turn(
         self,
@@ -218,12 +220,30 @@ class ConversationOrchestrator:
                     "The conversation does not exist in this owner scope."
                 )
 
-        user_message = conversations.append_message(
-            conversation_id=conversation_id,
-            role=MessageRole.USER,
-            content=message,
-            source=MessageSource.UI,
-        )
+        outbox_event = None
+        if self._outbox_enabled:
+            outbox_event = OutboxIntent(
+                event_type="memory.extract.conversation_range",
+                payload={
+                    "conversation_id": conversation_id,
+                },
+            )
+
+        if outbox_event is not None:
+            user_message = conversations.append_message(
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content=message,
+                source=MessageSource.UI,
+                outbox_event=outbox_event,
+            )
+        else:
+            user_message = conversations.append_message(
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content=message,
+                source=MessageSource.UI,
+            )
 
         if self._memory_enabled:
             generated, turn_memory = self._generate_with_memory(

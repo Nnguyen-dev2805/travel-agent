@@ -447,3 +447,48 @@ class MessageHistoryQuery:
             "limit",
             _require_bounded_int(resolved, "limit", 1, MAX_HISTORY_LIMIT),
         )
+
+
+@dataclass(frozen=True)
+class OutboxIntent:
+    """An intent to write an outbox event atomically alongside a message.
+
+    Encapsulates event_type and structured payload, avoiding primitive obsession
+    and loose dict passing across conversation and write pipeline boundaries.
+    """
+
+    event_type: str
+    payload: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "event_type", require_text(self.event_type, "event_type")
+        )
+        if not isinstance(self.payload, dict):
+            raise ConversationValidationError(
+                "Conversation field 'payload' must be a dict."
+            )
+
+
+def coerce_outbox_intent(value: Any) -> OutboxIntent | None:
+    """Coerce an OutboxIntent, dict, or None to an OutboxIntent instance."""
+    if value is None:
+        return None
+    if isinstance(value, OutboxIntent):
+        return value
+    if isinstance(value, dict):
+        event_type = value.get("event_type")
+        if not isinstance(event_type, str) or not event_type.strip():
+            raise ConversationValidationError(
+                "A message outbox event requires a non-empty string 'event_type'."
+            )
+        payload = value.get("payload", {})
+        if not isinstance(payload, dict):
+            raise ConversationValidationError(
+                "A message outbox event payload must be a dict."
+            )
+        return OutboxIntent(event_type=event_type.strip(), payload=dict(payload))
+    raise ConversationValidationError(
+        "Outbox event must be an OutboxIntent, dict, or None."
+    )
+

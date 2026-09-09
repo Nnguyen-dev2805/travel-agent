@@ -532,3 +532,50 @@ def test_confirm_scope_expansion_stale_if_user_already_has_active_memory():
 
     with pytest.raises(MemoryCommandStaleError):
         service.confirm_preview(_principal(), offer.preview_id, offer.token)
+
+
+def test_record_shadow_candidate_persists_as_shadow_without_active_versions():
+    from backend.memory.write_pipeline.models import (
+        Authority,
+        MemoryEvidence,
+        MemoryOperation,
+        new_evidence_id,
+    )
+    from backend.memory.write_pipeline.policy import DecisionOutcome
+    from backend.memory.write_pipeline.uow import CrossOwnerDeniedError
+
+    service, store, uow = _service()
+    principal = _principal("owner_a")
+
+    candidate = _candidate(
+        owner_user_id="owner_a",
+        authority=Authority.REPEATED_INFERENCE,
+        display_text="I prefer quiet hotels",
+    )
+    evidence = MemoryEvidence(
+        evidence_id=new_evidence_id(),
+        owner_user_id="owner_a",
+        conversation_id="cv_123",
+        source_message_id="ms_456",
+        display_text="I prefer quiet hotels",
+        authority=Authority.REPEATED_INFERENCE,
+        observed_at=MOMENT,
+    )
+
+    result = service.record_shadow_candidate(
+        principal, candidate, evidence, idempotency_key="bg_key_1"
+    )
+
+    assert len(uow.calls) == 1
+    call = uow.calls[0]
+    assert call["change"].operation is MemoryOperation.NOOP
+    assert call["change"].new_version is None
+    assert call["decision"].outcome is DecisionOutcome.SHADOW
+    assert call["evidence"] == (evidence,)
+    assert call["idempotency_key"] == "bg_key_1"
+
+    # Cross-owner rejected
+    foreign_principal = _principal("owner_b")
+    with pytest.raises(CrossOwnerDeniedError):
+        service.record_shadow_candidate(foreign_principal, candidate, evidence)
+

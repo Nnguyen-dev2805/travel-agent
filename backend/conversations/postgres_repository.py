@@ -42,6 +42,7 @@ from backend.conversations.models import (
     MessageDraft,
     MessageRole,
     MessageSource,
+    OutboxIntent,
     TraceVisibility,
 )
 from backend.conversations.repository import (
@@ -104,7 +105,14 @@ conversation_outbox_table = Table(
     Column("owner_user_id", Text(), nullable=False),
     Column("event_type", Text(), nullable=False),
     Column("payload", JSONB(), nullable=False),
+    Column("status", Text(), nullable=False, server_default="pending"),
+    Column("attempt_count", Integer(), nullable=False, server_default="0"),
+    Column("lease_owner", Text(), nullable=True),
+    Column("lease_until", DateTime(timezone=True), nullable=True),
+    Column("last_error", Text(), nullable=True),
+    Column("next_attempt_after", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
     Index("idx_conversation_outbox_conversation", "conversation_id"),
 )
 
@@ -246,7 +254,7 @@ class PostgresConversationRepository:
         self,
         message: MessageDraft,
         message_id: str,
-        outbox_event: dict | None = None,
+        outbox_event: OutboxIntent | dict | None = None,
     ) -> Message:
         """Persist one message, allocating its position and bumping the parent.
 
@@ -263,7 +271,10 @@ class PostgresConversationRepository:
         try:
             with self._engine.begin() as connection:
                 parent = connection.execute(
-                    select(conversations_table.c.conversation_id)
+                    select(
+                        conversations_table.c.conversation_id,
+                        conversations_table.c.owner_user_id,
+                    )
                     .where(
                         conversations_table.c.conversation_id == message.conversation_id
                     )
@@ -300,21 +311,18 @@ class PostgresConversationRepository:
                     )
                 )
                 if event_type is not None:
-                    owner = connection.execute(
-                        select(conversations_table.c.owner_user_id).where(
-                            conversations_table.c.conversation_id
-                            == message.conversation_id
-                        )
-                    ).scalar()
                     connection.execute(
                         conversation_outbox_table.insert().values(
                             outbox_id=f"{_OUTBOX_ID_PREFIX}{uuid.uuid4().hex}",
                             conversation_id=message.conversation_id,
                             message_id=message_id,
-                            owner_user_id=owner,
+                            owner_user_id=parent.owner_user_id,
                             event_type=event_type,
                             payload=payload,
+                            status="pending",
+                            attempt_count=0,
                             created_at=message.created_at,
+                            updated_at=message.created_at,
                         )
                     )
         except (
@@ -350,11 +358,17 @@ class PostgresConversationRepository:
         )
 
     @staticmethod
-    def _coerce_outbox_event(event: dict | None) -> tuple[str | None, dict]:
+    def _coerce_outbox_event(
+        event: OutboxIntent | dict | None,
+    ) -> tuple[str | None, dict]:
         if event is None:
             return None, {}
+        if isinstance(event, OutboxIntent):
+            return event.event_type, dict(event.payload)
         if not isinstance(event, dict):
-            raise ConversationStorageError("A message outbox event must be a mapping.")
+            raise ConversationStorageError(
+                "A message outbox event must be an OutboxIntent or mapping."
+            )
         event_type = event.get("event_type")
         if not isinstance(event_type, str) or not event_type.strip():
             raise ConversationStorageError("A message outbox event requires a type.")

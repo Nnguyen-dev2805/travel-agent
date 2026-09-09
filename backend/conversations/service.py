@@ -31,7 +31,9 @@ from backend.conversations.models import (
     MessageHistoryQuery,
     MessageRole,
     MessageSource,
+    OutboxIntent,
     TraceVisibility,
+    coerce_outbox_intent,
     generate_conversation_id,
     generate_message_id,
     require_text,
@@ -241,6 +243,7 @@ class ConversationService:
         content: str,
         source: MessageSource | str | None = None,
         trace_visibility: TraceVisibility | str | None = None,
+        outbox_event: OutboxIntent | dict | None = None,
     ) -> Message:
         """Append one message to an existing conversation.
 
@@ -263,6 +266,7 @@ class ConversationService:
                 budget, or storage failed.
         """
         self._require_conversation(conversation_id)
+        outbox_intent = coerce_outbox_intent(outbox_event)
 
         draft = MessageDraft(
             conversation_id=conversation_id,
@@ -275,9 +279,14 @@ class ConversationService:
 
         for remaining in reversed(range(MAX_IDENTITY_ATTEMPTS)):
             try:
-                stored = self._conversations.append_message(
-                    draft, generate_message_id()
-                )
+                if outbox_intent is not None:
+                    stored = self._conversations.append_message(
+                        draft, generate_message_id(), outbox_event=outbox_intent
+                    )
+                else:
+                    stored = self._conversations.append_message(
+                        draft, generate_message_id()
+                    )
             except (MessageAlreadyExistsError, MessageSequenceConflictError) as error:
                 if remaining == 0:
                     raise ConversationStorageError(
@@ -324,6 +333,24 @@ class ConversationService:
         return tuple(
             self._conversations.list_messages(
                 query.conversation_id, after_sequence, query.limit
+            )
+        )
+
+    def get_messages_in_range(
+        self,
+        conversation_id: str,
+        after_sequence: int | None = None,
+        limit: int = 100,
+    ) -> tuple[Message, ...]:
+        """Return messages in a conversation after sequence in transcript order.
+
+        Direct API for write-pipeline workers and extraction tasks that read ranges
+        without building an HTTP cursor query.
+        """
+        self._require_conversation(conversation_id)
+        return tuple(
+            self._conversations.list_messages(
+                conversation_id, after_sequence, limit
             )
         )
 
