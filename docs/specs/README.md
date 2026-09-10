@@ -300,3 +300,4 @@ must be compared; a cosmetic variant is not a distinct alternative.
 | 2026-09-07 | Memory Write Pipeline Architecture Design | Level 3 | 0.1 | Draft | [Design](./2026-09-07-memory-write-pipeline-architecture-design.md) |
 | 2026-09-07 | Basic Semantic Memory Write Pipeline Design | Level 3 | 0.1 | Approved | [Design](./2026-09-07-basic-semantic-memory-write-pipeline-design.md) |
 | 2026-09-07 | Risk-based Memory Control Amendment | Level 3 | 0.1 | In Review | [Design](./2026-09-07-risk-based-memory-control-amendment.md) |
+| 2026-09-10 | Unified Multi-Conversation Agent Memory Architecture | Level 3 | 0.1 | In Review | [Design](./2026-09-10-unified-multi-conversation-agent-memory-architecture.md) |
