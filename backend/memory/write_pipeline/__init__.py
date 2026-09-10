@@ -1,3 +1,8 @@
+from backend.memory.write_pipeline.background_recorder import (
+    BackgroundMemoryRecorder,
+    BackgroundRecordResult,
+    ShadowCandidate,
+)
 """Versioned semantic-memory write domain.
 
 Standard-library-only contracts, registry, resolver, and policy for the
@@ -77,6 +82,8 @@ __all__ = [
     "SENSITIVITY_RANK",
     "VERSION_ID_PREFIX",
     "Actor",
+    "BackgroundMemoryRecorder",
+    "BackgroundRecordResult",
     "AssertionIdentity",
     "Authority",
     "Cardinality",
@@ -100,6 +107,7 @@ __all__ = [
     "ProhibitedKind",
     "REDACTED_MARK",
     "SemanticKeyDefinition",
+    "ShadowCandidate",
     "SensitivityBand",
     "UnknownKeyError",
     "UnknownValueError",

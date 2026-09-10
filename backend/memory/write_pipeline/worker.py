@@ -95,6 +95,7 @@ class MemoryOutboxWorker:
         model_adapter: Any,
         uow: MemoryUnitOfWork,
         conversation_service: Any,
+        recorder: Any = None,
         service: Any = None,
         worker_id: str = "memory_worker_1",
         lease_duration_seconds: float = 30.0,
@@ -105,7 +106,7 @@ class MemoryOutboxWorker:
         self._model_adapter = model_adapter
         self._uow = uow
         self._conversation_service = conversation_service
-        self._service = service
+        self._recorder = recorder or service
         self._worker_id = worker_id
         self._lease_duration_seconds = lease_duration_seconds
         self._max_attempts = max_attempts
@@ -447,8 +448,11 @@ class MemoryOutboxWorker:
                 observed_at=candidate.observed_at or current_now,
             )
 
-            if self._service is not None and hasattr(self._service, "record_shadow_candidate"):
-                write_res = self._service.record_shadow_candidate(
+            if self._recorder is not None and hasattr(self._recorder, "record_sync"):
+                rec_res = self._recorder.record_sync(candidate)
+                last_decision_outcome = rec_res.decision_outcome
+            elif self._recorder is not None and hasattr(self._recorder, "record_shadow_candidate"):
+                write_res = self._recorder.record_shadow_candidate(
                     principal=principal,
                     candidate=candidate,
                     evidence=evidence,
@@ -459,6 +463,22 @@ class MemoryOutboxWorker:
                     last_decision_outcome = write_res.decision.outcome
                 else:
                     last_decision_outcome = DecisionOutcome.SHADOW
+            elif self._recorder is not None and hasattr(self._recorder, "record"):
+                import asyncio
+                if asyncio.iscoroutinefunction(self._recorder.record):
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor() as pool:
+                                rec_res = pool.submit(asyncio.run, self._recorder.record(candidate)).result()
+                        else:
+                            rec_res = loop.run_until_complete(self._recorder.record(candidate))
+                    except RuntimeError:
+                        rec_res = asyncio.run(self._recorder.record(candidate))
+                else:
+                    rec_res = self._recorder.record(candidate)
+                last_decision_outcome = rec_res.decision_outcome
             else:
                 decision = decide_candidate(candidate, ctx)
                 last_decision_outcome = decision.outcome
