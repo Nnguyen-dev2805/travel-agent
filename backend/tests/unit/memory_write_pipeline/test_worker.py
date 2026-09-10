@@ -106,7 +106,7 @@ class FakeConversationService:
         return self.deletion_epochs.get(conversation_id, 0)
 
 
-def _setup_worker(model=None, uow=None, outbox=None, conv_service=None, service=None):
+def _setup_worker(model=None, uow=None, outbox=None, conv_service=None, recorder=None):
     outbox_repo = outbox or InMemoryOutboxRepository()
     uow_fake = uow or FakeUoW()
     model_fake = model or FakeExtractionModel()
@@ -117,7 +117,7 @@ def _setup_worker(model=None, uow=None, outbox=None, conv_service=None, service=
         model_adapter=model_fake,
         uow=uow_fake,
         conversation_service=conv_svc,
-        service=service,
+        recorder=recorder,
         worker_id="test_worker_1",
     )
     return worker, outbox_repo, uow_fake, model_fake, conv_svc
@@ -547,7 +547,8 @@ def test_worker_tracks_token_usage_and_cost_evidence():
     assert res.cost_evidence == CostEvidence(estimated_cost_usd=0.00012, model_name="test-model")
 
 
-def test_worker_delegates_to_service_record_shadow_candidate():
+def test_worker_delegates_to_background_recorder_record_sync():
+    """Worker must delegate to BackgroundMemoryRecorder.record_sync (the approved seam)."""
     candidate = MemoryCandidate(
         candidate_id=new_candidate_id(),
         evidence_ids=(),
@@ -563,30 +564,31 @@ def test_worker_delegates_to_service_record_shadow_candidate():
     )
     model = FakeExtractionModel(candidates=[candidate])
 
-    class FakeService:
+    from backend.memory.write_pipeline.background_recorder import (
+        BackgroundMemoryRecorder,
+        BackgroundRecordResult,
+        ShadowCandidate,
+    )
+    from backend.memory.write_pipeline.models import DecisionOutcome
+
+    class FakeRecorder:
+        """Minimal recorder implementing record_sync — the narrow BackgroundMemoryRecorder seam."""
         def __init__(self):
             self.calls = []
 
-        def record_shadow_candidate(self, principal, candidate, evidence, context=None, idempotency_key=None):
-            self.calls.append({
-                "principal": principal,
-                "candidate": candidate,
-                "evidence": evidence,
-                "context": context,
-                "idempotency_key": idempotency_key,
-            })
-            from backend.memory.write_pipeline.uow import MemoryWriteResult
-            return MemoryWriteResult(
+        def record_sync(self, candidate: ShadowCandidate) -> BackgroundRecordResult:
+            self.calls.append(candidate)
+            return BackgroundRecordResult(
+                status="recorded",
+                candidate_id=candidate.candidate_id,
+                decision_outcome=DecisionOutcome.SHADOW,
                 operation=MemoryOperation.NOOP,
-                version_id=None,
-                superseded_version_ids=(),
-                reference_version_id=None,
-                decision_id="dec_1",
-                reason=DecisionReason.SHADOW_VALID_UNPROMOTED.value,
+                reason="shadow_valid_unpromoted",
+                write_result=None,
             )
 
-    fake_service = FakeService()
-    worker, outbox, uow, _, conv_svc = _setup_worker(model=model, service=fake_service)
+    fake_recorder = FakeRecorder()
+    worker, outbox, uow, _, conv_svc = _setup_worker(model=model, recorder=fake_recorder)
 
     conv_svc.conversations["conv_1"] = {"conversation_id": "conv_1", "owner_user_id": "owner_1", "retention_state": "active"}
     conv_svc.messages["conv_1"] = [{"message_id": "msg_1", "role": "user", "content": "window seat"}]
@@ -604,11 +606,9 @@ def test_worker_delegates_to_service_record_shadow_candidate():
 
     res = worker.process_one(event)
     assert res.status == OutboxStatus.SUCCEEDED
-    assert len(fake_service.calls) == 1
-    call = fake_service.calls[0]
-    assert call["principal"].owner_user_id == "owner_1"
-    assert call["candidate"].canonical_key == "travel.preference.flight"
-    assert call["idempotency_key"] == f"bg_cout_1_{candidate.candidate_id}"
+    assert len(fake_recorder.calls) == 1
+    assert fake_recorder.calls[0].canonical_key == "travel.preference.flight"
+
 
 
 def test_worker_aborts_when_mark_succeeded_fails():

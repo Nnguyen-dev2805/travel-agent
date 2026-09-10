@@ -96,7 +96,6 @@ class MemoryOutboxWorker:
         uow: MemoryUnitOfWork,
         conversation_service: Any,
         recorder: Any = None,
-        service: Any = None,
         worker_id: str = "memory_worker_1",
         lease_duration_seconds: float = 30.0,
         max_attempts: int = 3,
@@ -106,11 +105,12 @@ class MemoryOutboxWorker:
         self._model_adapter = model_adapter
         self._uow = uow
         self._conversation_service = conversation_service
-        self._recorder = recorder or service
+        self._recorder = recorder
         self._worker_id = worker_id
         self._lease_duration_seconds = lease_duration_seconds
         self._max_attempts = max_attempts
         self._backoff_base_seconds = backoff_base_seconds
+
 
     @property
     def worker_id(self) -> str:
@@ -451,18 +451,6 @@ class MemoryOutboxWorker:
             if self._recorder is not None and hasattr(self._recorder, "record_sync"):
                 rec_res = self._recorder.record_sync(candidate)
                 last_decision_outcome = rec_res.decision_outcome
-            elif self._recorder is not None and hasattr(self._recorder, "record_shadow_candidate"):
-                write_res = self._recorder.record_shadow_candidate(
-                    principal=principal,
-                    candidate=candidate,
-                    evidence=evidence,
-                    context=ctx,
-                    idempotency_key=f"bg_{event.outbox_id}_{candidate.candidate_id}",
-                )
-                if hasattr(write_res, "decision") and getattr(write_res, "decision") is not None:
-                    last_decision_outcome = write_res.decision.outcome
-                else:
-                    last_decision_outcome = DecisionOutcome.SHADOW
             elif self._recorder is not None and hasattr(self._recorder, "record"):
                 import asyncio
                 if asyncio.iscoroutinefunction(self._recorder.record):
