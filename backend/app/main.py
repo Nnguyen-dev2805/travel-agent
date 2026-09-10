@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from backend.app.config import settings
+from backend.app.runtime_container import RuntimeContainer
 from backend.app.errors import content_free_validation_error_handler
 from backend.security.dependencies import (
     enforce_request_body_limit,
@@ -43,15 +44,24 @@ logger = logging.getLogger("travel_agent_main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan event handler to pre-warm RAG service and embedding models on startup."""
+    """Lifespan event handler initializing container and pre-warming services."""
+    container = RuntimeContainer(settings)
+    await container.startup()
+    app.state.container = container
+    logger.info("RuntimeContainer initialized and bound to app.state.container")
+
     logger.info("Pre-warming RAG Service & Embedding Model on server boot...")
     try:
         get_rag_service()
         logger.info("RAG Service & Embedding Model successfully pre-warmed!")
     except Exception as e:
         logger.warning(f"RAG Service pre-warming notice: {str(e)}")
-    yield
-    logger.info("Shutting down application...")
+
+    try:
+        yield
+    finally:
+        logger.info("Shutting down application and disposing RuntimeContainer...")
+        await container.shutdown()
 
 
 # Initialize FastAPI application

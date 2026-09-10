@@ -138,3 +138,8 @@ def pg_dsn(password: str, host: str, port: int, db: str, user: str) -> str:
 
 
 settings = Settings()
+
+
+def get_settings() -> Settings:
+    """Return the global Settings instance."""
+    return settings
