@@ -61,6 +61,21 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuth]);
 
+  // Listen for 401 unauthorized events to force clean logout
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      clearToken();
+      setIsAuth(false);
+      setConversations([]);
+      setActiveConversationId(null);
+      setMessages([]);
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("auth:unauthorized", handleUnauthorized);
+      return () => window.removeEventListener("auth:unauthorized", handleUnauthorized);
+    }
+  }, []);
+
   // Global ⌘K / Ctrl+K keyboard shortcut to start a new chat
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
@@ -164,16 +179,21 @@ export default function App() {
     handleNewChat();
   };
 
-  return (
-    <div className="h-screen w-screen flex overflow-hidden bg-pure-white text-graphite-ink font-sans">
-      {/* Login Modal if unauthenticated */}
-      {!isAuth && (
+  // Primary Authentication Gate: unauthenticated users see login only
+  if (!isAuth) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-pure-white text-graphite-ink font-sans">
         <LoginModal
           onLoginSuccess={() => {
             setIsAuth(true);
           }}
         />
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-screen w-screen flex overflow-hidden bg-pure-white text-graphite-ink font-sans">
 
       {/* Left Sidebar */}
       <Sidebar
@@ -195,6 +215,7 @@ export default function App() {
         <Header
           onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
           onLoginClick={() => setIsAuth(false)}
+          onLogout={handleLogout}
         />
 
         {/* Dynamic Main Body: WelcomeView vs Active Chat Panel */}

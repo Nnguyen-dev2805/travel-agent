@@ -138,25 +138,27 @@ export default function Sidebar({
             const isActive = c.conversation_id === activeConversationId;
             const displayTitle = c.title || 'Cuộc trò chuyện mới';
             return (
-              <button
-                type="button"
+              <div
                 key={c.conversation_id}
                 aria-current={isActive ? 'page' : undefined}
-                onClick={() => {
-                  onSelectConversation(c.conversation_id);
-                  if (onClose) onClose();
-                }}
-                className={`w-full text-left group relative flex items-center justify-between px-2.5 py-2 rounded-lg text-caption transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer ${
+                className={`w-full group relative flex items-center justify-between px-2.5 py-1.5 rounded-lg text-caption transition-colors ${
                   isActive
                     ? 'bg-hover-veil text-graphite-ink font-medium'
                     : 'text-graphite-ink hover:bg-hover-veil'
                 }`}
               >
-                <div className="min-w-0 flex-1 pr-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectConversation(c.conversation_id);
+                    if (onClose) onClose();
+                  }}
+                  className="min-w-0 flex-1 pr-2 text-left focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer rounded"
+                >
                   <div className="truncate text-caption leading-snug">
                     {displayTitle}
                   </div>
-                </div>
+                </button>
 
                 <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
@@ -164,12 +166,12 @@ export default function Sidebar({
                     aria-label={`Xóa "${displayTitle}"`}
                     title="Xóa"
                     onClick={(e) => handleDelete(e, c.conversation_id, displayTitle)}
-                    className="p-1 rounded text-mid-ash hover:text-graphite-ink hover:bg-hover-veil transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none"
+                    className="p-1 rounded text-mid-ash hover:text-graphite-ink hover:bg-hover-veil transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
                 </div>
-              </button>
+              </div>
             );
           })
         )}

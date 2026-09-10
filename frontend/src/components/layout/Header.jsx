@@ -1,12 +1,14 @@
 import React from 'react';
-import { PanelLeftOpen } from 'lucide-react';
-import { isAuthenticated } from '../../services/auth';
+import { PanelLeftOpen, LogOut } from 'lucide-react';
+import { isAuthenticated, getUserProfile } from '../../services/auth';
 
 export default function Header({
   onToggleSidebar,
   onLoginClick,
+  onLogout,
 }) {
   const isAuth = isAuthenticated();
+  const profile = getUserProfile();
 
   return (
     <header className="h-14 px-4 sm:px-6 bg-pure-white flex items-center justify-between shrink-0 font-sans z-10 relative">
@@ -31,9 +33,31 @@ export default function Header({
         </button>
       </div>
 
-      {/* Right section: Authentication actions */}
+      {/* Right section: User profile & Logout for authenticated users */}
       <div className="flex items-center gap-2">
-        {!isAuth && (
+        {isAuth ? (
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-full bg-graphite-ink text-pure-white font-medium text-caption flex items-center justify-center shrink-0 select-none">
+                {profile.name ? profile.name.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <span className="text-caption font-medium text-graphite-ink hidden sm:inline">
+                {profile.name || 'Người dùng'}
+              </span>
+            </div>
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                aria-label="Đăng xuất"
+                title="Đăng xuất"
+                className="p-1.5 rounded-lg text-mid-ash hover:text-graphite-ink hover:bg-hover-veil transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer"
+              >
+                <LogOut className="w-4 h-4 stroke-[1.8]" aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        ) : (
           <>
             <button
               type="button"
