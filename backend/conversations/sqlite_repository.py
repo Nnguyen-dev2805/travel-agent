@@ -38,6 +38,7 @@ from backend.conversations.models import (
     ConversationValidationError,
     Message,
     MessageDraft,
+    OutboxIntent,
     MessageRole,
     MessageSource,
     TraceVisibility,
@@ -372,7 +373,12 @@ class SQLiteConversationRepository:
         highest = connection.execute(_MAX_SEQUENCE, (conversation_id,)).fetchone()[0]
         return 1 if highest is None else int(highest) + 1
 
-    def append_message(self, message: MessageDraft, message_id: str) -> Message:
+    def append_message(
+        self,
+        message: MessageDraft,
+        message_id: str,
+        outbox_event: OutboxIntent | dict | None = None,
+    ) -> Message:
         """Persist one message, allocating its position and bumping the parent."""
         if message.created_at is None:  # pragma: no cover - contract guarantees this
             raise ConversationStorageError(

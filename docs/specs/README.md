@@ -302,3 +302,4 @@ must be compared; a cosmetic variant is not a distinct alternative.
 | 2026-09-07 | Risk-based Memory Control Amendment | Level 3 | 0.1 | Approved | [Design](./2026-09-07-risk-based-memory-control-amendment.md) |
 | 2026-09-08 | Memory Read Pipeline V1.5 Design | Level 3 | 0.1 | Draft | [Design](./2026-09-08-memory-read-pipeline-v1-5-design.md) |
 | 2026-09-09 | AI Memory Core Engineering Design | Level 3 | 0.1 | Draft | [Design](./2026-09-09-ai-memory-core-engineering-design.md) |
+| 2026-09-10 | Unified Multi-Conversation Agent Memory Architecture | Level 3 | 0.1 | In Review | [Design](./2026-09-10-unified-multi-conversation-agent-memory-architecture.md) |

@@ -38,6 +38,9 @@ local untracked `.env` only when a local workflow needs environment values.
 | `MEMORY_RETRIEVAL_ENABLED` | Backend settings and chat orchestration | Enabling R6 memory retrieval for bound chat turns | No secret by itself | Defaults to `false`. With it disabled, chat behavior remains R4/R5 behavior |
 | `MEMORY_PROMOTION_MIN_CONFIDENCE` | Backend settings and promotion policy | Minimum candidate confidence eligible for promotion | No secret by itself | Defaults to `0.75` |
 | `MEMORY_MAX_SELECTED` | Backend settings and memory retrieval | Maximum memory records selected per bound chat turn | No secret by itself | Defaults to `5` |
+| `MEMORY_WRITE_PIPELINE_ENABLED` | Backend settings and write pipeline | Enabling basic semantic memory write pipeline (Child Plan 6) | No secret by itself | Defaults to `false`. Safe opt-in rollout gate |
+| `MEMORY_SHADOW_EXTRACT_ENABLED` | Backend settings and background worker | Enabling shadow candidate extraction worker | No secret by itself | Defaults to `false`. Hot-path decoupled worker gate |
+| `MEMORY_WRITE_EVAL_FIXTURES_PATH` | Backend settings and evaluation harness | Evaluation benchmark fixtures path | No secret by itself | Defaults to `docs/evaluation/fixtures/memory/write-pipeline-hotel-atmosphere-v0.1` |
 
 Do not print, paste, or commit real credential values in logs, examples,
 issues, screenshots, terminal output, or documentation.
@@ -634,3 +637,40 @@ real stores and service, then writes `r5-shadow-v0.1.md` and
 applicable hard-gate counts. Fixture source files stay tracked under
 `docs/evaluation/fixtures/memory/`; reports carry identifiers and codes
 only, never message content or candidate text.
+
+## Local Memory Write Pipeline Evaluation
+
+The basic semantic memory write pipeline evaluation harness (Child Plan 6 / ADR 0016 / ADR 0017)
+evaluates the deterministic write path against 22 required scenarios across 16 mandatory slices
+with 12 non-compensating hard gates.
+
+1. **Validate Dataset:**
+   ```bash
+   python3 -m backend.memory.write_pipeline.evaluation.cli validate-dataset \
+     --dataset docs/evaluation/fixtures/memory/write-pipeline-hotel-atmosphere-v0.1
+   ```
+
+2. **Preflight Checks:**
+   ```bash
+   python3 -m backend.memory.write_pipeline.evaluation.cli preflight \
+     --dataset docs/evaluation/fixtures/memory/write-pipeline-hotel-atmosphere-v0.1
+   ```
+
+3. **Run Evaluation Suites:**
+   ```bash
+   # Run all suites (safety, quality, operational)
+   python3 -m backend.memory.write_pipeline.evaluation.cli run \
+     --dataset docs/evaluation/fixtures/memory/write-pipeline-hotel-atmosphere-v0.1 \
+     --suite all \
+     --output-dir docs/reports/memory-write-pipeline/candidate
+
+   # Or run specific suite: --suite safety | quality | operational
+   ```
+
+4. **Compare Reports (Non-regression Gating):**
+   ```bash
+   python3 -m backend.memory.write_pipeline.evaluation.cli compare \
+     --baseline docs/reports/memory-write-pipeline/baseline/quality-report.json \
+     --candidate docs/reports/memory-write-pipeline/candidate/quality-report.json \
+     --output-dir docs/reports/memory-write-pipeline
+   ```

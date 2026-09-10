@@ -5,6 +5,7 @@ import { isAuthenticated } from '../../services/auth';
 export default function Header({
   onToggleSidebar,
   onLoginClick,
+  onMemoryClick,
 }) {
   const isAuth = isAuthenticated();
 
@@ -33,6 +34,16 @@ export default function Header({
 
       {/* Right section: Pill Actions matching ChatGPT reference */}
       <div className="flex items-center gap-2">
+        {onMemoryClick && (
+          <button
+            id="memory-manager-toggle"
+            type="button"
+            onClick={onMemoryClick}
+            className="px-3.5 py-1.5 rounded-full bg-pure-white border border-hairline hover:bg-hover-veil text-graphite-ink text-caption font-medium transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer"
+          >
+            Memory
+          </button>
+        )}
         {!isAuth && (
           <>
             <button

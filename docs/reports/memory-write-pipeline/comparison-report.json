@@ -1,0 +1,6 @@
+{
+  "baseline_file": "docs/reports/memory-write-pipeline/baseline/quality-report.json",
+  "candidate_file": "docs/reports/memory-write-pipeline/candidate/quality-report.json",
+  "regressions": [],
+  "passed": true
+}
