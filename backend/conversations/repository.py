@@ -1,7 +1,7 @@
-"""Conversation storage interface and repository error types for milestone R4.
+"""Conversation storage interface and repository error types.
 
-Per ADR 0004 product code depends on this interface rather than on SQLite
-details. Route handlers, the conversation service, and the orchestrator must not
+Per ADR 0021 conversations are standalone and owned directly by authenticated users.
+Route handlers, the conversation service, and the orchestrator must not
 embed table DDL, SQL statements, database path creation, or connection
 management.
 
@@ -73,38 +73,22 @@ class ConversationRepository(Protocol):
         """Return the stored conversation, or None when no record exists."""
         ...
 
-    def list_by_workspace(
-        self, workspace_id: str, include_deletion: bool = False
-    ) -> tuple[Conversation, ...]:
-        """Return conversations for one workspace in governed order.
-
-        Ordering is `updated_at` descending, then `created_at` descending, then
-        `conversation_id` ascending. Records in `deleted` and
-        `deletion_requested` retention states are excluded unless
-        `include_deletion` is true; only the privacy deletion verifier takes
-        the inclusive read, so normal product paths never surface tombstones.
-        """
-        ...
-
     def list_by_owner(
         self, owner_user_id: str, include_deletion: bool = False
     ) -> tuple[Conversation, ...]:
         """Return conversations directly owned by one user in governed order.
 
-        Per ADR 0011 ownership is direct and the workspace association is
-        optional, so this read includes standalone conversations with no
-        workspace. Ordering and deletion filtering match `list_by_workspace`.
+        Per ADR 0021 conversations are owned directly by owner_user_id.
+        Ordering is `created_at` descending, then `conversation_id` ascending.
+        Records in tombstoned or deletion retention states are excluded unless
+        `include_deletion` is true.
         """
         ...
 
-    def transition_workspace_conversations(
-        self, workspace_id: str, to_state: ConversationRetentionState
-    ) -> int:
-        """Move active or deletion-requested workspace conversations in bulk.
+    def delete(self, conversation_id: str) -> bool:
+        """Mark a conversation as tombstoned.
 
-        Only records already in `active` or `deletion_requested` move, so
-        summarized or archived conversations keep their states. Returns the
-        number of records that actually changed state.
+        Returns True if the conversation existed and was tombstoned, False otherwise.
 
         Raises:
             ConversationStorageError: Storage failed.

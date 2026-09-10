@@ -1,17 +1,15 @@
-"""Conversation use cases for runtime milestone R4.
+"""Conversation use cases for authenticated chat.
 
 The service owns validation, identity generation, timestamping, existence
-checks, and cursor resolution. It depends on the conversation contracts, the
-conversation repository interface, and the workspace repository interface only.
+checks, cursor resolution, and owner authorization. It depends on the
+conversation contracts and the conversation repository interface only.
 
-The workspace interface is imported under `TYPE_CHECKING` on purpose. The
-service needs the interface's shape, not the concrete SQLite adapter that the
-workspace package re-exports, so keeping the import out of the runtime graph
-makes the one-way boundary between conversations and workspaces verifiable
-rather than merely documented.
+Per ADR 0021 conversations are standalone records owned directly by
+`owner_user_id`. There are no workspace associations or fallback scopes.
 
-`WorkspaceNotFoundError` and `ConversationNotFoundError` exist so the route layer
-can map a missing parent to `404` without inspecting storage details.
+`ConversationNotFoundError` exists so the route layer can map a missing or
+foreign conversation to `404` without inspecting storage details or disclosing
+ownership.
 
 Message content passes through this module and is never logged.
 """
@@ -19,7 +17,6 @@ Message content passes through this module and is never logged.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 from backend.conversations.models import (
     Conversation,
@@ -47,83 +44,76 @@ from backend.conversations.repository import (
     MessageSequenceConflictError,
 )
 
-# Workspace retention values hidden from normal product paths. Kept as
-# plain strings (rather than importing workspace contracts) so importing
-# this module never executes the workspace package init behind the R4
-# import boundary.
-_DELETION_HIDDEN_RETENTION_VALUES = frozenset({"deletion_requested", "deleted"})
-
-if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from backend.workspaces.repository import WorkspaceRepository
-
 logger = logging.getLogger("travel_agent_conversations")
 
 MAX_IDENTITY_ATTEMPTS = 2
 """One initial attempt plus exactly one retry on a generated-identity collision."""
 
+_HIDDEN_RETENTION_VALUES = frozenset(
+    {
+        ConversationRetentionState.DELETION_REQUESTED.value,
+        ConversationRetentionState.DELETED.value,
+        ConversationRetentionState.TOMBSTONED.value,
+    }
+)
+
 
 class ConversationNotFoundError(Exception):
-    """The referenced conversation does not exist."""
+    """The referenced conversation does not exist or is not accessible."""
 
 
 class WorkspaceNotFoundError(Exception):
-    """The referenced parent workspace does not exist."""
+    """Deprecated legacy exception retained until route layer cleanup."""
 
 
 class ConversationService:
-    """Create and inspect conversation records behind approved contracts."""
+    """Create and inspect standalone conversation records behind approved contracts."""
 
     def __init__(
         self,
         conversation_repository: ConversationRepository,
-        workspace_repository: "WorkspaceRepository",
     ) -> None:
         self._conversations = conversation_repository
-        self._workspaces = workspace_repository
 
     def create_conversation(
-        self, conversation_input: ConversationCreate
+        self,
+        owner_user_id: str | ConversationCreate,
+        title: str | None = None,
     ) -> Conversation:
-        """Create one standalone or workspace-bound conversation.
+        """Create one standalone conversation owned directly by the user.
 
-        `ConversationCreate` has already normalized and validated its fields, so
-        invalid input raises before this method is reached and no storage write
-        occurs. A `None` workspace means a standalone conversation owned
-        directly by `owner_user_id`; no hidden or default workspace is
-        created and the workspace repository is not consulted. A present
-        workspace must exist and be owned by the same owner, otherwise the
-        request is rejected without disclosing which foreign id exists.
-
+        Accepts either an owner identifier string or a `ConversationCreate` input.
         A generated-identity collision is retried exactly once with a fresh
         identity. A second collision raises `ConversationStorageError` rather
         than leaving a partial write or looping.
 
         Raises:
-            ConversationValidationError: The input is not a `ConversationCreate`.
-            WorkspaceNotFoundError: The parent workspace does not exist or
-                does not belong to the requesting owner.
+            ConversationValidationError: Input validation failed.
             ConversationStorageError: Identity generation collided twice or
                 storage failed.
         """
-        if not isinstance(conversation_input, ConversationCreate):
+        if isinstance(owner_user_id, ConversationCreate):
+            owner = owner_user_id.owner_user_id
+            conv_title = owner_user_id.title
+            retention_state = owner_user_id.retention_state
+        elif isinstance(owner_user_id, str):
+            owner = require_text(owner_user_id, "owner_user_id")
+            conv_title = title
+            retention_state = ConversationRetentionState.ACTIVE
+        else:
             raise ConversationValidationError(
-                "create_conversation requires a ConversationCreate input."
-            )
-
-        if conversation_input.workspace_id is not None:
-            self._require_workspace_for_owner(
-                conversation_input.workspace_id, conversation_input.owner_user_id
+                "create_conversation requires an owner_user_id string or ConversationCreate input."
             )
 
         moment = utc_now()
         for remaining in reversed(range(MAX_IDENTITY_ATTEMPTS)):
             candidate = Conversation(
                 conversation_id=generate_conversation_id(),
-                owner_user_id=conversation_input.owner_user_id,
-                workspace_id=conversation_input.workspace_id,
-                title=conversation_input.title,
+                owner_user_id=owner,
+                title=conv_title,
                 created_at=moment,
                 updated_at=moment,
+                retention_state=retention_state,
             )
             try:
                 created = self._conversations.create(candidate)
@@ -136,9 +126,9 @@ class ConversationService:
                 continue
 
             logger.info(
-                "conversation.create ok conversation_id=%s workspace_id=%s",
+                "conversation.create ok conversation_id=%s owner_user_id=%s",
                 created.conversation_id,
-                created.workspace_id,
+                created.owner_user_id,
             )
             return created
 
@@ -147,73 +137,38 @@ class ConversationService:
             "identity attempt budget is not positive."
         )
 
-    def get_workspace_owner_id(self, workspace_id: str) -> str | None:
-        """Return the workspace owner label, or None when absent.
+    def get_conversation(
+        self, conversation_id: str, owner_user_id: str | None = None
+    ) -> Conversation | None:
+        """Return one conversation by identifier, or None when absent or foreign.
 
-        Read-only helper for route-boundary authorization: it performs no
-        scope check itself and never creates storage.
-        """
-        workspace = self._workspaces.get(workspace_id)
-        if workspace is None:
-            return None
-        return workspace.owner_user_id
-
-    def get_conversation(self, conversation_id: str) -> Conversation | None:
-        """Return one conversation by identifier, or None when absent.
-
-        Conversations pending or under deletion read as absent through
-        normal product paths; coordination reads them through the
-        repository.
+        Conversations pending deletion, deleted, or tombstoned read as absent
+        through normal product paths; coordination reads them through the
+        repository. When `owner_user_id` is supplied, foreign conversations
+        read as absent to prevent enumeration.
 
         Raises:
-            ConversationValidationError: The identifier is blank.
+            ConversationValidationError: An identifier is blank.
         """
-        conversation = self._conversations.get(
-            require_text(conversation_id, "conversation_id")
-        )
+        identifier = require_text(conversation_id, "conversation_id")
+        conversation = self._conversations.get(identifier)
         if conversation is None:
             return None
-        if conversation.retention_state in (
-            ConversationRetentionState.DELETION_REQUESTED,
-            ConversationRetentionState.DELETED,
-        ):
+
+        retention = (
+            conversation.retention_state.value
+            if isinstance(conversation.retention_state, ConversationRetentionState)
+            else str(conversation.retention_state)
+        )
+        if retention in _HIDDEN_RETENTION_VALUES:
             return None
+
+        if owner_user_id is not None:
+            owner = require_text(owner_user_id, "owner_user_id")
+            if conversation.owner_user_id != owner:
+                return None
+
         return conversation
-
-    def get_workspace(self, workspace_id: str):
-        """Return the parent workspace record, or None when absent.
-
-        Read-only helper for route-boundary authorization: it performs no
-        scope check itself and never creates storage.
-        """
-        return self._workspaces.get(workspace_id)
-
-    def list_conversations(self, workspace_id: str) -> tuple[Conversation, ...]:
-        """Return conversations for one workspace in repository order.
-
-        Ordering is owned by the repository and is not mutated here.
-
-        Raises:
-            ConversationValidationError: The workspace identifier is blank.
-            WorkspaceNotFoundError: The parent workspace does not exist.
-        """
-        scope = require_text(workspace_id, "workspace_id")
-        self._require_workspace(scope)
-        return tuple(self._conversations.list_by_workspace(scope))
-
-    def list_conversations_by_owner(
-        self, owner_user_id: str
-    ) -> tuple[Conversation, ...]:
-        """Return directly owned conversations in repository order.
-
-        Includes standalone conversations with no workspace. Ordering is
-        owned by the repository and is not mutated here.
-
-        Raises:
-            ConversationValidationError: The owner identifier is blank.
-        """
-        owner = require_text(owner_user_id, "owner_user_id")
-        return tuple(self._conversations.list_by_owner(owner))
 
     def get_conversation_for_owner(
         self, conversation_id: str, owner_user_id: str
@@ -227,14 +182,26 @@ class ConversationService:
         Raises:
             ConversationValidationError: An identifier is blank.
         """
-        identifier = require_text(conversation_id, "conversation_id")
+        return self.get_conversation(conversation_id, owner_user_id=owner_user_id)
+
+    def list_conversations(
+        self, owner_user_id: str
+    ) -> tuple[Conversation, ...]:
+        """Return directly owned conversations in repository order.
+
+        Ordering is owned by the repository and is not mutated here.
+
+        Raises:
+            ConversationValidationError: The owner identifier is blank.
+        """
         owner = require_text(owner_user_id, "owner_user_id")
-        conversation = self.get_conversation(identifier)
-        if conversation is None:
-            return None
-        if conversation.owner_user_id != owner:
-            return None
-        return conversation
+        return tuple(self._conversations.list_by_owner(owner))
+
+    def list_conversations_by_owner(
+        self, owner_user_id: str
+    ) -> tuple[Conversation, ...]:
+        """Alias for list_conversations for backward compatibility."""
+        return self.list_conversations(owner_user_id)
 
     def append_message(
         self,
@@ -244,6 +211,7 @@ class ConversationService:
         source: MessageSource | str | None = None,
         trace_visibility: TraceVisibility | str | None = None,
         outbox_event: OutboxIntent | dict | None = None,
+        owner_user_id: str | None = None,
     ) -> Message:
         """Append one message to an existing conversation.
 
@@ -251,6 +219,9 @@ class ConversationService:
         assigns `sequence` inside its write transaction. The public role
         restriction is enforced by the route, not here, because the orchestrator
         writes `assistant` turns through this same method.
+
+        When `owner_user_id` is supplied, the conversation must be owned by that
+        user, failing closed with `ConversationNotFoundError` if absent or foreign.
 
         Two write conflicts are retried exactly once, then fail closed. A
         generated `message_id` collision is retried with a fresh identity. A
@@ -261,11 +232,15 @@ class ConversationService:
 
         Raises:
             ConversationValidationError: The draft violates the message contract.
-            ConversationNotFoundError: The parent conversation does not exist.
+            ConversationNotFoundError: The parent conversation does not exist or is foreign.
             ConversationStorageError: A conflict persisted through the retry
                 budget, or storage failed.
         """
-        self._require_conversation(conversation_id)
+        if owner_user_id is not None:
+            self._require_conversation_for_owner(conversation_id, owner_user_id)
+        else:
+            self._require_conversation(conversation_id)
+
         outbox_intent = coerce_outbox_intent(outbox_event)
 
         draft = MessageDraft(
@@ -308,7 +283,11 @@ class ConversationService:
             "identity attempt budget is not positive."
         )
 
-    def list_messages(self, query: MessageHistoryQuery) -> tuple[Message, ...]:
+    def list_messages(
+        self,
+        query: MessageHistoryQuery,
+        owner_user_id: str | None = None,
+    ) -> tuple[Message, ...]:
         """Return one page of message history in transcript order.
 
         The caller's `after_message_id` is resolved to its stored position here,
@@ -317,17 +296,24 @@ class ConversationService:
         conversation, is rejected instead of silently returning the whole
         transcript.
 
+        When `owner_user_id` is supplied, the conversation must be owned by that
+        user, failing closed with `ConversationNotFoundError` if absent or foreign.
+
         Raises:
             ConversationValidationError: The query is not a `MessageHistoryQuery`
                 or its cursor is invalid.
-            ConversationNotFoundError: The conversation does not exist.
+            ConversationNotFoundError: The conversation does not exist or is foreign.
         """
         if not isinstance(query, MessageHistoryQuery):
             raise ConversationValidationError(
                 "list_messages requires a MessageHistoryQuery input."
             )
 
-        self._require_conversation(query.conversation_id)
+        if owner_user_id is not None:
+            self._require_conversation_for_owner(query.conversation_id, owner_user_id)
+        else:
+            self._require_conversation(query.conversation_id)
+
         after_sequence = self._resolve_cursor(query)
 
         return tuple(
@@ -335,6 +321,26 @@ class ConversationService:
                 query.conversation_id, after_sequence, query.limit
             )
         )
+
+    def get_history(
+        self,
+        conversation_id: str,
+        owner_user_id: str,
+        after_message_id: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[Message, ...]:
+        """Return message history for an authenticated owner.
+
+        Raises:
+            ConversationNotFoundError: The conversation does not exist or is foreign.
+            ConversationValidationError: Input validation failed.
+        """
+        query = MessageHistoryQuery(
+            conversation_id=conversation_id,
+            after_message_id=after_message_id,
+            limit=limit,
+        )
+        return self.list_messages(query, owner_user_id=owner_user_id)
 
     def get_messages_in_range(
         self,
@@ -354,6 +360,31 @@ class ConversationService:
             )
         )
 
+    def delete_conversation(
+        self,
+        conversation_id: str,
+        owner_user_id: str,
+    ) -> None:
+        """Tombstone one owned conversation and remove it from product paths.
+
+        Missing and foreign conversations both raise `ConversationNotFoundError`
+        so ownership cannot be enumerated.
+
+        Raises:
+            ConversationValidationError: An identifier is blank.
+            ConversationNotFoundError: The conversation does not exist or is foreign.
+            ConversationStorageError: Storage failed.
+        """
+        self._require_conversation_for_owner(conversation_id, owner_user_id)
+        deleted = self._conversations.delete(conversation_id)
+        if not deleted:
+            raise ConversationNotFoundError("The conversation does not exist.")
+        logger.info(
+            "conversation.delete ok conversation_id=%s owner_user_id=%s",
+            conversation_id,
+            owner_user_id,
+        )
+
     def _resolve_cursor(self, query: MessageHistoryQuery) -> int | None:
         if query.after_message_id is None:
             return None
@@ -365,36 +396,19 @@ class ConversationService:
             )
         return cursor.sequence
 
-    def _is_deletion_hidden_workspace(self, workspace_id: str) -> bool:
-        workspace = self._workspaces.get(workspace_id)
-        if workspace is None:
-            return False
-        return workspace.retention_state.value in _DELETION_HIDDEN_RETENTION_VALUES
-
-    def _require_workspace(self, workspace_id: str) -> None:
-        if self._workspaces.get(workspace_id) is None:
-            raise WorkspaceNotFoundError("The parent workspace does not exist.")
-        if self._is_deletion_hidden_workspace(workspace_id):
-            raise WorkspaceNotFoundError("The parent workspace does not exist.")
-
-    def _require_workspace_for_owner(
-        self, workspace_id: str, owner_user_id: str
-    ) -> None:
-        """Require an existing workspace owned by the requesting owner.
-
-        Missing, deletion-hidden, and foreign workspaces all raise the same
-        controlled `WorkspaceNotFoundError` so ownership cannot be
-        enumerated. No workspace content is carried in the error.
-        """
-        workspace = self._workspaces.get(workspace_id)
-        if workspace is None:
-            raise WorkspaceNotFoundError("The parent workspace does not exist.")
-        if workspace.retention_state.value in _DELETION_HIDDEN_RETENTION_VALUES:
-            raise WorkspaceNotFoundError("The parent workspace does not exist.")
-        if workspace.owner_user_id != owner_user_id:
-            raise WorkspaceNotFoundError("The parent workspace does not exist.")
-
-    def _require_conversation(self, conversation_id: str) -> None:
+    def _require_conversation(self, conversation_id: str) -> Conversation:
         identifier = require_text(conversation_id, "conversation_id")
-        if self.get_conversation(identifier) is None:
+        conversation = self.get_conversation(identifier)
+        if conversation is None:
             raise ConversationNotFoundError("The conversation does not exist.")
+        return conversation
+
+    def _require_conversation_for_owner(
+        self, conversation_id: str, owner_user_id: str
+    ) -> Conversation:
+        identifier = require_text(conversation_id, "conversation_id")
+        owner = require_text(owner_user_id, "owner_user_id")
+        conversation = self.get_conversation_for_owner(identifier, owner)
+        if conversation is None:
+            raise ConversationNotFoundError("The conversation does not exist.")
+        return conversation

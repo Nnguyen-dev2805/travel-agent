@@ -46,7 +46,6 @@ def _conversation(**overrides) -> Conversation:
     payload = {
         "conversation_id": generate_conversation_id(),
         "owner_user_id": "user_owner",
-        "workspace_id": "tw_example",
         "title": "Da Nang food plan",
         "created_at": MOMENT,
         "updated_at": MOMENT,
@@ -120,7 +119,7 @@ def test_create_and_draft_contracts_expose_no_server_owned_fields():
     assert "sequence" not in _field_names(MessageDraft)
 
 
-# 3. `owner_user_id` is stripped and required; `workspace_id` is optional.
+# 3. `owner_user_id` is stripped and required; `workspace_id` is absent.
 
 
 def test_owner_is_an_exposed_contract_field():
@@ -144,25 +143,9 @@ def test_owner_user_id_is_required(value):
         _conversation(owner_user_id=value)
 
 
-def test_workspace_id_is_optional_and_stripped():
-    assert ConversationCreate(owner_user_id="user_owner").workspace_id is None
-    assert _conversation(workspace_id=None).workspace_id is None
-    assert (
-        ConversationCreate(
-            owner_user_id="user_owner", workspace_id="  tw_example  "
-        ).workspace_id
-        == "tw_example"
-    )
-    assert _conversation(workspace_id="  tw_example  ").workspace_id == "tw_example"
-
-
-@pytest.mark.parametrize("value", ["", "   ", 7])
-def test_non_null_workspace_id_is_validated(value):
-    with pytest.raises(ConversationValidationError):
-        ConversationCreate(owner_user_id="user_owner", workspace_id=value)
-
-    with pytest.raises(ConversationValidationError):
-        _conversation(workspace_id=value)
+def test_workspace_id_is_absent_from_contracts():
+    assert "workspace_id" not in _field_names(ConversationCreate)
+    assert "workspace_id" not in _field_names(Conversation)
 
 
 # 4 and 5. `title` is optional, stripped, bounded, and blank means absent.
@@ -170,12 +153,12 @@ def test_non_null_workspace_id_is_validated(value):
 
 def test_title_is_optional_and_stripped():
     assert (
-        ConversationCreate(owner_user_id="user_owner", workspace_id="tw_example").title
+        ConversationCreate(owner_user_id="user_owner").title
         is None
     )
     assert (
         ConversationCreate(
-            owner_user_id="user_owner", workspace_id="tw_example", title="  Da Nang  "
+            owner_user_id="user_owner", title="  Da Nang  "
         ).title
         == "Da Nang"
     )
@@ -185,7 +168,7 @@ def test_title_is_optional_and_stripped():
 def test_blank_title_normalizes_to_absent_rather_than_raising(value):
     assert (
         ConversationCreate(
-            owner_user_id="user_owner", workspace_id="tw_example", title=value
+            owner_user_id="user_owner", title=value
         ).title
         is None
     )
@@ -197,7 +180,7 @@ def test_title_at_the_maximum_length_is_accepted():
     assert TITLE_MAX_LENGTH == 120
     assert (
         ConversationCreate(
-            owner_user_id="user_owner", workspace_id="tw_example", title=exact
+            owner_user_id="user_owner", title=exact
         ).title
         == exact
     )
@@ -207,7 +190,6 @@ def test_title_over_the_maximum_length_raises():
     with pytest.raises(ConversationValidationError):
         ConversationCreate(
             owner_user_id="user_owner",
-            workspace_id="tw_example",
             title="t" * (TITLE_MAX_LENGTH + 1),
         )
 
@@ -218,7 +200,7 @@ def test_title_over_the_maximum_length_raises():
 def test_non_string_title_raises():
     with pytest.raises(ConversationValidationError):
         ConversationCreate(
-            owner_user_id="user_owner", workspace_id="tw_example", title=42
+            owner_user_id="user_owner", title=42
         )
 
 
@@ -339,9 +321,10 @@ def test_defaults_resolve_to_ui_excluded_and_active():
     assert DEFAULT_RETENTION_STATE is ConversationRetentionState.ACTIVE
 
 
-def test_conversation_retention_state_exposes_all_five_governed_states():
+def test_conversation_retention_state_exposes_governed_states():
     assert {member.value for member in ConversationRetentionState} == {
         "active",
+        "tombstoned",
         "summarized",
         "archived",
         "deletion_requested",
@@ -516,9 +499,10 @@ def test_repository_protocol_declares_the_governed_operations():
     for operation in (
         "create",
         "get",
-        "list_by_workspace",
+        "list_by_owner",
         "append_message",
         "list_messages",
+        "delete",
     ):
         assert hasattr(ConversationRepository, operation)
 

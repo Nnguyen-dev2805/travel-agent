@@ -1,11 +1,9 @@
-"""PostgreSQL conversation repository adapter for the memory write path.
+"""PostgreSQL conversation repository adapter for the authenticated chat path.
 
-Mirrors the SQLite adapter's contract semantics over the migrated
-schema: server-owned identity and ordering, governed vocabulary
-mapping that fails closed, deletion-hidden reads, and atomic message
-append with a parent timestamp bump. Additionally, append accepts an
-optional outbox event persisted in the same transaction; that seam
-belongs to the later background child, which consumes it.
+Mirrors the repository contract semantics over the clean-break schema:
+server-owned identity and ordering, governed vocabulary mapping that fails closed,
+deletion/tombstone-hidden reads, and atomic message append with a parent timestamp bump.
+Additionally, append accepts an optional outbox event persisted in the same transaction.
 
 Raised `ConversationRepositoryError` messages are safe for a controlled
 HTTP 500 response: they never include DSNs, full SQL text, credentials,
@@ -44,6 +42,7 @@ from backend.conversations.models import (
     MessageSource,
     OutboxIntent,
     TraceVisibility,
+    utc_now,
 )
 from backend.conversations.repository import (
     ConversationAlreadyExistsError,
@@ -62,13 +61,13 @@ conversations_table = Table(
     metadata,
     Column("conversation_id", Text(), primary_key=True),
     Column("owner_user_id", Text(), nullable=False),
-    Column("workspace_id", Text(), nullable=True),
     Column("title", Text(), nullable=True),
     Column("retention_state", Text(), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Index("idx_conversations_owner", "owner_user_id"),
-    Index("idx_conversations_workspace", "workspace_id"),
+    Index("idx_conversations_owner_created_at", "owner_user_id", "created_at"),
+    Index("idx_conversations_id_owner", "conversation_id", "owner_user_id"),
 )
 
 messages_table = Table(
@@ -119,6 +118,7 @@ conversation_outbox_table = Table(
 _DELETION_STATES = (
     ConversationRetentionState.DELETED.value,
     ConversationRetentionState.DELETION_REQUESTED.value,
+    ConversationRetentionState.TOMBSTONED.value,
 )
 
 _OUTBOX_ID_PREFIX = "cout_"
@@ -134,7 +134,7 @@ def _require_vocabulary(value: Any, column: str, enum_type: type) -> Any:
 
 
 class PostgresConversationRepository:
-    """Persist conversations and messages in PostgreSQL."""
+    """Persist standalone conversations and messages in PostgreSQL."""
 
     def __init__(self, engine: Engine) -> None:
         """Bind to an existing engine; schema comes from Alembic, not here."""
@@ -142,15 +142,19 @@ class PostgresConversationRepository:
 
     def create(self, conversation: Conversation) -> Conversation:
         """Persist a new conversation and return it."""
+        retention_val = (
+            conversation.retention_state.value
+            if isinstance(conversation.retention_state, ConversationRetentionState)
+            else str(conversation.retention_state)
+        )
         try:
             with self._engine.begin() as connection:
                 connection.execute(
                     conversations_table.insert().values(
                         conversation_id=conversation.conversation_id,
                         owner_user_id=conversation.owner_user_id,
-                        workspace_id=conversation.workspace_id,
                         title=conversation.title,
-                        retention_state=conversation.retention_state.value,
+                        retention_state=retention_val,
                         created_at=conversation.created_at,
                         updated_at=conversation.updated_at,
                     )
@@ -184,32 +188,18 @@ class PostgresConversationRepository:
             ) from error
         return None if row is None else self._row_to_conversation(row)
 
-    def list_by_workspace(
-        self, workspace_id: str, include_deletion: bool = False
-    ) -> tuple[Conversation, ...]:
-        """Return workspace-scoped conversations in governed order."""
-        return self._list_by_column(
-            conversations_table.c.workspace_id, workspace_id, include_deletion
-        )
-
     def list_by_owner(
         self, owner_user_id: str, include_deletion: bool = False
     ) -> tuple[Conversation, ...]:
         """Return directly owned conversations in governed order."""
-        return self._list_by_column(
-            conversations_table.c.owner_user_id, owner_user_id, include_deletion
+        statement = select(conversations_table).where(
+            conversations_table.c.owner_user_id == owner_user_id
         )
-
-    def _list_by_column(
-        self, column, value: str, include_deletion: bool
-    ) -> tuple[Conversation, ...]:
-        statement = select(conversations_table).where(column == value)
         if not include_deletion:
             statement = statement.where(
                 conversations_table.c.retention_state.not_in(_DELETION_STATES)
             )
         statement = statement.order_by(
-            conversations_table.c.updated_at.desc(),
             conversations_table.c.created_at.desc(),
             conversations_table.c.conversation_id.asc(),
         )
@@ -222,32 +212,25 @@ class PostgresConversationRepository:
             ) from error
         return tuple(self._row_to_conversation(row) for row in rows)
 
-    def transition_workspace_conversations(
-        self, workspace_id: str, to_state: ConversationRetentionState
-    ) -> int:
-        """Move active or deletion-requested workspace conversations in bulk."""
+    def delete(self, conversation_id: str) -> bool:
+        """Mark a conversation as tombstoned."""
         try:
             with self._engine.begin() as connection:
                 result = connection.execute(
                     conversations_table.update()
-                    .where(conversations_table.c.workspace_id == workspace_id)
+                    .where(conversations_table.c.conversation_id == conversation_id)
                     .where(
-                        conversations_table.c.retention_state.in_(
-                            (
-                                ConversationRetentionState.ACTIVE.value,
-                                ConversationRetentionState.DELETION_REQUESTED.value,
-                            )
-                        )
+                        conversations_table.c.retention_state != ConversationRetentionState.TOMBSTONED.value
                     )
-                    .where(conversations_table.c.retention_state != to_state.value)
                     .values(
-                        retention_state=to_state.value,
+                        retention_state=ConversationRetentionState.TOMBSTONED.value,
+                        updated_at=utc_now(),
                     )
                 )
-                return result.rowcount
+                return result.rowcount > 0
         except sa_exc.SQLAlchemyError as error:
             raise ConversationStorageError(
-                "Could not transition conversation records."
+                "Could not tombstone the conversation record."
             ) from error
 
     def append_message(
@@ -261,36 +244,38 @@ class PostgresConversationRepository:
         The sequence allocation, parent bump, message insert, and optional
         outbox insert run in one transaction behind a parent row lock, so a
         failing insert leaves neither the position nor the parent timestamp
-        changed.
+        mutated.
         """
-        if message.created_at is None:
-            raise ConversationStorageError(
-                "A message draft must carry a server-assigned timestamp."
-            )
         event_type, payload = self._coerce_outbox_event(outbox_event)
         try:
             with self._engine.begin() as connection:
-                parent = connection.execute(
-                    select(
-                        conversations_table.c.conversation_id,
-                        conversations_table.c.owner_user_id,
+                parent = (
+                    connection.execute(
+                        select(conversations_table)
+                        .where(
+                            conversations_table.c.conversation_id
+                            == message.conversation_id
+                        )
+                        .with_for_update()
                     )
-                    .where(
-                        conversations_table.c.conversation_id == message.conversation_id
-                    )
-                    .with_for_update()
-                ).fetchone()
+                    .mappings()
+                    .fetchone()
+                )
                 if parent is None:
                     raise ConversationStorageError(
-                        "The parent conversation does not exist."
+                        "Parent conversation was missing or deleted while appending a message."
                     )
-                highest = connection.execute(
+
+                highest_sequence = connection.execute(
                     select(messages_table.c.sequence)
-                    .where(messages_table.c.conversation_id == message.conversation_id)
+                    .where(
+                        messages_table.c.conversation_id == message.conversation_id
+                    )
                     .order_by(messages_table.c.sequence.desc())
                     .limit(1)
-                ).scalar()
-                sequence = 1 if highest is None else int(highest) + 1
+                ).scalar_one_or_none()
+                sequence = 1 if highest_sequence is None else highest_sequence + 1
+
                 connection.execute(
                     conversations_table.update()
                     .where(
@@ -316,7 +301,7 @@ class PostgresConversationRepository:
                             outbox_id=f"{_OUTBOX_ID_PREFIX}{uuid.uuid4().hex}",
                             conversation_id=message.conversation_id,
                             message_id=message_id,
-                            owner_user_id=parent.owner_user_id,
+                            owner_user_id=parent["owner_user_id"],
                             event_type=event_type,
                             payload=payload,
                             status="pending",
@@ -453,7 +438,6 @@ class PostgresConversationRepository:
             return Conversation(
                 conversation_id=row["conversation_id"],
                 owner_user_id=row["owner_user_id"],
-                workspace_id=row["workspace_id"],
                 title=row["title"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],

@@ -1,8 +1,13 @@
-"""Unit tests for the conversation service use cases.
+"""Unit tests for the conversation service.
 
-The service owns validation, identity generation, timestamps, and existence
-checks. It is exercised here against in-memory fakes only, so it is reviewable
-without FastAPI, SQLite, a model provider, Chroma, or the network.
+The service owns validation, identity generation, timestamping, existence
+checks, cursor resolution, and owner authorization. It depends on the
+conversation repository interface and domain value contracts only.
+
+Per ADR 0021 conversations are standalone and owned directly by authenticated users
+with zero workspace dependency.
+
+No test here touches a database, a model provider, Chroma, or the network.
 """
 
 import ast
@@ -11,7 +16,6 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -36,37 +40,9 @@ from backend.conversations.repository import (
 from backend.conversations.service import (
     ConversationNotFoundError,
     ConversationService,
-    WorkspaceNotFoundError,
 )
-from backend.workspaces.models import RetentionState
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
-EXISTING_WORKSPACE = "tw_existing"
-MISSING_WORKSPACE = "tw_missing"
-
-
-class FakeWorkspaceRepository:
-    """Minimal `WorkspaceRepository` stand-in that only answers existence."""
-
-    def __init__(self, existing: tuple[str, ...] = (EXISTING_WORKSPACE,)) -> None:
-        self._existing = set(existing)
-        self.calls: list[tuple[str, str]] = []
-
-    def get(self, workspace_id: str):
-        self.calls.append(("get", workspace_id))
-        if workspace_id not in self._existing:
-            return None
-        return SimpleNamespace(
-            workspace_id=workspace_id,
-            owner_user_id="local-user",
-            retention_state=RetentionState.ACTIVE,
-        )
-
-    def create(self, workspace):  # pragma: no cover - must never be reached
-        raise AssertionError("the conversation service must not create workspaces")
-
-    def list_by_owner(self, owner_user_id):  # pragma: no cover - never reached
-        raise AssertionError("the conversation service must not list workspaces")
 
 
 class FakeConversationRepository:
@@ -83,7 +59,11 @@ class FakeConversationRepository:
 
     @property
     def writes(self) -> list[tuple]:
-        return [call for call in self.calls if call[0] in {"create", "append_message"}]
+        return [
+            call
+            for call in self.calls
+            if call[0] in {"create", "append_message", "delete"}
+        ]
 
     def create(self, conversation: Conversation) -> Conversation:
         self.calls.append(("create", conversation.conversation_id))
@@ -97,15 +77,49 @@ class FakeConversationRepository:
         self.calls.append(("get", conversation_id))
         return self.conversations.get(conversation_id)
 
-    def list_by_workspace(self, workspace_id: str) -> tuple[Conversation, ...]:
-        self.calls.append(("list_by_workspace", workspace_id))
+    def list_by_owner(
+        self, owner_user_id: str, include_deletion: bool = False
+    ) -> tuple[Conversation, ...]:
+        self.calls.append(("list_by_owner", owner_user_id))
         if self.list_order is not None:
             return self.list_order
-        return tuple(
-            record
-            for record in self.conversations.values()
-            if record.workspace_id == workspace_id
+        results = []
+        for record in self.conversations.values():
+            if record.owner_user_id != owner_user_id:
+                continue
+            if not include_deletion:
+                ret = (
+                    record.retention_state.value
+                    if isinstance(record.retention_state, ConversationRetentionState)
+                    else str(record.retention_state)
+                )
+                if ret in ("tombstoned", "deleted", "deletion_requested"):
+                    continue
+            results.append(record)
+        return tuple(results)
+
+    def delete(self, conversation_id: str) -> bool:
+        self.calls.append(("delete", conversation_id))
+        conv = self.conversations.get(conversation_id)
+        if conv is None:
+            return False
+        ret = (
+            conv.retention_state.value
+            if isinstance(conv.retention_state, ConversationRetentionState)
+            else str(conv.retention_state)
         )
+        if ret == ConversationRetentionState.TOMBSTONED.value:
+            return False
+        tombstoned = Conversation(
+            conversation_id=conv.conversation_id,
+            owner_user_id=conv.owner_user_id,
+            title=conv.title,
+            created_at=conv.created_at,
+            updated_at=datetime.now(timezone.utc),
+            retention_state=ConversationRetentionState.TOMBSTONED,
+        )
+        self.conversations[conversation_id] = tombstoned
+        return True
 
     def get_message(self, message_id: str) -> Message | None:
         self.calls.append(("get_message", message_id))
@@ -114,7 +128,12 @@ class FakeConversationRepository:
                 return stored
         return None
 
-    def append_message(self, message: MessageDraft, message_id: str) -> Message:
+    def append_message(
+        self,
+        message: MessageDraft,
+        message_id: str,
+        outbox_event: dict | None = None,
+    ) -> Message:
         self.calls.append(("append_message", message.conversation_id, message_id))
         if self.remaining_message_identity_conflicts > 0:
             self.remaining_message_identity_conflicts -= 1
@@ -158,63 +177,48 @@ class FakeConversationRepository:
 
 
 @pytest.fixture
-def workspaces() -> FakeWorkspaceRepository:
-    return FakeWorkspaceRepository()
-
-
-@pytest.fixture
 def repository() -> FakeConversationRepository:
     return FakeConversationRepository()
 
 
 @pytest.fixture
-def service(
-    repository: FakeConversationRepository, workspaces: FakeWorkspaceRepository
-) -> ConversationService:
-    return ConversationService(
-        conversation_repository=repository, workspace_repository=workspaces
-    )
+def service(repository: FakeConversationRepository) -> ConversationService:
+    return ConversationService(conversation_repository=repository)
 
 
 def _seeded_conversation(
-    service: ConversationService, title: str | None = "Da Nang food plan"
+    service: ConversationService,
+    title: str | None = "Da Nang food plan",
+    owner_user_id: str = "local-user",
 ) -> Conversation:
     return service.create_conversation(
-        ConversationCreate(
-            owner_user_id="local-user", workspace_id=EXISTING_WORKSPACE, title=title
-        )
+        owner_user_id=owner_user_id,
+        title=title,
     )
 
 
-# 1. A missing parent workspace stops creation before any write.
-
-
-def test_create_under_a_missing_workspace_raises_and_writes_nothing(
-    service, repository, workspaces
-):
-    with pytest.raises(WorkspaceNotFoundError):
-        service.create_conversation(
-            ConversationCreate(
-                owner_user_id="local-user", workspace_id=MISSING_WORKSPACE
-            )
-        )
-
-    assert repository.writes == []
-    assert workspaces.calls == [("get", MISSING_WORKSPACE)]
-
-
-# 2. Creation returns the repository record with governed identity and defaults.
+# 1. Creation returns the repository record with governed identity and defaults.
 
 
 def test_create_returns_the_repository_record_with_governed_defaults(service):
     conversation = _seeded_conversation(service)
 
     assert conversation.conversation_id.startswith("cv_")
-    assert conversation.workspace_id == EXISTING_WORKSPACE
+    assert conversation.owner_user_id == "local-user"
     assert conversation.title == "Da Nang food plan"
     assert conversation.retention_state is ConversationRetentionState.ACTIVE
     assert conversation.created_at == conversation.updated_at
     assert conversation.created_at.utcoffset().total_seconds() == 0
+    assert not hasattr(conversation, "workspace_id")
+
+
+def test_create_accepts_conversation_create_object(service):
+    conversation = service.create_conversation(
+        ConversationCreate(owner_user_id="user-42", title="Trip to Hue")
+    )
+    assert conversation.owner_user_id == "user-42"
+    assert conversation.title == "Trip to Hue"
+    assert conversation.retention_state is ConversationRetentionState.ACTIVE
 
 
 def test_create_persists_through_the_repository(service, repository):
@@ -222,54 +226,54 @@ def test_create_persists_through_the_repository(service, repository):
     assert repository.conversations[conversation.conversation_id] == conversation
 
 
-# 3. Invalid input never reaches storage.
-
-
 def test_an_invalid_title_writes_nothing(repository, service):
     with pytest.raises(ConversationValidationError):
-        ConversationCreate(
-            owner_user_id="local-user", workspace_id=EXISTING_WORKSPACE, title="t" * 121
-        )
+        service.create_conversation(owner_user_id="local-user", title="t" * 121)
 
     assert repository.writes == []
 
 
 def test_create_rejects_a_non_contract_input_without_writing(service, repository):
     with pytest.raises(ConversationValidationError):
-        service.create_conversation({"workspace_id": EXISTING_WORKSPACE})
+        service.create_conversation(12345)  # type: ignore
 
     assert repository.writes == []
 
 
-# 4 and 5. Listing verifies the workspace and preserves repository order.
+def test_create_rejects_blank_owner_without_writing(service, repository):
+    with pytest.raises(ConversationValidationError):
+        service.create_conversation(owner_user_id="   ")
+
+    assert repository.writes == []
 
 
-def test_list_for_a_missing_workspace_raises_before_any_list_call(
-    service, repository, workspaces
+# 2. Duplicate identity collision on create is retried once.
+
+
+def test_duplicate_conversation_identity_is_retried_once_with_a_fresh_identity(
+    service, repository
 ):
-    with pytest.raises(WorkspaceNotFoundError):
-        service.list_conversations(MISSING_WORKSPACE)
+    repository.remaining_identity_conflicts = 1
 
-    assert [call for call in repository.calls if call[0] == "list_by_workspace"] == []
-    assert workspaces.calls == [("get", MISSING_WORKSPACE)]
+    conversation = _seeded_conversation(service)
 
-
-def test_list_returns_repository_order_without_resorting(service, repository):
-    first = _seeded_conversation(service, title="First")
-    second = _seeded_conversation(service, title="Second")
-    repository.list_order = (second, first)
-
-    listed = service.list_conversations(EXISTING_WORKSPACE)
-
-    assert listed == (second, first)
-    assert isinstance(listed, tuple)
+    attempted = [call[1] for call in repository.calls if call[0] == "create"]
+    assert len(attempted) == 2, "exactly one retry"
+    assert attempted[0] != attempted[1], "the retry must use a fresh identity"
+    assert conversation.conversation_id == attempted[1]
 
 
-def test_list_returns_an_empty_tuple_for_a_workspace_with_no_conversations(service):
-    assert service.list_conversations(EXISTING_WORKSPACE) == ()
+def test_second_conversation_identity_collision_fails_closed(service, repository):
+    repository.remaining_identity_conflicts = 2
+
+    with pytest.raises(ConversationStorageError):
+        _seeded_conversation(service)
+
+    assert len([call for call in repository.calls if call[0] == "create"]) == 2
+    assert repository.conversations == {}
 
 
-# 6. Reading one conversation reports absence rather than raising.
+# 3. Reading conversations: absence, owner-scoping, and retention hiding.
 
 
 def test_get_returns_none_for_a_missing_conversation(service):
@@ -286,7 +290,107 @@ def test_get_rejects_a_blank_identifier(service):
         service.get_conversation("   ")
 
 
-# 7 and 8. Appending validates existence and content before any write.
+def test_get_conversation_with_matching_owner(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    assert service.get_conversation(conv.conversation_id, owner_user_id="alice") == conv
+
+
+def test_get_conversation_with_foreign_owner_returns_none(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    assert service.get_conversation(conv.conversation_id, owner_user_id="bob") is None
+
+
+def test_get_conversation_for_owner_delegates_scoped_read(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    assert service.get_conversation_for_owner(conv.conversation_id, "alice") == conv
+    assert service.get_conversation_for_owner(conv.conversation_id, "bob") is None
+    assert service.get_conversation_for_owner("cv_absent", "alice") is None
+
+
+def test_get_conversation_hides_tombstoned_records(service, repository):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    repository.delete(conv.conversation_id)
+
+    assert service.get_conversation(conv.conversation_id) is None
+    assert service.get_conversation_for_owner(conv.conversation_id, "alice") is None
+
+
+# 4. Listing conversations by owner.
+
+
+def test_list_returns_repository_order_without_resorting(service, repository):
+    first = _seeded_conversation(service, title="First")
+    second = _seeded_conversation(service, title="Second")
+    repository.list_order = (second, first)
+
+    listed = service.list_conversations("local-user")
+
+    assert listed == (second, first)
+    assert isinstance(listed, tuple)
+
+
+def test_list_returns_empty_tuple_for_user_with_no_conversations(service):
+    assert service.list_conversations("nobody") == ()
+
+
+def test_list_conversations_excludes_other_owners(service):
+    _seeded_conversation(service, title="Alice conv", owner_user_id="alice")
+    _seeded_conversation(service, title="Bob conv", owner_user_id="bob")
+
+    alice_list = service.list_conversations("alice")
+    assert len(alice_list) == 1
+    assert alice_list[0].title == "Alice conv"
+
+    bob_list = service.list_conversations("bob")
+    assert len(bob_list) == 1
+    assert bob_list[0].title == "Bob conv"
+
+
+def test_list_conversations_rejects_blank_owner(service):
+    with pytest.raises(ConversationValidationError):
+        service.list_conversations("   ")
+
+
+def test_list_conversations_by_owner_alias(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    assert service.list_conversations_by_owner("alice") == (conv,)
+
+
+# 5. Conversation deletion (tombstoning).
+
+
+def test_delete_conversation_tombstones_and_hides_conversation(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+
+    service.delete_conversation(conv.conversation_id, "alice")
+
+    # Conversation is now absent from public get and list
+    assert service.get_conversation(conv.conversation_id) is None
+    assert service.get_conversation_for_owner(conv.conversation_id, "alice") is None
+    assert service.list_conversations("alice") == ()
+
+
+def test_delete_conversation_for_foreign_owner_raises_not_found(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+
+    with pytest.raises(ConversationNotFoundError):
+        service.delete_conversation(conv.conversation_id, "bob")
+
+
+def test_delete_conversation_for_missing_conversation_raises_not_found(service):
+    with pytest.raises(ConversationNotFoundError):
+        service.delete_conversation("cv_missing", "alice")
+
+
+def test_delete_already_tombstoned_conversation_raises_not_found(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    service.delete_conversation(conv.conversation_id, "alice")
+
+    with pytest.raises(ConversationNotFoundError):
+        service.delete_conversation(conv.conversation_id, "alice")
+
+
+# 6. Message append with validation, time, ordering, and retry.
 
 
 def test_append_to_a_missing_conversation_raises_and_writes_nothing(
@@ -298,6 +402,33 @@ def test_append_to_a_missing_conversation_raises_and_writes_nothing(
         )
 
     assert repository.writes == []
+
+
+def test_append_with_matching_owner_succeeds(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    msg = service.append_message(
+        conversation_id=conv.conversation_id,
+        role=MessageRole.USER,
+        content="xin chào",
+        owner_user_id="alice",
+    )
+    assert msg.sequence == 1
+    assert msg.content == "xin chào"
+
+
+def test_append_with_foreign_owner_raises_not_found(service, repository):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    writes_before = len(repository.writes)
+
+    with pytest.raises(ConversationNotFoundError):
+        service.append_message(
+            conversation_id=conv.conversation_id,
+            role=MessageRole.USER,
+            content="xin chào",
+            owner_user_id="bob",
+        )
+
+    assert len(repository.writes) == writes_before
 
 
 @pytest.mark.parametrize("content", ["", "   ", None])
@@ -316,11 +447,6 @@ def test_append_with_invalid_content_writes_nothing(service, repository, content
 
 
 def test_append_with_a_restricted_role_is_accepted_at_the_service_layer(service):
-    """The public role restriction belongs to the route, not the service.
-
-    The orchestrator writes `assistant` turns through this same service, so the
-    service must not refuse the role that the public route rejects.
-    """
     conversation = _seeded_conversation(service)
 
     stored = service.append_message(
@@ -332,9 +458,6 @@ def test_append_with_a_restricted_role_is_accepted_at_the_service_layer(service)
 
     assert stored.role is MessageRole.ASSISTANT
     assert stored.source is MessageSource.MODEL
-
-
-# 9. The service owns time; the repository owns position.
 
 
 def test_append_sets_created_at_and_leaves_sequence_to_the_repository(service):
@@ -373,32 +496,6 @@ def test_append_increments_the_repository_assigned_sequence(service):
     assert (first.sequence, second.sequence) == (1, 2)
 
 
-# 10 and 11. A generated identity collision is retried exactly once.
-
-
-def test_duplicate_conversation_identity_is_retried_once_with_a_fresh_identity(
-    service, repository
-):
-    repository.remaining_identity_conflicts = 1
-
-    conversation = _seeded_conversation(service)
-
-    attempted = [call[1] for call in repository.calls if call[0] == "create"]
-    assert len(attempted) == 2, "exactly one retry"
-    assert attempted[0] != attempted[1], "the retry must use a fresh identity"
-    assert conversation.conversation_id == attempted[1]
-
-
-def test_second_conversation_identity_collision_fails_closed(service, repository):
-    repository.remaining_identity_conflicts = 2
-
-    with pytest.raises(ConversationStorageError):
-        _seeded_conversation(service)
-
-    assert len([call for call in repository.calls if call[0] == "create"]) == 2
-    assert repository.conversations == {}
-
-
 def test_duplicate_message_identity_is_retried_once_with_a_fresh_identity(
     service, repository
 ):
@@ -433,12 +530,6 @@ def test_second_message_identity_collision_fails_closed(service, repository):
 
 
 def test_sequence_collision_is_retried_once_then_succeeds(service, repository):
-    """A contested turn position must be retried, not surfaced immediately.
-
-    The adapter re-reads `MAX(sequence)` on every attempt, so one retry is enough
-    to re-allocate a position that another writer took between the read and the
-    insert.
-    """
     conversation = _seeded_conversation(service)
     repository.remaining_sequence_conflicts = 1
 
@@ -472,11 +563,6 @@ def test_second_sequence_collision_fails_closed_without_partial_write(
 
 
 def test_sequence_conflict_does_not_escape_as_a_repository_error(service, repository):
-    """The route must never map a retried position conflict to a raw conflict.
-
-    A caller that hits a single position conflict gets a stored turn, so
-    `MessageSequenceConflictError` must not reach the route layer at all.
-    """
     conversation = _seeded_conversation(service)
     repository.remaining_sequence_conflicts = 1
 
@@ -489,12 +575,21 @@ def test_sequence_conflict_does_not_escape_as_a_repository_error(service, reposi
     assert stored.message_id.startswith("ms_")
 
 
-# 12 and 13. History verifies existence and delegates resolved paging.
+# 7. History and Range reading.
 
 
 def test_list_messages_for_a_missing_conversation_raises(service):
     with pytest.raises(ConversationNotFoundError):
         service.list_messages(MessageHistoryQuery(conversation_id="cv_absent"))
+
+
+def test_list_messages_with_foreign_owner_raises_not_found(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    with pytest.raises(ConversationNotFoundError):
+        service.list_messages(
+            MessageHistoryQuery(conversation_id=conv.conversation_id),
+            owner_user_id="bob",
+        )
 
 
 def test_list_messages_passes_the_resolved_cursor_and_limit_through(
@@ -559,7 +654,7 @@ def test_list_messages_rejects_a_cursor_from_another_conversation(service, repos
     assert (
         len([call for call in repository.calls if call[0] == "list_messages"])
         == calls_before
-    ), "an invalid cursor must be rejected before any page is read"
+    )
 
 
 def test_list_messages_rejects_an_unknown_cursor(service):
@@ -579,7 +674,35 @@ def test_list_messages_requires_a_history_query_contract(service):
         service.list_messages({"conversation_id": "cv_example"})
 
 
-# 14. The service's dependency boundary, asserted against the import graph.
+def test_get_history_for_owner_succeeds(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    service.append_message(
+        conversation_id=conv.conversation_id,
+        role=MessageRole.USER,
+        content="hello alice",
+    )
+    history = service.get_history(conv.conversation_id, "alice")
+    assert len(history) == 1
+    assert history[0].content == "hello alice"
+
+
+def test_get_history_with_foreign_owner_raises_not_found(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    with pytest.raises(ConversationNotFoundError):
+        service.get_history(conv.conversation_id, "bob")
+
+
+def test_get_messages_in_range(service):
+    conv = _seeded_conversation(service)
+    service.append_message(conv.conversation_id, MessageRole.USER, "m1")
+    service.append_message(conv.conversation_id, MessageRole.USER, "m2")
+
+    messages = service.get_messages_in_range(conv.conversation_id, after_sequence=1, limit=5)
+    assert len(messages) == 1
+    assert messages[0].content == "m2"
+
+
+# 8. Dependency boundary assertion.
 
 FORBIDDEN_RUNTIME_MODULES = (
     "fastapi",
@@ -590,18 +713,17 @@ FORBIDDEN_RUNTIME_MODULES = (
     "backend.rag",
     "backend.app",
     "backend.storage",
+    "backend.workspaces",
 )
 
 
 def test_service_module_declares_no_forbidden_direct_import():
-    """Read the module's import statements from its AST, not its raw text."""
     source_path = ROOT_DIR / "backend" / "conversations" / "service.py"
     tree = ast.parse(source_path.read_text(encoding="utf-8"))
 
     runtime_imports: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.If):
-            # `if TYPE_CHECKING:` blocks never execute at runtime.
             continue
         if isinstance(node, ast.Import):
             runtime_imports.update(alias.name for alias in node.names)
@@ -618,7 +740,6 @@ def test_service_module_declares_no_forbidden_direct_import():
 
 
 def test_importing_the_service_loads_no_forbidden_module():
-    """Import the service in a clean interpreter and inspect the real graph."""
     code = (
         "import json, sys;"
         "import backend.conversations.service;"
@@ -642,8 +763,3 @@ def test_importing_the_service_loads_no_forbidden_module():
     assert offending == set(), (
         f"importing the conversation service loaded forbidden modules: {offending}"
     )
-
-
-def test_get_workspace_owner_id_returns_label_or_none(service: ConversationService):
-    assert service.get_workspace_owner_id(EXISTING_WORKSPACE) == "local-user"
-    assert service.get_workspace_owner_id(MISSING_WORKSPACE) is None
