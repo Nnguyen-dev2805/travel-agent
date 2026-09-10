@@ -1,9 +1,10 @@
 # Travel Agent
 
-Travel Agent is an early-stage open-source travel assistant prototype using
-retrieval-augmented generation. Today it is a local RAG chat prototype.
-Evaluated trip planning, trip workspaces, and layered memory are planned
-direction, not implemented behavior.
+Travel Agent is an open-source travel assistant application using
+retrieval-augmented generation (RAG). Today it provides authenticated standalone
+chat backed by PostgreSQL 16. Legacy capabilities (Workspace containers, Planner
+state, legacy memory, and local SQLite-first persistence) have been cleanly
+retired per ADRs 0018–0022.
 
 ## Current Status
 
@@ -11,19 +12,28 @@ The current repository is useful for learning, local inspection, and shaping the
 foundation of a production-oriented travel assistant. It should not be treated
 as a finished product, a quality-certified RAG system, or a production service.
 
-The implemented browser flow sends a single chat message to the backend, asks
-the RAG service for retrieved travel context, and returns a reply with
-citations. The public request contract contains only `message`; it does not yet
-include user, trip, conversation, or memory identity.
+The mounted architecture provides authenticated standalone Chat with Retrieval-Augmented
+Generation (RAG) and conversation lifecycle management backed by PostgreSQL 16.
+All product routes require mandatory Bearer token authentication with strict
+cross-owner tenant isolation. Legacy Workspace, Planner, legacy Memory, and
+SQLite stores are retired.
 
 ## What Works Today
 
-- A React/Vite frontend can post chat messages to the backend API.
-- A FastAPI backend exposes `/health` and `/api/v1/chat`.
-- The chat path uses a RAG service that embeds the message, queries local
-  Chroma data, and calls a configured external model endpoint.
-- Responses include `reply`, `model`, and `citations` fields.
-- Docker Compose defines a local frontend/backend development stack.
+- Authenticated standalone Chat (`POST /api/v1/chat`) with automatic conversation
+  creation and sequential continuation.
+- PostgreSQL 16 persistence for conversations, messages, and transactional outbox
+  under Alembic migration head `20260910_01`.
+- Standalone conversation CRUD and history API (`/api/v1/conversations`).
+- Mandatory Bearer token authentication and tenant row-level security (RLS).
+- Decoupled basic semantic memory write pipeline capturing turn candidates asynchronously.
+- Ops readiness endpoint (`GET /api/v1/ops/readiness`) verifying PostgreSQL, Alembic
+  head, Chroma, and model provider.
+- RAG generation service embedding messages (`BAAI/bge-m3`), querying Chroma vectors,
+  and formatting citations.
+- React/Vite frontend and Docker Compose local development stack.
+- Retired legacy capabilities: Workspace, Planner, legacy Memory, and SQLite
+  persistence have been removed.
 
 ## Quick Start
 

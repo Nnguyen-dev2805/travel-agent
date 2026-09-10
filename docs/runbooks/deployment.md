@@ -91,6 +91,52 @@ pass, promotion should follow this provider-neutral sequence:
 Provider commands, URLs, DNS records, credentials, and vendor settings are
 intentionally absent until their architecture is approved.
 
+## PostgreSQL Migration Cutover Sequence (ADR 0022)
+
+For environments transitioning to the clean-break architecture:
+
+1. **Database Readiness**: Verify PostgreSQL 16 connectivity and permissions:
+   ```bash
+   pg_isready -h localhost -p 5433 -U travel_agent -d travel_agent
+   ```
+2. **Execute Alembic Migration**: Apply all migrations up to the clean-break head (`20260910_01`):
+   ```bash
+   DATABASE_URL="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" alembic upgrade head
+   ```
+3. **Verify Migration Head**: Confirm current database revision matches `20260910_01`:
+   ```bash
+   alembic current
+   ```
+4. **Ops Readiness Probe**: Query the authenticated ops readiness endpoint:
+   ```bash
+   curl -H "Authorization: Bearer <token>" http://localhost:8000/api/v1/ops/readiness
+   ```
+   Ensure `postgres` and `alembic_head` component states report `ready`.
+
+## Clean Break Verification
+
+Before accepting deployment, verify architectural boundaries:
+
+1. **Mounted Route Enforcement**: Exactly 8 routes mounted (health, ops readiness, chat, conversations CRUD). All `/api/v1/workspaces/*` and `/api/v1/planner/*` routes must return `404 Not Found`.
+2. **Mandatory Bearer Authentication**: Requests to `/api/v1/chat` or `/api/v1/conversations` without credentials must return `401 Unauthorized`.
+3. **Cross-Owner Isolation**: Accessing a conversation belonging to another principal must return content-free `404 Not Found`.
+4. **Boundary Sentinels**: Run the boundary test suite:
+   ```bash
+   pytest backend/tests/boundaries/ -v
+   ```
+
+## Rollback Boundaries (ADR 0022)
+
+Per ADR 0022, clean cutover without dual-writing maintains deterministic rollback boundaries:
+
+1. **Database Schema Rollback**: The clean-break migration provides a tested `downgrade()` implementation:
+   ```bash
+   alembic downgrade 20260907_03
+   ```
+   This restores the historical `workspaces` table and `workspace_id` column if required for prior application images.
+2. **Application Rollback**: If health, readiness, or boundary verification fails, rollback the application container to the prior release artifact.
+3. **Data Loss Boundary**: In the development prototype phase, no live user data exists. If schema rollback encounters inconsistencies, re-provisioning a clean database and re-applying migrations to the target revision is the deterministic recovery path.
+
 ## Post-deployment Verification
 
 Post-deployment verification must cover the release's actual behavior, not only

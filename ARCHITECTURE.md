@@ -2,428 +2,115 @@
 
 ## Scope
 
-This document is the high-level architecture gateway for the current Travel
-Agent prototype. It describes implemented components and configured local
-development paths only. It is not the final target architecture and does not
-replace approved specifications, implementation plans, or ADRs.
+This document is the high-level architecture gateway for the Travel Agent application following the clean-break baseline per ADRs 0018–0022 and the governing design specification `docs/specs/2026-09-10-authenticated-chat-postgresql-clean-break-design.md`.
 
-Codebase Memory was checked at Verify tier for the material backend and RAG
-paths used here. Coverage returned `no_recorded_issue` and `metadata_match` for
-the cited code paths at generation `2026-08-31T00:12:09Z`; that is a
-best-effort signal, not proof of semantic completeness. Exact source and
-configuration files were also read directly.
+It describes the mounted components, runtime flows, and storage boundaries implemented in this repository. Legacy prototypes (Workspace containers, Planner state, legacy memory, and local SQLite persistence) have been cleanly retired.
 
 ## Detailed Architecture
 
-Use these Package 3 architecture documents for deeper review:
+Use these architecture documents for deeper review:
 
-1. [Current-state Architecture](docs/architecture/current-state.md) records the
-   evidence-backed implemented baseline.
-2. [Target-state Architecture](docs/architecture/target-state.md) describes the
-   proposed workspace-first layered-memory architecture.
-3. [Data Model](docs/architecture/data-model.md) defines the conceptual target
-   model for workspaces, memory, retrieval, and evaluation traces.
+1. [Current-state Architecture](docs/architecture/current-state.md) records the evidence-backed implemented baseline.
+2. [Target-state Architecture](docs/architecture/target-state.md) outlines future capability directions.
+3. [Data Model](docs/architecture/data-model.md) defines conceptual entities.
 
-## Current Components
+## Active Runtime Components
 
-| Component | Current responsibility | Evidence |
+The application is structured around a single composition root (`RuntimeContainer`) and mounts exactly 8 endpoints:
+
+| Component | Current Responsibility | Evidence |
 | --- | --- | --- |
-| React/Vite client | Sends a chat `message` to the backend API and renders the returned response | `frontend/src/services/api.js`, `frontend/package.json` |
-| FastAPI application | Mounts `/health`, `/api/v1/chat`, `/api/v1/workspaces`, the `/api/v1` conversation routes, memory routes, and planner routes, configures local CORS, and attempts RAG pre-warm during startup | `backend/app/main.py` |
-| Health route | Returns service health metadata for local inspection | `backend/app/api/health.py` |
-| Chat route | Validates one stripped message, logs a message prefix, delegates one turn to the conversation orchestrator, and returns reply/model/citations plus an optional `conversation` object | `backend/app/api/chat.py`, `backend/app/schemas/chat.py` |
-| Workspace routes | Create, retrieve, and list local trip workspace records behind the workspace service; construct no RAG, embedding, or model-provider dependency | `backend/app/api/workspaces.py`, `backend/app/schemas/workspaces.py` |
-| Conversation routes | Create and inspect conversations and append and read messages behind the conversation service; enforce the public role restriction; construct no RAG, embedding, or model-provider dependency | `backend/app/api/conversations.py`, `backend/app/schemas/conversations.py` |
-| Workspace module | Owns `TripWorkspace` contracts, validation, identity generation, timestamps, and the storage interface | `backend/workspaces/models.py`, `backend/workspaces/service.py`, `backend/workspaces/repository.py` |
-| Conversation module | Owns `Conversation` and `Message` contracts, the governed role, source, trace-visibility and retention vocabularies, validation, identity generation, timestamps, cursor resolution, and the storage interface | `backend/conversations/models.py`, `backend/conversations/service.py`, `backend/conversations/repository.py` |
-| Conversation orchestrator | Coordinates conversation persistence with RAG generation for one chat turn and reports the persistence outcome truthfully | `backend/orchestration/conversation_orchestrator.py` |
-| Memory routes | Trigger manual shadow extraction runs and list run/candidate evidence for a workspace or conversation; construct no RAG, embedding, or model-provider dependency | `backend/app/api/memory.py`, `backend/app/schemas/memory.py` |
-| Memory module | Owns `MemoryCandidate` and `MemoryExtractionRun` contracts, deterministic rule-based extraction, policy decisions, service use cases, and the storage interface | `backend/memory/models.py`, `backend/memory/extraction.py`, `backend/memory/policy.py`, `backend/memory/service.py`, `backend/memory/repository.py` |
-| Memory evaluation | Replays tracked synthetic fixtures end to end and writes a shadow report with result state and hard-gate evidence | `backend/memory/evaluation/runner.py`, `backend/memory/evaluation/cli.py` |
-| Memory promotion and retrieval | Promotes eligible accepted candidates into `mem_` records with supersession, and selects in-scope active records by deterministic lexical ranking | `backend/memory/promotion.py`, `backend/memory/retrieval.py` |
-| Feature-gated chat memory | Bound turns compose selected memory with RAG context only when `MEMORY_RETRIEVAL_ENABLED` is true; gate-off and unbound turns keep R4/R5 behavior exactly | `backend/orchestration/conversation_orchestrator.py`, `backend/orchestration/memory_context.py` |
-| Planner routes | Create, read, accept, archive, decide, and inspect planner state behind `PlannerService`; construct no RAG, embedding, memory, or model-provider dependency | `backend/app/api/planner.py`, `backend/app/schemas/planner.py` |
-| Planner module | Owns `ItineraryVersion`, `TripDecision`, and `PlannerOperation` contracts, lifecycle use cases, operation evidence, the storage interface, and deterministic state evaluation | `backend/planner/models.py`, `backend/planner/service.py`, `backend/planner/repository.py`, `backend/planner/evaluation/runner.py` |
-| Security boundary | Owns local bearer-token principals, owner authorization helpers, request-size and CORS guards, and deterministic security evaluation; token values never appear in logs, errors, responses, or reports | `backend/security/models.py`, `backend/security/local_tokens.py`, `backend/security/dependencies.py`, `backend/security/authorization.py`, `backend/security/evaluation/runner.py` |
-| Privacy deletion | Coordinates ordered workspace deletion across repository adapters with fail-closed barriers and verified confirmation; tombstones remain in local SQLite | `backend/privacy/deletion.py` |
-| Observability contracts and redaction | Own `OperationalEvent` and readiness contracts, closed event vocabularies, and safe-field validation that rejects content keys and redacts token-like, path-like, and content-like values; standard library only | `backend/observability/models.py`, `backend/observability/redaction.py` |
-| Request correlation and event logging | Binds a server-owned `rq_` request id per request, returns it in the `X-Request-ID` response header, and writes one JSON event record per emission with pre-serialization redaction | `backend/observability/context.py`, `backend/observability/events.py`, `backend/app/main.py` |
-| Ops readiness route | Returns a read-only local readiness snapshot with component states and reason codes; creates no databases, collections, or schema, and calls no external provider | `backend/app/api/ops.py`, `backend/observability/readiness.py` |
-| Operational evaluation | Replays tracked synthetic suites through the real observability code and writes a Markdown and JSON report with result state and gate evidence | `backend/observability/evaluation/runner.py`, `backend/observability/evaluation/cli.py` |
-| Shared schema registry | Owns the `PRAGMA user_version` store marker and the `schema_versions` table, registers or verifies one module's schema version, and fails closed on unknown ownership or an unsupported version | `backend/storage/schema_registry.py` |
-| Shared local application store | One local SQLite file at `APP_DB_PATH` holding trip workspace, conversation, message, memory, and planner records with per-module schema versions | `backend/workspaces/sqlite_repository.py`, `backend/conversations/sqlite_repository.py`, `backend/planner/sqlite_repository.py` |
-| RAG generation service | Embeds the user message, retrieves Chroma context, builds the model prompt, calls the configured external model endpoint, and formats citations | `backend/rag/generation/rag_service.py` |
-| Vector embedder | Lazily loads `BAAI/bge-m3` when sentence-transformers is available, with a deterministic fallback when it is not installed | `backend/rag/embedding/embedder.py` |
-| Chroma vector store | Creates or opens persistent local Chroma collections under `data/chromadb` by default | `backend/rag/retrieval/vector_store.py` |
-| Offline indexing script | Loads travel data, chunks it, embeds it, and upserts baseline and parent-child Chroma collections | `backend/rag/indexing.py` |
-| Docker Compose stack | Defines local backend and frontend services, ports, bind mounts, `.env`, and model cache mount | `docker-compose.yml` |
-| External model service | Receives chat-completions requests through an OpenAI-compatible client configured from backend settings | `backend/app/config.py`, `backend/rag/generation/rag_service.py` |
+| **React/Vite client** | Browser UI sending authenticated chat requests to backend API | `frontend/src/services/api.js`, `frontend/package.json` |
+| **FastAPI application** | Lifespan management, security middleware, content-free error handling, and router mounting | `backend/app/main.py` |
+| **RuntimeContainer** | Composition root managing application dependencies, engine disposal, repository lifecycle, and observability probes | `backend/app/runtime_container.py` |
+| **Health route** | Public service health check (`/health`) | `backend/app/api/health.py` |
+| **Ops readiness route** | Authenticated readiness probe checking PostgreSQL, Alembic head, Chroma, and model provider (`/api/v1/ops/readiness`) | `backend/app/api/ops.py`, `backend/observability/readiness.py` |
+| **Chat route** | Authenticated endpoint (`/api/v1/chat`) auto-creating or continuing conversations, orchestrating RAG generation, and asynchronously capturing outbox events | `backend/app/api/chat.py`, `backend/orchestration/conversation_orchestrator.py` |
+| **Conversation routes** | Standalone conversation CRUD and history API (`/api/v1/conversations`) owned directly by authenticated users | `backend/app/api/conversations.py`, `backend/conversations/service.py` |
+| **PostgreSQL conversation store** | Persists standalone conversations, sequential messages, and conversation outbox entries atomically under PostgreSQL | `backend/conversations/postgres_repository.py` |
+| **Security boundary** | Mandatory local bearer token authentication, principal extraction, tenant isolation, body size limiting, and restricted CORS | `backend/security/` |
+| **BackgroundMemoryRecorder** | Decoupled post-turn background recorder seam capturing memory extraction candidates into the transactional outbox | `backend/orchestration/conversation_orchestrator.py` |
+| **Basic Semantic Memory Write Pipeline** | Versioned assertions, authority ranking, row-level locking, idempotent commits, and background shadow worker | `backend/memory/write_pipeline/` |
+| **RAG generation service** | Embeds user queries (`BAAI/bge-m3`), searches Chroma vector store, formats prompts, and calls the configured model endpoint | `backend/rag/generation/rag_service.py` |
+| **Observability & redaction** | Correlated request IDs (`X-Request-ID`, `rq_...`), structured redaction of tokens/paths/content, and audit logging | `backend/observability/` |
+
+## Retired Capabilities
+
+The following legacy prototypes have been removed from active runtime per ADRs 0018–0022:
+- **Workspace Containers**: `workspaces` table dropped; conversations are standalone and owned directly by `owner_user_id`.
+- **Trip Planner State**: Planner routes, schemas, and state tables retired.
+- **Legacy Memory**: In-process rule-based memory extraction and promotion routes retired in favor of the decoupled basic semantic memory write pipeline.
+- **SQLite Storage**: Local SQLite files (`APP_DB_PATH`, `WORKSPACE_DB_PATH`) and SQLite repository adapters retired; PostgreSQL 16 is the sole database.
+- **Unauthenticated Compatibility Mode**: historical `AUTH_REQUIRED=false` bypass removed; all product routes strictly enforce Bearer authentication.
 
 ## Online Request Flow
 
 ```mermaid
 sequenceDiagram
-    participant Browser as React/Vite browser
-    participant API as FastAPI /api/v1/chat
+    participant Browser as React / Vite Client
+    participant Main as FastAPI App & Security
+    participant API as Chat Endpoint (/api/v1/chat)
     participant Orch as ConversationOrchestrator
+    participant PG as PostgreSQL 16
     participant RAG as RAGService
-    participant Embedder as VectorEmbedder
-    participant Chroma as Local Chroma
-    participant Model as External model endpoint
+    participant Recorder as BackgroundMemoryRecorder
 
-    Browser->>API: POST message
-    API->>API: strip message and log prefix
-    API->>Orch: handle_turn(message, conversation_id=None)
+    Browser->>Main: POST /api/v1/chat (Bearer Token, message, [conversation_id])
+    Main->>Main: Verify Bearer Token -> Principal(owner_user_id)
+    Main->>API: Validated Request + Principal
+    alt First turn (no conversation_id)
+        API->>Orch: handle_turn(message, conversation_id=None, owner_user_id)
+        Orch->>PG: Auto-create Conversation(cv_..., owner_user_id)
+    else Subsequent turn (with conversation_id)
+        API->>Orch: handle_turn(message, conversation_id=cv_..., owner_user_id)
+        Orch->>PG: Verify ownership of conversation (404 if cross-owner)
+    end
+    Orch->>PG: Append User Message(ms_..., sequence=N)
     Orch->>RAG: generate_answer(message, top_k=4)
-    RAG->>Embedder: embed_query(message)
-    Embedder-->>RAG: query vector
-    RAG->>Chroma: search_similar(vector, top_k)
-    Chroma-->>RAG: retrieved travel context and metadata
-    RAG->>Model: system prompt with retrieved context + user message
-    Model-->>RAG: generated answer
-    RAG-->>Orch: reply, model, citations
-    Orch-->>API: TurnOutcome without persistence
-    API-->>Browser: ChatResponse
+    RAG-->>Orch: Answer, citations, model metadata
+    Orch->>PG: Append Assistant Message(ms_..., sequence=N+1)
+    Orch->>Recorder: record_turn_async(conversation_id, message_ids)
+    Recorder->>PG: Write conversation_outbox event (atomic with turn)
+    Orch-->>API: TurnOutcome (reply, conversation metadata, citations)
+    API-->>Browser: 200 OK ChatResponse
 ```
 
-The browser posts to `${VITE_API_URL}/api/v1/chat`, defaulting to
-`http://localhost:8000`. The backend strips the incoming message and rejects an
-empty value. The route requests up to four retrieval results, then the RAG service
-sends both the user message and retrieved travel context to the configured
-external model endpoint.
+## Storage Architecture
 
-This is the unbound path, which is what the browser still sends. It performs no
-persistence and resolves no conversation storage. The bound variant is shown in
-[Local Conversation Flow](#local-conversation-flow).
+PostgreSQL 16 is the sole relational storage engine, managed via Alembic migrations up to head revision `20260910_01` (`20260910_01_clean_break_remove_workspace`).
 
-## Offline Data Flow
+### Active Relational Tables
+1. `conversations`: Standalone conversations (`conversation_id`, `owner_user_id` NOT NULL, `title`, `retention_state`, timestamps).
+2. `messages`: Sequential conversation messages (`message_id`, `conversation_id`, `sequence`, `role`, `content`, `source`, `trace_visibility`, `created_at`).
+3. `conversation_outbox`: Transactional outbox events for asynchronous candidate extraction (`outbox_id`, `conversation_id`, `message_id`, `owner_user_id`, `event_type`, `payload`, `status`, `lease_owner`, `lease_until`, `attempt_count`).
+4. Basic Semantic Memory Write Pipeline tables (`memory_assertions`, `memory_versions`, `memory_evidence`, `memory_decisions`, `memory_candidates`, `memory_events`, `memory_outbox`, `memory_write_idempotency`).
 
-Offline data preparation is opt-in and state-changing. The indexing script
-selects processed data paths when present, falls back to legacy data paths,
-loads travel documents, creates baseline fixed-size chunks and parent-child
-chunks, embeds text with `BAAI/bge-m3`, and upserts vectors into persistent
-Chroma collections.
-
-```mermaid
-flowchart LR
-    Source[Processed or legacy travel data] --> Load[Load JSONL dataset]
-    Load --> Chunk[Chunk documents]
-    Chunk --> Embed[Embed text]
-    Embed --> Store[Upsert Chroma collections]
-    Store --> Disk[data/chromadb]
-```
-
-This flow may read and write local data, use model cache, and require network
-access if the embedding model is not already available.
-
-## Local Workspace Flow
-
-Milestone `R3` adds a backend-only trip workspace path beside chat.
-`TripWorkspace` is the primary product container per ADR 0002, and local SQLite is
-an adapter behind the repository boundary per ADR 0003.
-
-```mermaid
-flowchart LR
-    Caller[Local caller] --> Routes[FastAPI /api/v1/workspaces]
-    Routes --> Service[WorkspaceService]
-    Service --> Interface[WorkspaceRepository interface]
-    Interface --> Adapter[SQLiteWorkspaceRepository]
-    Adapter --> Registry[Shared schema registry]
-    Registry --> DB[(APP_DB_PATH)]
-```
-
-Route handlers hold no SQL, table DDL, path creation, or connection management.
-The service owns validation, identity generation, and timestamps. Only the
-adapter and the shared schema registry import `sqlite3`.
-
-This path is independent of RAG: workspace routes construct no embedder, Chroma
-collection, or model-provider client, and `backend/rag` imports no workspace
-module. Compatibility mode keeps it unauthenticated local development
-behavior; auth-enabled mode gates it behind the bearer registry. Neither
-mode must be exposed publicly.
-
-## Local Conversation Flow
-
-Milestone `R4` adds conversation and message persistence beside workspaces, and
-introduces the `Conversation Orchestrator` seam that the target architecture
-already named. One shared local SQLite file holds every relational product record
-with per-module schema versions per ADR 0004.
-
-```mermaid
-flowchart LR
-    Caller[Local caller] --> Routes[FastAPI conversation routes]
-    Routes --> Service[ConversationService]
-    Service --> Interface[ConversationRepository interface]
-    Service --> WSInterface[WorkspaceRepository interface]
-    Interface --> Adapter[SQLiteConversationRepository]
-    Adapter --> Registry[Shared schema registry]
-    Registry --> DB[(APP_DB_PATH)]
-```
-
-A chat turn that opts in follows a second path, in which coordination lives in the
-orchestrator rather than in the route or in the RAG module per ADR 0005:
-
-```mermaid
-sequenceDiagram
-    participant API as FastAPI /api/v1/chat
-    participant Orch as ConversationOrchestrator
-    participant Conv as ConversationService
-    participant RAG as RAGService
-
-    API->>Orch: handle_turn(message, conversation_id)
-    Orch->>Conv: append user turn
-    Conv-->>Orch: user message with sequence
-    Orch->>RAG: generate_answer(message, top_k=4)
-    RAG-->>Orch: reply, model, citations
-    Orch->>Conv: append assistant turn
-    Conv-->>Orch: assistant message with sequence
-    Orch-->>API: TurnOutcome with persistence result
-```
-
-The user turn is persisted before generation, so a caller is never charged for an
-unrecorded turn. An assistant-turn write failure returns the reply with
-`persisted` `false` rather than hiding the gap. An unbound turn resolves no
-conversation service at all, which is what keeps the pre-`R4` chat contract and
-its failure modes unchanged.
-
-Message `content` is stored, never logged, and never deleted by `R4`.
-
-## Shadow Memory Flow
-
-Milestone `R5` adds backend-only shadow memory extraction beside workspaces
-and conversations. Candidates are measured but never used in answers, per
-ADR 0006.
-
-```mermaid
-flowchart LR
-    Caller[Local caller] --> Routes[FastAPI memory routes]
-    Routes --> Service[MemoryService]
-    Service --> Conv[ConversationRepository interface]
-    Service --> WS[WorkspaceRepository interface]
-    Service --> Ext[RuleBasedMemoryExtractor]
-    Service --> Pol[MemoryPolicy]
-    Ext --> Draft[MemoryCandidateDraft]
-    Pol --> Draft
-    Service --> Interface[MemoryRepository interface]
-    Interface --> Adapter[SQLiteMemoryRepository]
-    Adapter --> Registry[Shared schema registry]
-    Registry --> DB[(APP_DB_PATH)]
-```
-
-The service validates workspace, conversation, and scope provenance before
-extraction, persists a `MemoryExtractionRun` with per-status counts, and
-persists the decided `MemoryCandidate` rows. Extraction proposes; policy
-decides `accepted`, `rejected`, `needs_user_action`, or `invalid`. `accepted`
-means accepted into the shadow candidate set for evaluation only.
-
-A separate evaluation command replays tracked synthetic fixtures under
-`docs/evaluation/fixtures/memory/` through the same service and writes a
-report with result state (`PASS`, `FAIL`, `INCONCLUSIVE`, `INVALID`) and
-hard-gate evidence. Candidate `text` is excluded from HTTP responses;
-reports carry identifiers, counts, and controlled reason codes only.
-
-This path is independent of RAG: memory routes construct no embedder, Chroma
-collection, or model-provider client, `backend/rag` imports no memory module,
-and no candidate enters `ContextBundle`, prompt assembly, retrieval, or
-generated answers. Compatibility mode keeps it unauthenticated local
-development behavior; auth-enabled mode gates it behind the bearer
-registry. Neither mode must be exposed publicly.
-
-## Trip Planner State Flow
-
-Milestone `R7` adds backend-only planner state beside workspaces, conversations,
-and memory. Planner writes are explicit and always leave operation evidence, per
-ADR 0008.
-
-```mermaid
-flowchart LR
-    Caller[Local caller] --> Routes[FastAPI planner routes]
-    Routes --> Service[PlannerService]
-    Service --> WS[WorkspaceRepository interface]
-    Service --> Conv[ConversationRepository interface]
-    Service --> Interface[PlannerRepository interface]
-    Interface --> Adapter[SQLitePlannerRepository]
-    Adapter --> Registry[Shared schema registry]
-    Registry --> DB[(APP_DB_PATH)]
-```
-
-The service validates workspace and optional conversation provenance, then
-decides the lifecycle transition; the adapter performs the scoped write. Each
-successful state change and its `PlannerOperation` row commit in one transaction,
-so a stored itinerary or decision can never exist without the operation that
-produced it, and a rejected request writes nothing. Itinerary versions are
-immutable snapshots: accepting one supersedes prior accepted versions in the same
-workspace instead of editing them, and rejected decisions stay listable as
-decision evidence.
-
-A separate evaluation command replays tracked synthetic suites under
-`docs/evaluation/fixtures/planner/` through the same service and writes a report
-with result state (`PASS`, `FAIL`, `INCONCLUSIVE`, `INVALID`) and per-gate
-evidence.
-
-This path is independent of RAG and memory: planner routes construct no
-embedder, Chroma collection, memory service, or model-provider client;
-`backend/planner` imports no RAG, memory, or orchestration module, and none of
-those import planner. Chat never creates planner state. Compatibility mode
-keeps it unauthenticated local development behavior; auth-enabled mode
-gates it behind the bearer registry. Neither mode must be exposed
-publicly.
+### Concurrency and Isolation
+- **Row-Level Security (RLS)**: Active across owner tables with tenant policies (`app.tenant = owner_user_id`).
+- **FOR UPDATE SKIP LOCKED**: Outbox workers claim distinct conversations concurrently without contention.
+- **One Active Version Constraint**: Partial unique index ensures assertion integrity.
 
 ## Trust Boundaries
 
-| Boundary | Current implication |
+| Boundary | Implemented Security Control |
 | --- | --- |
-| Browser to local API | Local browser requests cross into the FastAPI process through local CORS configuration. Compatibility mode keeps permissive local origins including `*`; when auth is enabled only explicit origins are allowed and a wildcard fails closed. Neither mode is a reviewed production origin set |
-| Caller to workspace routes | Compatibility mode keeps workspace routes unauthenticated, where `owner_user_id` is a caller-supplied local development scope label, not authentication, authorization, or tenant isolation. When auth is enabled the routes below resolve a server-side principal instead, so compatibility behavior must not be exposed publicly |
-| Caller to conversation routes | Compatibility mode keeps conversation routes unauthenticated. Conversations inherit scope from their parent workspace and carry no owner field, so `R4` claims no cross-user or cross-workspace isolation beyond deterministic repository filtering. The public append route accepts only `user` and `system_event`, so a caller cannot forge an assistant turn. Compatibility behavior must not be exposed publicly |
-| Caller to memory routes | Compatibility mode keeps memory routes unauthenticated; they inherit workspace scope through the parent conversation. The trigger route always creates a `manual` run and rejects any caller-supplied `trigger`. A conversation or run id from another workspace reports not-found rather than leaking that the identifier exists elsewhere. Compatibility behavior must not be exposed publicly |
-| Caller to planner routes | Compatibility mode keeps planner routes unauthenticated; they inherit scope from the addressed workspace. A cross-workspace itinerary or decision id reports not-found rather than leaking that the identifier exists elsewhere, and no chat, memory, or RAG path can write planner state. Compatibility behavior must not be exposed publicly |
-| Caller to product routes when auth is enabled | Product routes resolve a server-side principal from the bearer registry and authorize workspace ownership. Cross-owner ids report not-found without leaking existence; mismatched body owners report forbidden. Caller-supplied owner labels grant nothing. Compatibility mode preserves the unauthenticated behavior above and proves no isolation |
-| Workspace deletion lifecycle | Deletion requests move the workspace and active children to `deletion_requested`, which denies normal reads and writes at once; confirmation moves them to `deleted` only after verification. Tombstoned rows remain in local SQLite with no hard deletion, and planner state hides through workspace state |
-| Caller to ops readiness route | The ops readiness route is unauthenticated local development diagnostics. It returns component states, reason codes, and safe metadata only: no secrets, prompts, user content, provider payloads, paths, or stack traces. It performs no state-changing setup. This route must not be exposed publicly and must not be represented as production-safe |
-| Memory candidate evidence to callers and reports | Candidate `text` is excluded from HTTP responses; reports carry identifiers, counts, controlled reason codes, and redacted summaries only. Secret-like spans are redacted before persistence, and raw message content is never logged |
-| Feature-gated memory answers | Memory records enter prompts only for bound turns with the gate enabled; memory is never a citation, the public request carries no memory toggle, and selected IDs/reasons travel in controlled trace metadata only |
-| Local process to model provider | User message, retrieved travel context, and — only for gate-enabled bound turns — selected memory record text leave the local process for the configured external model endpoint |
-| Local files, model cache, and vector store | Data, Chroma state, and model cache are local development assets, not isolated production stores |
-| Local application database | The SQLite file at `APP_DB_PATH` holds user-entered trip content and full message content as local development state, with no production retention, backup, restore, or deletion contract |
-| Retrieved travel content to prompt | Retrieved text is untrusted data and should not be treated as an instruction source |
-| Environment to backend settings | Credential names are read from environment; real secret values must stay out of logs and docs |
+| **Browser to API** | Explicit CORS allowlist; wildcard origins are prohibited when authentication is active. |
+| **API Authentication** | Mandatory Bearer token authentication on all `/api/v1` routes; unauthenticated requests receive generic `401 Unauthorized`. |
+| **Tenant Isolation** | Cross-owner resource access returns content-free `404 Not Found` without disclosing resource existence. |
+| **Request Size Limit** | Enforced up to `MAX_REQUEST_BODY_BYTES` (64 KB default); oversized payloads receive `413 Request rejected.`. |
+| **Error Handling** | Content-free validation errors (`422`) and unhandled exception details (`500`) with correlated `X-Request-ID`. No prompts, tokens, or stack traces are leaked. |
+| **Observability** | Content-free structured JSON events with pre-serialization redaction of tokens, secrets, content, and file paths. |
 
 ## Current Invariants
 
-- The public chat request contract requires one `message` string and accepts one
-  optional additive `conversation_id`.
-- The chat response contract contains `reply`, `model`, and `citations`, plus a
-  `conversation` object that is absent, not null, unless the caller opted in.
-- The backend mounts chat, workspace, conversation, memory, and planner routes
-  under `/api/v1` and health at `/health`.
-- Workspace routes are additive; the chat route performs no workspace lookup and
-  accepts no `workspace_id`.
-- Workspace identity is server-generated and prefixed `tw_`; conversation identity
-  is prefixed `cv_` and message identity `ms_`. Memory extraction-run identity
-  is prefixed `mer_` and candidate identity `mc_`. Memory record identity is
-  prefixed `mem_`, promotion-run identity `mpr_`, and retrieval-trace identity
-  `mtr_`. Memory retrieval stays behind `MEMORY_RETRIEVAL_ENABLED=false` by
-  default; records live in a separate `memory_records` schema module at
-  version 1 while R5 `memory` stays at version 1. Planner itinerary-version
-  identity is prefixed `itv_`, trip-decision identity `td_`, and planner-operation
-  identity `po_`, in a separate `planner_state` schema module at version 1.
-- Itinerary `version_number` starts at `1` and is contiguous per workspace across
-  successful creates, allocated by the adapter inside a `BEGIN IMMEDIATE`
-  transaction and never supplied by a caller. A failed create allocates nothing.
-- Every successful state-changing planner use case writes exactly one
-  `PlannerOperation` row inside the same transaction as the state change, so a
-  saved plan can never exist without its operation evidence. Rejected requests
-  write no planner row at all.
-- Message order within a conversation is a stored `sequence` integer starting at
-  `1`, unique per conversation, assigned by the adapter inside the write
-  transaction and never supplied by a caller.
-- Appending a message advances its parent conversation's `updated_at` in the same
-  transaction.
-- `R3` creates workspace records with `retention_state` `active` only and
-  implements no update, archive, or deletion route. `R4` creates conversations
-  `active` only, implements no retention transition, and implements no deletion
-  path for either record.
-- Assistant and tool turns are writable only through the orchestrator.
-- SQLite access is confined to `backend/storage/schema_registry.py`,
-  `backend/workspaces/sqlite_repository.py`,
-  `backend/conversations/sqlite_repository.py`,
-  `backend/memory/sqlite_repository.py`, and
-  `backend/planner/sqlite_repository.py`. `PRAGMA user_version` is confined
-  to the schema registry.
-- Schema versions are recorded per module in `schema_versions`, so workspace,
-  conversation, memory, memory-record, and planner modules coexist in one
-  database file without version contention.
-- RAG and evaluation modules do not import workspace, conversation, memory,
-  orchestration, or planner modules, and `backend/workspaces` does not import
-  conversation, memory, or orchestration modules. `backend/memory` does not
-  import RAG or orchestration modules, and no memory candidate enters
-  `ContextBundle`, prompt assembly, RAG retrieval, or generated answers.
-  `backend/planner` does not import RAG, memory, or orchestration modules, and
-  none of those import planner.
-- Observability context and event emission are the only cross-cutting imports
-  allowed into product modules: RAG, memory, planner, workspace, conversation,
-  orchestration, storage, and route modules may import
-  `backend.observability.context` and `backend.observability.events`, and must
-  not import readiness, evaluation, or ops route modules.
-- The RAG service is process-global after first construction.
-- Chroma uses persistent local storage under `data/chromadb` by default, and no
-  conversation, message, or planner record is written to any vector database.
-- Health readiness is narrower than chat readiness, and it does not signal
-  workspace, conversation, or planner storage readiness.
-- Startup attempts to pre-warm the RAG service and converts pre-warm failures
-  to warnings.
+1. **8 Mounted Routes Only**: Health (`/health`), Ops readiness (`/api/v1/ops/readiness`), Chat (`/api/v1/chat`), and Conversation CRUD (`/api/v1/conversations`).
+2. **Conversation Auto-Creation & Continuation**: Omitting `conversation_id` on the first turn auto-creates an owned conversation; providing it on subsequent turns continues the transcript.
+3. **Sequential Message Ordering**: Messages within a conversation are assigned unique contiguous `sequence` integers starting at 1.
+4. **Decoupled Outbox Processing**: Memory extraction runs asynchronously via outbox events and never blocks the chat response.
+5. **Alembic Migration Head**: Relational schema matches head `20260910_01`.
 
 ## Known Gaps
 
-- No user, trip, or memory identifier exists in the bounded chat request
-  contract. `conversation_id` is the only implemented identifier, and it is
-  optional.
-- Answer-eligible memory exists only behind the default-off feature gate.
-  `R6` promotes measured candidates, retrieves in-scope active records, and
-  evaluates against a memory-disabled baseline, but implements no default-on
-  personalization, no vector memory store, no deletion API, and no
-  authenticated identity. Promotion covers only the three allow-list reasons
-  with an R5 producer; `profile_fact` and `decision` records exist solely
-  through seeded evaluation fixtures.
-- Trip workspace, conversation, and planner records exist as local backend
-  components, but there is no authenticated user, workspace-aware chat, planner
-  agent, LLM itinerary generation, workspace/conversation/planner UI, or
-  workspace lifecycle transition. `R7` planner writes require an explicit
-  planner API call; chat never creates planner state.
-- **The frontend is unchanged, so real browser traffic is not persisted.** `R4`
-  delivers the capability to persist a turn; the browser still holds its visible
-  transcript in volatile React state. Frontend work was explicitly deferred.
-- **No conversation summarization exists.** `summary` has no column and no
-  producer; it is deferred with the rest of memory work.
-- **Workspace soft-deletion exists locally; no other deletion path does.**
-  `R9` moves workspaces, conversations, and memory records through
-  `deletion_requested` to `deleted` with tombstoned rows and no hard
-  deletion, while planner state hides through workspace state. No other
-  record family has a deletion producer. `R7` planner records add
-  `archived` and `superseded` lifecycle states but no deletion path.
-- Request body size is limited at the API boundary, and message `content`
-  stays deliberately unbounded inside that limit.
-- Compatibility mode keeps workspace, conversation, memory, and planner
-  routes unauthenticated with `owner_user_id` as a local scope label;
-  auth-enabled mode resolves a server-side principal and authorizes
-  workspace ownership instead.
-- Local SQLite storage settles no production database, migration, backup,
-  restore, concurrency, or retention policy, and offers no concurrency
-  safety beyond a single local process.
-- There is no current multi-service data platform.
-- Local CORS is permissive.
-- The chat path no longer logs any user message prefix. `R8` replaced
-  prompt-prefix logging with content-free request and outcome events; raw
-  exception-derived HTTP 500 details remain owned by a security-hardening
-  milestone.
-- Current CI masks backend and frontend test failures, so green CI is not proof
-  of passing tests.
-- Production security, privacy guarantees, data deletion, authorization,
-  tenant isolation, SLOs, and deployment topology are not established by this
-  prototype.
-
-Repository-wide security/privacy policy and current public-production blockers
-are owned by [SECURITY.md](SECURITY.md). Deployment readiness, promotion, and
-rollback questions route to
-[docs/runbooks/deployment.md](docs/runbooks/deployment.md). These documents are
-gates and operating policy; they do not mean the missing runtime controls above
-are implemented.
-
-## Future Direction
-
-The repository direction is an evaluated travel assistant with trip planning,
-trip workspaces, and layered memory. That direction is governed by approved
-specifications, implementation plans, and future ADRs, not by unqualified prose
-in this gateway.
-
-Use [docs/specs/README.md](docs/specs/README.md) before proposing a material
-change, [docs/plans/README.md](docs/plans/README.md) after a spec is approved,
-and [docs/adr/README.md](docs/adr/README.md) for durable architecture decisions.
-
-## Architecture Change Rules
-
-Architecture-changing work starts from an approved specification. Level 3 work
-also requires architecture approval and the ADRs identified by the approved
-design. Update this gateway only when the implemented high-level component map,
-trust boundary, request flow, or known gap list changes.
+- Production deployment topology, managed secret storage, and TLS termination remain to be established for public cloud deployment.
+- Frontend transcript state currently remains in React memory; persisting UI transcripts via the conversation API is a planned enhancement.
+- RAG answer quality is subject to formal evaluation benchmarks.

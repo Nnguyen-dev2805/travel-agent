@@ -110,22 +110,20 @@ approved control boundary rather than treating retrieved text as an instruction.
 
 ## Current API Security Boundary
 
-The bounded FastAPI backend implements a local bearer-token boundary behind
-`AUTH_REQUIRED`. When enabled, product routes resolve a server-side principal
-and authorize workspace ownership; cross-owner ids report not-found without
-leaking existence, and caller-supplied owner labels grant nothing. When
-disabled, the previous unauthenticated local behavior continues for
-compatibility only and proves no isolation. CORS keeps the local wildcard in
-compatibility mode and rejects it when auth is enabled. API request bodies
-are bounded by `MAX_REQUEST_BODY_BYTES`, and unhandled failures return a
-generic detail correlated with the request id instead of raw exception text.
+Per ADR 0018, ADR 0019, ADR 0021, and ADR 0022, the FastAPI backend enforces mandatory
+Bearer token authentication for all `/api/v1` routes. Historical compatibility bypass
+mode (`AUTH_REQUIRED=false`) has been completely removed.
 
-These remain local prototype behaviors, not production identity, TLS,
-hosting, or deployment architecture. They are not acceptable evidence for
-a credentialed public API beyond the local boundary they implement.
+Key security controls:
+1. **Mandatory Bearer Authentication**: Every request to a product endpoint must supply a valid `Authorization: Bearer <token>`. Unauthenticated requests immediately return a content-free `401 Unauthorized`.
+2. **Strict Cross-Owner Isolation**: Accessing a resource owned by another principal returns a generic `404 Not Found` without disclosing resource existence.
+3. **Prohibited Wildcard CORS**: When authentication is enforced, wildcard `*` origins are strictly prohibited. The origin resolution mechanism fails closed at startup if wildcard origins are configured.
+4. **No Credentials in Logs**: Tokens, API keys, passwords, and authorization headers are never logged, echoed, or included in error envelopes.
+5. **Content-Free Error Responses**: Validation failures (`422`), not-found states (`404`), unauthenticated requests (`401`), and unhandled exceptions (`500`) return content-free error envelopes carrying only safe descriptions and a correlated `X-Request-ID` (`rq_...`). User message content, prompt text, and stack traces are never echoed.
+6. **Request Size Limiting**: Request bodies are strictly bounded by `MAX_REQUEST_BODY_BYTES` (64 KB default). Requests exceeding this limit return `413 Request rejected.` with a correlated request ID.
+7. **Retired Legacy Surfaces**: Legacy Workspace, Planner, legacy shadow Memory, and SQLite storage adapters have been cleanly retired, eliminating historical unauthenticated attack surfaces.
 
-Public production deployment therefore fails closed under
-[Deployment Readiness](docs/runbooks/deployment.md).
+These controls represent local prototype security and tenant isolation, not production identity or TLS hosting architecture. Public production deployment fails closed under [Deployment Readiness](docs/runbooks/deployment.md).
 
 ## External Providers
 
@@ -143,13 +141,8 @@ production provider or vendor architecture.
 
 ## Retention and Deletion
 
-Workspaces, conversations, and memory records support ordered soft deletion:
-a workspace moves to `deletion_requested` first, which immediately denies
-normal product access, and confirmation moves it and its transitioned
-children to `deleted` only after verification. Tombstoned rows remain in
-local SQLite for audit and evaluation; there is no hard deletion, backup
-erasure, or legal compliance claim. Planner state hides through workspace
-state rather than separate transitions.
+Per ADR 0021 and ADR 0022, standalone conversations support soft deletion via `DELETE /api/v1/conversations/{conversation_id}`:
+the record transitions to `retention_state = 'tombstoned'`, which immediately hides it from conversation listings and normal access while preserving audit rows in PostgreSQL 16. Messages follow the parent conversation lifecycle. Legacy workspace and planner deletion cascades have been retired with their respective modules.
 
 The current chat request has no approved durable conversation, workspace, user,
 or memory store beyond these local lifecycle states. New documentation or operational tooling must not imply that

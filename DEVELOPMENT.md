@@ -33,8 +33,8 @@ local untracked `.env` only when a local workflow needs environment values.
 | `GITHUB_TOKEN` | Backend settings and external model client | Stage B external generation | Yes | Placeholder only; do not commit real values |
 | `LLM_MODEL` | Backend settings | Selecting the external model | No secret by itself | Defaults to `gpt-4o-mini` |
 | `VITE_API_URL` | Frontend API client and Docker Compose frontend service | Browser-to-backend API origin | No secret by itself | Defaults to `http://localhost:8000` |
-| `APP_DB_PATH` | Backend settings, the local workspace adapter, the local conversation adapter, and the local memory adapter | Local trip workspace, conversation, and memory routes | No secret by itself | Defaults to `data/app/travel_agent.sqlite3`; one shared local SQLite file per ADR 0004; local development state only |
-| `WORKSPACE_DB_PATH` | Backend settings only | Nothing new; kept so an existing local environment still works | No secret by itself | **Deprecated alias for `APP_DB_PATH`.** Used only when `APP_DB_PATH` is unset, and logs one deprecation warning naming the variable without its value |
+| `DATABASE_URL` | Backend settings, SQLAlchemy engine, runtime container, Alembic | PostgreSQL relational persistence | No secret by default (local dev) | Defaults to `postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent`. Per ADR 0018, PostgreSQL 16 is the sole database; historical `APP_DB_PATH` and `WORKSPACE_DB_PATH` are retired. |
+| `PG_TEST_DSN` | Integration test runner | Isolated PostgreSQL integration tests | No secret by default (local dev) | Connection string for disposable test database, e.g. `postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent`. Required for integration tests to run with zero skips. |
 | `MEMORY_RETRIEVAL_ENABLED` | Backend settings and chat orchestration | Enabling R6 memory retrieval for bound chat turns | No secret by itself | Defaults to `false`. With it disabled, chat behavior remains R4/R5 behavior |
 | `MEMORY_PROMOTION_MIN_CONFIDENCE` | Backend settings and promotion policy | Minimum candidate confidence eligible for promotion | No secret by itself | Defaults to `0.75` |
 | `MEMORY_MAX_SELECTED` | Backend settings and memory retrieval | Maximum memory records selected per bound chat turn | No secret by itself | Defaults to `5` |
@@ -56,9 +56,27 @@ Frontend dependency source of truth: `frontend/package.json` plus
 `frontend/package-lock.json`. Use `npm ci` for repeatable local and CI
 installation after the lockfile exists.
 
-## Recommended Path: Docker Compose
+## Recommended Path: Docker Compose & PostgreSQL
 
-Use this path for Stage A startup and health inspection:
+PostgreSQL 16 is the sole relational database per ADR 0018. Start the PostgreSQL service using Docker Compose:
+
+```bash
+docker compose up -d db
+```
+
+Verify that PostgreSQL is healthy on port `5433` (mapped from container port 5432):
+
+```bash
+docker compose ps db
+```
+
+Run Alembic migrations to bring the database schema to the clean-break head (`20260910_01`):
+
+```bash
+DATABASE_URL="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" poetry run alembic upgrade head
+```
+
+Then start the complete development stack (backend, frontend, and database):
 
 ```bash
 docker compose up --build
@@ -144,271 +162,80 @@ Since `R4` the body also accepts an optional `conversation_id`, documented under
 There is still no implemented user, trip, or memory identifier in this bounded
 request contract.
 
-### Local Trip Workspace Routes
+### Standalone Authenticated Conversations
 
-Milestone `R3` adds three backend-only routes for creating and inspecting local
-trip workspace records. They are mounted beside chat under `/api/v1` and do not
-change the chat request or response contract.
+Per ADR 0018, ADR 0019, ADR 0021, and ADR 0022, legacy Workspace, Planner, and legacy shadow memory routes and SQLite stores have been cleanly retired. The conversation subsystem provides standalone conversations owned directly by `owner_user_id` and backed by PostgreSQL 16.
 
-| Method and path | Purpose |
-| --- | --- |
-| `POST /api/v1/workspaces` | Create one workspace and return `201` with the stored record |
-| `GET /api/v1/workspaces/{workspace_id}` | Return one workspace, or `404` when absent |
-| `GET /api/v1/workspaces?owner_user_id=<value>` | Return `{"workspaces": [...]}` for one owner scope label, newest first |
-
-These routes need no credential, embedding model, Chroma data, or network access.
-They are independent of Stage B readiness.
-
-Create a workspace locally:
-
-```bash
-curl --fail --silent --show-error \
-  --request POST http://localhost:8000/api/v1/workspaces \
-  --header 'Content-Type: application/json' \
-  --data '{"owner_user_id":"local-user","title":"Da Nang family trip","destination_scope":"Da Nang and Hoi An","date_window":{"start_date":"2026-12-20","end_date":"2026-12-25"}}'
-```
-
-List workspaces for one owner scope label:
-
-```bash
-curl --fail --silent --show-error \
-  'http://localhost:8000/api/v1/workspaces?owner_user_id=local-user'
-```
-
-Field rules: `owner_user_id` and `title` are required and trimmed; `title` is at
-most 120 characters; `destination_scope` is optional and at most 160 characters;
-`date_window` bounds are optional but `end_date` must not precede `start_date`;
-`planning_status` is one of `idea`, `planning`, `booked`, `active`, `completed`,
-`cancelled`, `archived` and defaults to `idea`. `workspace_id`, `retention_state`,
-`created_at`, and `updated_at` are server-owned. Invalid input returns `422` and
-writes no record.
-
-Two limitations are deliberate and must not be described otherwise:
-
-1. **`owner_user_id` is a local development scope label.** It is not
-   authentication, authorization, a verified principal, or tenant isolation.
-   Listing filters deterministically by that label and nothing more. Do not
-   expose these routes publicly.
-2. **The local database is development state.** The SQLite file at `APP_DB_PATH`
-   is a local adapter per ADR 0003 and a shared application store per ADR 0004. It
-   does not establish a production database, migration framework, backup,
-   restore, concurrency, retention, or deletion contract. `R3` implements no
-   workspace update, archive, or deletion route.
-
-The adapter creates the parent directory on first use and records `('workspaces',
-1)` in the shared `schema_versions` table. If the database records a different
-workspace schema version, or carries a store marker this build does not
-recognize, the adapter fails closed with a controlled error instead of migrating.
-Tests always use temporary database paths and never touch the default developer
-database.
-
-### Local Conversation Routes
-
-Milestone `R4` adds five backend-only routes for creating conversations and
-appending and reading messages. They are mounted beside chat and workspaces under
-`/api/v1` and change neither the chat nor the workspace contract.
+Mounted conversation routes under `/api/v1`:
 
 | Method and path | Purpose |
 | --- | --- |
-| `POST /api/v1/workspaces/{workspace_id}/conversations` | Create one conversation and return `201` with the stored record |
-| `GET /api/v1/workspaces/{workspace_id}/conversations` | Return `{"conversations": [...]}` for one workspace, newest updated first |
-| `GET /api/v1/conversations/{conversation_id}` | Return one conversation, or `404` when absent |
-| `POST /api/v1/conversations/{conversation_id}/messages` | Append one message and return `201` with its server-assigned `sequence` |
+| `POST /api/v1/conversations` | Create a new standalone conversation for the authenticated user |
+| `GET /api/v1/conversations` | List conversations owned by the authenticated user, newest updated first |
+| `GET /api/v1/conversations/{conversation_id}` | Retrieve one conversation (returns `404` if not found or cross-owner) |
+| `DELETE /api/v1/conversations/{conversation_id}` | Soft-delete one conversation (tombstones record, hidden from listings) |
 | `GET /api/v1/conversations/{conversation_id}/messages` | Return `{"messages": [...], "next_cursor": ...}` in `sequence` ascending order |
 
-Like the workspace routes, these need no credential, embedding model, Chroma
-data, or network access, and they are independent of Stage B readiness.
-
-Create a conversation under an existing workspace:
+All endpoints require a Bearer token:
 
 ```bash
 curl --fail --silent --show-error \
-  --request POST http://localhost:8000/api/v1/workspaces/tw_example/conversations \
+  --request POST http://localhost:8000/api/v1/conversations \
+  --header 'Authorization: Bearer dev-token-alpha' \
   --header 'Content-Type: application/json' \
-  --data '{"title":"Da Nang food plan"}'
+  --data '{"title":"Da Nang Trip"}'
 ```
 
-Append a message:
+List owned conversations:
 
 ```bash
 curl --fail --silent --show-error \
-  --request POST http://localhost:8000/api/v1/conversations/cv_example/messages \
-  --header 'Content-Type: application/json' \
-  --data '{"role":"user","content":"Nên đi Đà Nẵng vào tháng mấy?"}'
+  http://localhost:8000/api/v1/conversations \
+  --header 'Authorization: Bearer dev-token-alpha'
 ```
 
-Read history with cursor pagination:
+Read message history:
 
 ```bash
 curl --fail --silent --show-error \
-  'http://localhost:8000/api/v1/conversations/cv_example/messages?limit=50'
-```
-
-Field rules. `title` is optional, trimmed, at most 120 characters, and a blank
-title normalizes to absent. `content` is required, trimmed, non-empty, and
-deliberately has no maximum length, because the chat route already accepts an
-unbounded `message`; request size limiting belongs at the API boundary and is a
-known gap. `role` is one of `user`, `assistant`, `tool`, `system_event`, but the
-public append route accepts only `user` and `system_event` and returns `422` for
-the others. `source` is one of `ui`, `tool`, `model`, `system`, `import` and
-defaults to `ui`. `trace_visibility` is `excluded` or `included` and defaults to
-`excluded`, so no stored message becomes evaluation input without an explicit
-decision. `conversation_id`, `message_id`, `sequence`, `retention_state`,
-`created_at`, and `updated_at` are server-owned. History `limit` defaults to `50`
-and is capped at `200`; an out-of-range limit, an unknown cursor, or a cursor from
-another conversation returns `422`.
-
-Four limitations are deliberate and must not be described otherwise:
-
-1. **These routes are unauthenticated.** Conversations inherit scope from their
-   parent workspace, whose `owner_user_id` is a local development scope label.
-   `R4` adds no authentication, authorization, sessions, or tenant isolation, and
-   claims no cross-user or cross-workspace isolation beyond deterministic
-   repository filtering. Do not expose these routes publicly.
-2. **Local SQLite is not production storage readiness.** `APP_DB_PATH` is one
-   local file for local development. `R4` settles no production database,
-   migration framework, backup, restore, concurrency, retention, or deletion
-   policy.
-3. **The frontend is unchanged, so real browser traffic is not persisted.** `R4`
-   delivers the capability to persist a turn; the browser client still holds its
-   visible transcript in volatile React state. Frontend work was explicitly
-   deferred and requires separate approval.
-4. **Nothing is deleted, summarized, or edited.** `R4` creates only `active`
-   conversations, implements no retention transition and no deletion path, and
-   gives `summary` no column and no producer. Messages are immutable after insert
-   and carry no retention state of their own; they follow their parent
-   conversation.
-
-Message `content` is user content. It is stored, never logged, and never returned
-in an error body. Logs and HTTP error details carry identifiers, sequence
-numbers, roles, counts, route or action names, and failure classes only.
-
-### Binding a Chat Turn to a Conversation
-
-`POST /api/v1/chat` accepts an optional `conversation_id`. The field is additive:
-a request that omits it behaves exactly as it did before `R4`.
-
-Unbound request and response, unchanged from `R3`:
-
-```json
-{ "message": "Nên đi Đà Nẵng vào tháng mấy?" }
-```
-
-```json
-{ "reply": "...", "model": "gpt-4o-mini", "citations": [] }
-```
-
-There is no `conversation` key at all on this path, not even a null one.
-
-Bound request and response:
-
-```json
-{ "message": "Nên đi Đà Nẵng vào tháng mấy?", "conversation_id": "cv_example" }
-```
-
-```json
-{
-  "reply": "...",
-  "model": "gpt-4o-mini",
-  "citations": [],
-  "conversation": {
-    "conversation_id": "cv_example",
-    "user_message_id": "ms_user_example",
-    "assistant_message_id": "ms_assistant_example",
-    "persisted": true
-  }
-}
-```
-
-The user turn is persisted before any model call, so an unknown `conversation_id`
-returns `404` and a failed user-turn write returns `500`, both without calling the
-model provider. If generation succeeds but the assistant turn cannot be stored,
-the reply is still returned with `persisted` `false` and a `null`
-`assistant_message_id`, so a persistence gap is visible rather than silent.
-
-An unbound turn constructs no conversation storage at all, so it cannot be broken
-by a storage failure and does not create the local database file.
-
-### Local Memory Routes
-
-`R5` adds backend-only shadow memory extraction. It measures candidates but
-never uses them in answers.
-
-```bash
-curl -X POST http://localhost:8000/api/v1/workspaces/<workspace_id>/conversations/<conversation_id>/memory/extractions \
-  -H 'Content-Type: application/json' -d '{}'
-curl 'http://localhost:8000/api/v1/workspaces/<workspace_id>/memory/extractions'
-curl 'http://localhost:8000/api/v1/workspaces/<workspace_id>/memory/candidates?run_id=<run_id>'
+  'http://localhost:8000/api/v1/conversations/cv_example/messages?limit=50' \
+  --header 'Authorization: Bearer dev-token-alpha'
 ```
 
 Rules:
+1. **Mandatory Bearer Authentication**: Every request requires a valid Bearer token. Historical `AUTH_REQUIRED=false` compatibility mode has been removed.
+2. **Cross-Owner Isolation**: Accessing another owner's conversation returns a content-free `404 Not Found` without disclosing existence.
+3. **Identifier Prefixes**: Conversation IDs are server-assigned with prefix `cv_`, message IDs with `ms_`.
+4. **PostgreSQL Persistence**: Stored in PostgreSQL with row-level security policies and transactional atomicity.
 
-1. The trigger route accepts an empty body or `{}` only and always creates a
-   `manual` run. Any caller-supplied field returns `422`.
-2. Only messages explicitly persisted with `trace_visibility` `included`
-   become accepted candidates. Ordinary chat-bound turns stay `excluded` and
-   are never accepted.
-3. Candidate `text` is excluded from responses. Listings carry identifiers,
-   counts, controlled reason codes, sensitivity labels, confidence, and
-   redacted summaries only.
-4. `accepted` means accepted into the shadow candidate set for evaluation,
-   not promoted into answer-eligible memory. There is no retrieval,
-   personalization, deletion, or frontend surface.
-5. Requires no credential, model, or Chroma state. Writes the local SQLite
-   file at `APP_DB_PATH`.
+### Authenticated Chat Turn and Conversation Lifecycle
 
-### Local Memory Retrieval
+The `POST /api/v1/chat` endpoint handles conversation turns with automatic lifecycle management:
 
-`R6` promotes measured candidates and retrieves records for bound chat
-turns, but only when `MEMORY_RETRIEVAL_ENABLED` is true. The gate defaults
-to false.
+1. **First turn (Conversation Auto-Creation)**: If `conversation_id` is omitted, the orchestrator auto-creates an owned conversation (`cv_...`) and returns its identifier in the response `conversation.conversation_id`:
+   ```bash
+   curl --fail --silent --show-error \
+     --request POST http://localhost:8000/api/v1/chat \
+     --header 'Authorization: Bearer dev-token-alpha' \
+     --header 'Content-Type: application/json' \
+     --data '{"message":"Recommend hotels in Da Nang"}'
+   ```
+2. **Subsequent turns (Conversation Continuation)**: Supply the returned `conversation_id` to continue the conversation in sequential order:
+   ```bash
+   curl --fail --silent --show-error \
+     --request POST http://localhost:8000/api/v1/chat \
+     --header 'Authorization: Bearer dev-token-alpha' \
+     --header 'Content-Type: application/json' \
+     --data '{"message":"Prefer quiet boutique options", "conversation_id":"cv_example"}'
+   ```
+3. **Decoupled Outbox Capture**: After each turn, the orchestrator captures memory extraction candidates to `conversation_outbox` asynchronously via `BackgroundMemoryRecorder`, keeping the chat turn fast and non-blocking.
 
-```bash
-curl -X POST http://localhost:8000/api/v1/workspaces/<workspace_id>/memory/promotions \
-  -H 'Content-Type: application/json' -d '{}'
-MEMORY_RETRIEVAL_ENABLED=true python -m uvicorn backend.app.main:app --reload
-```
+### Basic Semantic Memory Write Pipeline
 
-Rules:
-
-1. Promotion accepts only eligible accepted candidates; everything else
-   becomes a controlled skip reason. Corrections suppress older same-scope
-   records, erring toward forgetting on ambiguity.
-2. Gate-off and unbound turns keep exact R4/R5 behavior and resolve no
-   memory storage. Gate-on bound turns report selected memory IDs and
-   reasons in an additive `memory` object; memory never becomes a citation.
-3. Retrieval selects `active`, unexpired, non-sensitive records in matching
-   scope only. Deleted, expired, superseded, secret-like, and out-of-scope
-   records are never selected.
-4. Answer-quality claims stay `INCONCLUSIVE` without a provider-backed
-   judge; run the retrieval evaluation command for measured gates.
+The basic semantic memory write pipeline (ADR 0020) manages versioned assertions, authority ranking, row locking, and idempotent commits against PostgreSQL:
 
 ```bash
-python -m backend.memory.evaluation.cli run-retrieval --suite r6-retrieval-v0.1
-```
-
-### Local Planner State
-
-`R7` stores itinerary versions, trip decisions, and operation evidence
-through explicit planner routes. Chat never writes planner state.
-
-```bash
-curl -X POST http://localhost:8000/api/v1/workspaces/<workspace_id>/planner/itineraries \
-  -H 'Content-Type: application/json' -d '{"title": "Hà Nội 3 ngày", "items": []}'
-curl http://localhost:8000/api/v1/workspaces/<workspace_id>/planner/operations
-```
-
-Rules:
-
-1. Planner writes happen only through planner routes; versions are
-   immutable and numbered contiguously per workspace.
-2. Accepting a version supersedes prior accepted versions in the same
-   workspace. Rejected decisions stay listable.
-3. Every successful write logs one append-only operation row; failed
-   requests log none.
-
-```bash
-python -m backend.planner.evaluation.cli run-state --suite r7-state-v0.1
+python3 -m backend.memory.write_pipeline.evaluation.cli run-scenarios
 ```
 
 ### Local Ops Readiness
@@ -435,28 +262,24 @@ Rules:
    follow the runbook routing in `docs/runbooks/local-development.md`
    before any destructive recovery.
 
-### Local Auth and Deletion
+### Local Auth and Security Verification
 
-`AUTH_REQUIRED=false` preserves unauthenticated local behavior.
-`AUTH_REQUIRED=true` fails closed with bearer tokens from
-`LOCAL_AUTH_TOKENS_JSON`:
+Bearer token authentication is mandatory for all `/api/v1` endpoints (except `/health`). Historical `AUTH_REQUIRED=false` compatibility mode has been removed per ADR 0019.
+
+Tokens are configured via `LOCAL_AUTH_TOKENS_JSON` or local test tokens:
 
 ```bash
-curl --fail --silent --show-error http://localhost:8000/api/v1/workspaces \
+curl --fail --silent --show-error http://localhost:8000/api/v1/conversations \
   -H "Authorization: Bearer <owner-token>"
-curl -X POST http://localhost:8000/api/v1/workspaces/<workspace_id>/deletion-requests \
-  -H "Authorization: Bearer <owner-token>" \
-  -H 'Content-Type: application/json' -d '{}'
-AUTH_REQUIRED=true LOCAL_AUTH_TOKENS_JSON='{"owner_a":"secret-alpha-token","owner_b":"secret-beta-token"}' \
-  ./.venv/bin/python -m backend.security.evaluation.cli run-security --suite r9-security-privacy-v0.1
+
+LOCAL_AUTH_TOKENS_JSON='{"owner_a":"secret-alpha-token","owner_b":"secret-beta-token"}' \
+  python -m backend.security.evaluation.cli run-security --suite r9-security-privacy-v0.1
 ```
 
 Rules:
-
 1. Tokens live in the environment only; never commit, log, or paste them.
-2. Deletion requests mark the workspace `deletion_requested` at once;
-   confirmation completes only after child transitions verify.
-3. Tombstoned rows stay in local SQLite; there is no hard deletion.
+2. Cross-owner requests return generic, content-free `404 Not Found` responses.
+3. Tombstoned records remain in PostgreSQL for audit and are hidden from normal API access.
 
 ## Command Contract
 
@@ -471,19 +294,13 @@ Rules:
 | Compose config | repository root | `docker compose config` | Compose file is syntactically valid | No expected source writes | No expected external call | verified-pass |
 | Stage A smoke | repository root | `docker compose up --build` plus `curl --fail --silent --show-error http://localhost:8000/health` | Dev stack starts and health responds | Docker state, mounted app/data paths, possible Chroma state | Possible during image build or dependency install | blocked by missing Docker daemon/socket in current environment |
 | Stage B chat readiness | repository root | opt-in chat request to `/api/v1/chat` | Chat path can reach retrieval and model provider | Possible logs/cache/data state | Yes | Opt-in, not default CI |
-| Local workspace routes | repository root | `curl` requests to `/api/v1/workspaces` while the backend runs | Workspace records can be created and inspected locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
-| Local conversation routes | repository root | `curl` requests to `/api/v1/workspaces/{workspace_id}/conversations` and `/api/v1/conversations/...` while the backend runs | Conversations and messages can be created and read locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
-| Bound chat turn | repository root | opt-in chat request to `/api/v1/chat` carrying `conversation_id` | A chat turn is persisted and reports its persistence outcome | Local SQLite file at `APP_DB_PATH`, possible logs/cache state | Yes, because generation still calls the model provider | Opt-in, not default CI |
-| Local memory routes | repository root | `curl` requests to `/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/memory/extractions` and `/api/v1/workspaces/{workspace_id}/memory/...` while the backend runs | Shadow candidates can be extracted and inspected locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
-| Local memory evaluation | repository root | `python -m backend.memory.evaluation.cli run-shadow --fixture docs/evaluation/fixtures/memory/r5-shadow-v0.1/manifest.json --output-dir docs/reports/memory` | Shadow report with result state and hard-gate evidence | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
-| Local memory promotion | repository root | `curl` request to `/api/v1/workspaces/{workspace_id}/memory/promotions` while the backend runs | Eligible candidates become active records with skip reasons | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
-| Local memory retrieval evaluation | repository root | `python -m backend.memory.evaluation.cli run-retrieval --suite r6-retrieval-v0.1` | Retrieval report with paired metrics, hard-gate evidence, and `INCONCLUSIVE` answer-quality fields | Markdown and JSON reports | Local `git` process for the dirty-tree signal only; no network | Deterministic; writes reports only |
-| Local planner routes | repository root | `curl` requests to `/api/v1/workspaces/{workspace_id}/planner/...` while the backend runs | Itineraries, decisions, and operations can be written and inspected locally | Local SQLite file at `APP_DB_PATH` | No expected external call | Requires no credential, model, or Chroma state |
-| Local planner evaluation | repository root | `python -m backend.planner.evaluation.cli run-state --suite r7-state-v0.1` | Planner report with versioning, lifecycle, isolation, and operation gates | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
-| Local ops readiness | repository root | `curl` requests to `/health` and `/api/v1/ops/readiness` while the backend runs | Liveness plus read-only component diagnostics with reason codes | No expected source writes | No expected external call | Requires no credential, model, or Chroma state |
-| Local ops evaluation | repository root | `python -m backend.observability.evaluation.cli run-readiness --suite r8-operational-readiness-v0.1` | Ops report with correlation, privacy, degradation, schema, evidence, and runbook gates | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
-| Local auth routes | repository root | `curl` requests with `Authorization: Bearer` headers while the backend runs with `AUTH_REQUIRED=true` | Protected routes enforce owner scope; cross-owner ids report not-found | Local SQLite file at `APP_DB_PATH` | No expected external call | Synthetic tokens only, never committed |
-| Local security evaluation | repository root | `AUTH_REQUIRED=true LOCAL_AUTH_TOKENS_JSON='{...}' python -m backend.security.evaluation.cli run-security --suite r9-security-privacy-v0.1` | Security report with zero-tolerance gates | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
+| PostgreSQL tests | repository root | `DATABASE_URL=... PG_TEST_DSN=... pytest backend/tests/ -v` | All unit, boundary, and integration tests pass with zero skips | Test caches | Isolated PostgreSQL on port 5433 | Verified-pass (807 passed, 0 skipped) |
+| Boundary checks | repository root | `pytest backend/tests/boundaries/ -v` | Clean-break architectural sentinels pass | Test caches | No expected external call | Verified-pass (5 passed) |
+| Authenticated conversation routes | repository root | `curl` requests to `/api/v1/conversations` with `Authorization: Bearer` | Conversations and messages created and read under PostgreSQL | PostgreSQL database | No expected external call | Requires Bearer token |
+| Authenticated chat turn | repository root | `POST /api/v1/chat` with `Authorization: Bearer` | Auto-creates or continues conversation, persists turn to PG | PostgreSQL database | Calls model provider | Verified-pass |
+| Semantic memory write evaluation | repository root | `python3 -m backend.memory.write_pipeline.evaluation.cli run-scenarios` | Full write pipeline evaluation report | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
+| Local ops readiness | repository root | `curl` requests to `/health` and `/api/v1/ops/readiness` | Liveness plus component diagnostics (PostgreSQL, Alembic head, Chroma, Model) | No expected source writes | No expected external call | Requires Bearer token for readiness |
+| Local security evaluation | repository root | `LOCAL_AUTH_TOKENS_JSON='{...}' python -m backend.security.evaluation.cli run-security --suite r9-security-privacy-v0.1` | Security report with zero-tolerance gates | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
 | RAG and memory evaluation | repository root | later approved evaluation command | Approved metric-specific quality claim | Evaluation outputs | Depends on later plan | Future milestone |
 
 ## Opt-in Data and Model Operations
@@ -506,20 +323,12 @@ the approved task that owns their inputs, side effects, and evidence.
 | First chat is slow | Embedding model or cache access may be occurring | Confirm whether model download/cache use is acceptable |
 | CI is green | CI commands completed, not proof of RAG quality | Read the exact workflow steps and exit statuses |
 | Docker fails in a sandbox | Docker socket or localhost access may be blocked by the environment | Retry only with approved host access or record the limitation |
-| Workspace route returns `500` | Local workspace storage could not be opened, initialized, or written | Check that `APP_DB_PATH` is writable and that its recorded workspace schema version matches the running build |
-| Workspace list returns an empty array | No record exists for that exact owner scope label | Confirm the `owner_user_id` value; listing filters by exact label after trimming |
-| Conversation route returns `404` | The parent workspace or the conversation does not exist | Create the workspace first, then the conversation; a chat request never creates one implicitly |
-| Conversation route returns `422` on append | A restricted role, an ungoverned vocabulary value, or blank content was submitted | The public route accepts only `user` and `system_event`; `assistant` and `tool` are written by the orchestrator |
-| Conversation history returns `422` | The `limit` is outside `1` to `200`, or the cursor is unknown or belongs to another conversation | Re-read the page with a cursor returned by that same conversation |
-| Bound chat returns `persisted` `false` | Generation succeeded but the assistant turn could not be stored | The reply is still valid; check that `APP_DB_PATH` is writable, then re-read history |
-| Memory trigger returns `404` | The workspace or conversation does not exist | Create the workspace first, then the conversation; a chat request never creates one implicitly |
-| Memory trigger or list returns `409` | The conversation or run does not belong to the requested workspace | Re-check the workspace/conversation/run identifiers; filters never cross workspace scope |
-| Memory trigger returns `422` on body | A caller-supplied `trigger` or unknown field was submitted | Send an empty body or `{}`; the route always creates a `manual` run |
-| Memory run shows `completed_with_rejections` | At least one candidate was rejected, marked for user action, or invalid | Read the candidate `reason` codes; this is the normal shadow outcome, not a failure |
-| Promotion promotes nothing | No eligible accepted candidates, or the same candidates were already promoted | Read the skip reasons; re-promoting is a governed duplicate skip, not a failure |
-| Bound chat has no `memory` key | The feature gate is off or the turn is unbound | Set `MEMORY_RETRIEVAL_ENABLED=true` for a bound turn; gate-off behavior is intentionally identical to R4/R5 |
-| Bound chat reports `skipped` | Memory storage or retrieval failed for the turn | The reply is still valid RAG output; check that `APP_DB_PATH` is writable, then re-read the trace |
-| A deprecation warning names `WORKSPACE_DB_PATH` | `APP_DB_PATH` is unset and the deprecated alias is being honored | Set `APP_DB_PATH` instead; the alias is retained only for compatibility |
+| PostgreSQL connection fails | Database container is stopped or port 5433 is blocked | Run `docker compose up -d db` and verify `docker compose ps db` |
+| Alembic revision mismatch | Database schema is behind head revision | Run `poetry run alembic upgrade head` to apply migrations up to `20260910_01` |
+| API returns `401 Unauthorized` | Missing or invalid Bearer token | Include a valid `Authorization: Bearer <token>` header on all `/api/v1` requests |
+| Conversation route returns `404` | Conversation does not exist or belongs to another owner | Verify conversation ID; cross-owner requests return 404 to prevent enumeration |
+| Conversation history returns `422` | The `limit` is outside `1` to `200` | Re-read the page with a valid limit |
+| Historical `APP_DB_PATH` or `WORKSPACE_DB_PATH` referenced | Configuration using deprecated SQLite variables | Remove SQLite variables; configure `DATABASE_URL` pointing to PostgreSQL |
 
 When normal setup has already failed and the problem needs diagnosis or
 recovery, use the

@@ -358,16 +358,53 @@ code. Route by code before destructive recovery:
 | --- | --- | --- |
 | `credential_missing` | No model credential is configured | Missing Model Credential below |
 | `path_missing` | The Chroma path is absent | Chroma or Local Data-state Problems below |
-| `database_missing` | The SQLite file is absent | Persistent-data Recovery Boundary below |
-| `memory_retrieval_disabled` | The memory gate is off | Expected local behavior, not a failure |
+| `postgres_unavailable` | PostgreSQL 16 is unreachable on port 5433 | PostgreSQL Database Problems below |
+| `alembic_revision_behind` | Database migration is behind head revision `20260910_01` | Run `poetry run alembic upgrade head` |
 | `module_missing` | A runtime module is not installed | Dependency Install Failure below |
 | `probe_failed` | A probe raised unexpectedly | Record the failure class and retry once |
 | `evidence_gap` | An evaluation report is absent | Regenerate the missing report; see the Deployment Readiness Runbook for promotion impact |
 
-`store_marker_mismatch`, `schema_incompatible`, `schema_registry_missing`,
-and `unreadable` indicate storage the build cannot trust. Preserve the
-database file and route recovery through the Incident Response Runbook,
-never through blind deletion or recreation.
+If PostgreSQL reports connection errors or migration mismatches, route recovery
+through PostgreSQL Database Problems below.
+
+## PostgreSQL Database Problems
+
+**Symptom:** Backend fails to start or `/api/v1/ops/readiness` reports `postgres: not_ready` with reason `postgres_unavailable` or `alembic_head: degraded` with reason `alembic_revision_behind`.
+
+**Diagnostic:**
+1. Check if the PostgreSQL Docker container is running and healthy:
+   ```bash
+   docker compose ps db
+   ```
+2. Verify port 5433 listener:
+   ```bash
+   lsof -nP -iTCP:5433 -sTCP:LISTEN
+   ```
+3. Test PostgreSQL connectivity directly:
+   ```bash
+   docker compose exec db pg_isready -U travel_agent -d travel_agent
+   ```
+4. Inspect current migration head:
+   ```bash
+   DATABASE_URL="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" poetry run alembic current
+   ```
+
+**Impact:** Application cannot persist conversations, messages, or outbox events. Read-only health probe `/health` may still succeed, but chat and conversation endpoints will fail.
+
+**Reversible recovery:**
+1. If the container is stopped, start it:
+   ```bash
+   docker compose up -d db
+   ```
+2. If migrations are behind, upgrade to head (`20260910_01`):
+   ```bash
+   DATABASE_URL="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" poetry run alembic upgrade head
+   ```
+
+**Verify:** Ops readiness endpoint reports `postgres: ready` and `alembic_head: ready`:
+```bash
+curl -H "Authorization: Bearer dev-token-alpha" http://localhost:8000/api/v1/ops/readiness
+```
 
 ## Chroma or Local Data-state Problems
 
