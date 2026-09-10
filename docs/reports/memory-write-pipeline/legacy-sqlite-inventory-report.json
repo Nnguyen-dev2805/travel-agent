@@ -1,0 +1,19 @@
+{
+  "database_path": "data/app/travel_agent.sqlite3",
+  "exists": true,
+  "tables": [
+    "schema_versions",
+    "trip_workspaces"
+  ],
+  "table_counts": {
+    "schema_versions": 1,
+    "trip_workspaces": 15
+  },
+  "schema_versions": {
+    "workspaces": 1
+  },
+  "memory_tables_found": [],
+  "provenance_assessment": "NO_LEGACY_MEMORY_DATA_EXISTS",
+  "legacy_decision": "DISPOSABLE",
+  "rationale": "SQLite store contains no legacy memory candidates, runs, or assertions. Only trip_workspaces and workspace schema version exist. No in-place migration or backfill required; PostgreSQL is the sole authoritative store for semantic memory."
+}

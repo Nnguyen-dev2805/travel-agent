@@ -28,11 +28,11 @@ class ProhibitedKind(str, Enum):
 
 _SECRET_PATTERNS = (
     re.compile(r"sk-proj-[A-Za-z0-9_-]+"),
-    re.compile(r"sk-(?:test|live)-[A-Za-z0-9]+"),
+    re.compile(r"sk-(?:test|live)[-_]?[A-Za-z0-9]+"),
     re.compile(r"ghp_[A-Za-z0-9]+"),
     re.compile(r"xox[baprs]-[A-Za-z0-9-]+"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
-    re.compile(r"(?:api[_-]?key|token|secret)\s*[:=]\s*\S+", re.IGNORECASE),
+    re.compile(r"(?:api[_-]?key|token|secret)\s*(?:[:=]|is)\s*\S+", re.IGNORECASE),
 )
 
 _PEM_BLOCK_PATTERN = re.compile(

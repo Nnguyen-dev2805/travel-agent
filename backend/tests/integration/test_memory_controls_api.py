@@ -82,7 +82,10 @@ def _principal(owner="owner_a"):
 
 @pytest.fixture()
 def client(clean):
-    from backend.app.api.memory_controls import get_command_service
+    from backend.app.api.memory_controls import (
+        get_command_service,
+        require_write_pipeline_enabled,
+    )
     from backend.app.main import app
     from backend.memory.write_pipeline.postgres import (
         PostgresMemoryUnitOfWork,
@@ -106,9 +109,11 @@ def client(clean):
     )
     app.dependency_overrides[get_command_service] = lambda: service
     app.dependency_overrides[require_principal] = lambda: _principal()
+    app.dependency_overrides[require_write_pipeline_enabled] = lambda: None
     yield TestClient(app)
     app.dependency_overrides.pop(get_command_service, None)
     app.dependency_overrides.pop(require_principal, None)
+    app.dependency_overrides.pop(require_write_pipeline_enabled, None)
 
 
 def _version_count(engine, status="active"):
@@ -414,3 +419,21 @@ def test_command_service_singleton_lifecycle():
     svc1 = get_command_service()
     svc2 = get_command_service()
     assert svc1 is svc2
+
+
+def test_write_pipeline_gate_disabled_fails_closed():
+    from backend.app.config import settings
+    from backend.app.main import app
+
+    prev = settings.MEMORY_WRITE_PIPELINE_ENABLED
+    try:
+        settings.MEMORY_WRITE_PIPELINE_ENABLED = False
+        client = TestClient(app)
+        res = client.post(
+            "/api/v1/memory/controls/commands",
+            json={"utterance": "remember quiet hotels"},
+        )
+        assert res.status_code == 503
+        assert "disabled" in res.json()["detail"].lower()
+    finally:
+        settings.MEMORY_WRITE_PIPELINE_ENABLED = prev

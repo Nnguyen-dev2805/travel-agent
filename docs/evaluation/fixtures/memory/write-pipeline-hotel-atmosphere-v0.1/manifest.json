@@ -1,0 +1,35 @@
+{
+  "dataset_id": "write-pipeline-hotel-atmosphere-v0.1",
+  "version": "0.1.0",
+  "role": "development",
+  "canonical_key": "travel.preference.hotel_atmosphere",
+  "values": [
+    "quiet",
+    "lively",
+    "central",
+    "secluded"
+  ],
+  "languages": [
+    "vi",
+    "en"
+  ],
+  "examples_count": 22,
+  "mandatory_slices": [
+    "vietnamese_explicit",
+    "english_explicit",
+    "paraphrase_duplicate",
+    "explicit_correction",
+    "weak_inference_opposition",
+    "conversation_exception",
+    "ambiguous_conflict",
+    "restricted_sensitive",
+    "prohibited_secret",
+    "cross_owner",
+    "redelivery_idempotency",
+    "transaction_failure",
+    "deleted_source_stale_worker",
+    "confirmation_absent_stale",
+    "provider_structured_failure",
+    "background_shadow_rollout"
+  ]
+}

@@ -62,7 +62,18 @@ from backend.security.models import AuthenticatedPrincipal
 from backend.storage.postgres import create_engine
 
 logger = logging.getLogger("travel_agent_memory_controls")
-router = APIRouter()
+
+
+def require_write_pipeline_enabled() -> None:
+    """Dependency ensuring memory write controls fail closed if the gate is disabled."""
+    if not settings.MEMORY_WRITE_PIPELINE_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory write pipeline is currently disabled.",
+        )
+
+
+router = APIRouter(dependencies=[Depends(require_write_pipeline_enabled)])
 
 _NOT_FOUND_DETAIL = "Memory not found."
 _PREVIEW_GONE_DETAIL = "Memory preview not found or expired."

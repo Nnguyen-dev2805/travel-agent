@@ -25,11 +25,16 @@ claim that a runtime memory subsystem already exists.
 
 ## Preconditions and Current-state Limitations
 
-The current project has target architecture concepts for memory but no runtime
-memory implementation, frozen memory benchmark, or evaluation harness. Memory
+The Basic Semantic Memory Write Pipeline evaluation harness, deterministic CLI
+runner, development dataset (`write-pipeline-hotel-atmosphere-v0.1`), and safety/quality/operational
+reporting are implemented under `backend/memory/write_pipeline/evaluation/` and
+governed by [Basic Memory Write Pipeline Evaluation](./memory-write-pipeline-evaluation.md).
+
+For broader memory capabilities (memory retrieval, conversation summary, episodic
+memory, and answer personalization), the project retains target architecture
+concepts without runtime implementation. Umbrella retrieval/personalization
 quality therefore cannot currently be claimed as `PASS` or improved in runtime.
-This protocol can be reviewed now so later implementation is built against
-known quality and safety gates.
+This protocol governs those future phases.
 
 Target architecture requires memory to remain distinct from travel-knowledge
 retrieval, separates memory read from memory write, exposes selected memory IDs

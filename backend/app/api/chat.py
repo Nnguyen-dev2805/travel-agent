@@ -118,6 +118,7 @@ def get_conversation_orchestrator() -> ConversationOrchestrator:
         memory_enabled=settings.MEMORY_RETRIEVAL_ENABLED,
         memory_provider=get_memory_components,
         max_selected=settings.MEMORY_MAX_SELECTED,
+        outbox_enabled=settings.MEMORY_SHADOW_EXTRACT_ENABLED,
     )
 
 
