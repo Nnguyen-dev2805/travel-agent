@@ -52,6 +52,31 @@ class PostgresReadinessProbe:
                 "error": type(exc).__name__,
             }
 
+    def check_revision(self, expected_revision: str = "20260910_01") -> dict[str, Any]:
+        """Check current Alembic revision in PostgreSQL without side effects."""
+        try:
+            with self._engine.connect() as conn:
+                result = conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+                row = result.first()
+                current_rev = str(row[0]) if row and row[0] is not None else None
+            if current_rev == expected_revision:
+                return {
+                    "status": "ready",
+                    "revision": current_rev,
+                }
+            return {
+                "status": "unhealthy",
+                "expected": expected_revision,
+                "current": current_rev,
+            }
+        except Exception as exc:
+            logger.warning("Alembic revision probe failed: %s", type(exc).__name__)
+            return {
+                "status": "unhealthy",
+                "expected": expected_revision,
+                "error": type(exc).__name__,
+            }
+
     def __call__(self) -> dict[str, Any]:
         return self.check()
 
