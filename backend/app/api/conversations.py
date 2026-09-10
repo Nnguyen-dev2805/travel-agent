@@ -1,36 +1,31 @@
-"""FastAPI conversation routes for runtime milestone R4.
+"""Standalone conversation routes for authenticated chat.
 
-These routes are mounted beside the existing chat and workspace routes and change
-neither contract. They construct no RAG service, embedding model, Chroma
-collection, or model-provider client.
+Every route requires authentication. Conversation identity and ordering are
+server-owned; conversations are owned directly by the authenticated principal
+with zero workspace dependency.
 
-Conversations inherit scope from their parent workspace, whose `owner_user_id` is
-a local development scope label. These routes implement no authentication,
-authorization, or tenant isolation, and must not be exposed publicly.
-
-Logging records route, action, conversation and message identifiers, sequence,
-role, counts, and failure class only. Message content and conversation titles are
-never logged, and HTTP errors never echo them.
+Direct message append is permanently removed: user turns enter through the
+`/chat` route.
 """
 
+from __future__ import annotations
+
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from backend.app.config import settings
+from backend.app.runtime_container import get_conversation_service
 from backend.app.schemas.conversations import (
     ConversationCreateRequest,
     ConversationListResponse,
     ConversationResponse,
-    MessageAppendRequest,
     MessageListResponse,
     MessageResponse,
 )
 from backend.conversations.models import (
     DEFAULT_HISTORY_LIMIT,
     MAX_HISTORY_LIMIT,
-    PUBLIC_WRITABLE_ROLES,
-    ConversationCreate,
     ConversationValidationError,
     MessageHistoryQuery,
 )
@@ -38,96 +33,36 @@ from backend.conversations.repository import ConversationRepositoryError
 from backend.conversations.service import (
     ConversationNotFoundError,
     ConversationService,
-    WorkspaceNotFoundError,
-)
-from backend.conversations.sqlite_repository import SQLiteConversationRepository
-from backend.security.authorization import (
-    CrossOwnerAccessError,
-    get_workspace_repository,
-    require_workspace_owner,
 )
 from backend.security.dependencies import require_principal
 from backend.security.models import AuthenticatedPrincipal
-from backend.workspaces.repository import WorkspaceRepositoryError
-from backend.workspaces.sqlite_repository import SQLiteWorkspaceRepository
 
 logger = logging.getLogger("travel_agent_conversations")
 router = APIRouter()
 
-_STORAGE_ERROR_DETAIL = "Conversation storage is unavailable."
-_WORKSPACE_NOT_FOUND_DETAIL = "Workspace not found."
 _CONVERSATION_NOT_FOUND_DETAIL = "Conversation not found."
-_RESTRICTED_ROLE_DETAIL = (
-    "This route accepts only the 'user' and 'system_event' message roles. "
-    "Other roles are written by the conversation orchestrator."
-)
-
-
-def get_conversation_service() -> ConversationService:
-    """Construct the conversation service over the shared local application store.
-
-    This is one of the two places that resolve `settings.APP_DB_PATH`; the other
-    is the workspace dependency. Both modules coexist in one database file with
-    independent schema versions. Tests override this dependency with a temporary
-    database path.
-
-    Storage construction can fail before any route body runs, for example when
-    the configured database records an incompatible schema version or its
-    directory is not writable. Converting that failure here keeps the caller's
-    response a controlled `500` instead of an unhandled server error.
-
-    Raises:
-        HTTPException: Storage could not be opened or initialized.
-    """
-    try:
-        conversations = SQLiteConversationRepository(db_path=settings.APP_DB_PATH)
-        workspaces = SQLiteWorkspaceRepository(db_path=settings.APP_DB_PATH)
-    except (ConversationRepositoryError, WorkspaceRepositoryError) as error:
-        logger.error(
-            "conversation.storage unavailable failure_class=%s", type(error).__name__
-        )
-        raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
-    return ConversationService(
-        conversation_repository=conversations, workspace_repository=workspaces
-    )
+_STORAGE_ERROR_DETAIL = "Conversation storage is unavailable."
 
 
 @router.post(
-    "/workspaces/{workspace_id}/conversations",
+    "/conversations",
     response_model=ConversationResponse,
     status_code=201,
 )
 def create_conversation(
-    workspace_id: str,
     request: ConversationCreateRequest,
     service: ConversationService = Depends(get_conversation_service),
     principal: AuthenticatedPrincipal = Depends(require_principal),
-    workspaces=Depends(get_workspace_repository),
 ) -> ConversationResponse:
-    """Create one conversation inside an existing trip workspace."""
+    """Create one standalone conversation for the authenticated principal."""
     try:
-        require_workspace_owner(workspace_id, workspaces, principal)
-    except CrossOwnerAccessError:
-        logger.info("conversation.create miss failure_class=workspace_not_found")
-        raise HTTPException(status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL)
-    try:
-        conversation_input = ConversationCreate(
-            workspace_id=workspace_id, title=request.title
+        created = service.create_conversation(
+            owner_user_id=principal.owner_user_id,
+            title=request.title,
         )
     except ConversationValidationError as error:
         logger.info("conversation.create rejected failure_class=validation")
         raise HTTPException(status_code=422, detail=str(error)) from error
-
-    try:
-        conversation = service.create_conversation(conversation_input)
-    except ConversationValidationError as error:
-        logger.info("conversation.create rejected failure_class=validation")
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    except WorkspaceNotFoundError as error:
-        logger.info("conversation.create miss failure_class=workspace_not_found")
-        raise HTTPException(
-            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
-        ) from error
     except ConversationRepositoryError as error:
         logger.error(
             "conversation.create failed failure_class=%s", type(error).__name__
@@ -135,48 +70,30 @@ def create_conversation(
         raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
 
     logger.info(
-        "conversation.create ok conversation_id=%s workspace_id=%s",
-        conversation.conversation_id,
-        conversation.workspace_id,
+        "conversation.create ok conversation_id=%s owner_user_id=%s",
+        created.conversation_id,
+        created.owner_user_id,
     )
-    return ConversationResponse.from_domain(conversation)
+    return ConversationResponse.from_domain(created)
 
 
 @router.get(
-    "/workspaces/{workspace_id}/conversations",
+    "/conversations",
     response_model=ConversationListResponse,
 )
 def list_conversations(
-    workspace_id: str,
     service: ConversationService = Depends(get_conversation_service),
     principal: AuthenticatedPrincipal = Depends(require_principal),
-    workspaces=Depends(get_workspace_repository),
 ) -> ConversationListResponse:
-    """List conversations inside one trip workspace, newest updated first."""
+    """List all active conversations owned by the authenticated principal."""
     try:
-        require_workspace_owner(workspace_id, workspaces, principal)
-    except CrossOwnerAccessError:
-        logger.info("conversation.list miss failure_class=workspace_not_found")
-        raise HTTPException(status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL)
-    try:
-        conversations = service.list_conversations(workspace_id)
+        conversations = service.list_conversations(principal.owner_user_id)
     except ConversationValidationError as error:
-        logger.info("conversation.list rejected failure_class=validation")
         raise HTTPException(status_code=422, detail=str(error)) from error
-    except WorkspaceNotFoundError as error:
-        logger.info("conversation.list miss failure_class=workspace_not_found")
-        raise HTTPException(
-            status_code=404, detail=_WORKSPACE_NOT_FOUND_DETAIL
-        ) from error
     except ConversationRepositoryError as error:
         logger.error("conversation.list failed failure_class=%s", type(error).__name__)
         raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
 
-    logger.info(
-        "conversation.list ok workspace_id=%s count=%s",
-        workspace_id.strip(),
-        len(conversations),
-    )
     return ConversationListResponse(
         conversations=[
             ConversationResponse.from_domain(record) for record in conversations
@@ -184,16 +101,20 @@ def list_conversations(
     )
 
 
-@router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=ConversationResponse,
+)
 def get_conversation(
     conversation_id: str,
     service: ConversationService = Depends(get_conversation_service),
     principal: AuthenticatedPrincipal = Depends(require_principal),
-    workspaces=Depends(get_workspace_repository),
 ) -> ConversationResponse:
-    """Retrieve one conversation by identifier."""
+    """Retrieve one owned conversation by identifier, 404 if not found or foreign."""
     try:
-        conversation = service.get_conversation(conversation_id)
+        conversation = service.get_conversation_for_owner(
+            conversation_id, principal.owner_user_id
+        )
     except ConversationValidationError as error:
         logger.info("conversation.get rejected failure_class=validation")
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -205,98 +126,13 @@ def get_conversation(
         logger.info("conversation.get miss failure_class=not_found")
         raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
 
-    try:
-        require_workspace_owner(conversation.workspace_id, workspaces, principal)
-    except CrossOwnerAccessError:
-        logger.info("conversation.get miss failure_class=not_found")
-        raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
-
     logger.info("conversation.get ok conversation_id=%s", conversation.conversation_id)
     return ConversationResponse.from_domain(conversation)
 
 
-@router.post(
-    "/conversations/{conversation_id}/messages",
-    response_model=MessageResponse,
-    status_code=201,
-)
-def append_message(
-    conversation_id: str,
-    request: MessageAppendRequest,
-    service: ConversationService = Depends(get_conversation_service),
-    principal: AuthenticatedPrincipal = Depends(require_principal),
-    workspaces=Depends(get_workspace_repository),
-) -> MessageResponse:
-    """Append one message to an existing conversation.
-
-    The public role restriction is enforced here, before the service call, so a
-    caller can never forge an assistant or tool turn and poison later memory
-    extraction through the public API.
-    """
-    try:
-        existing = service.get_conversation(conversation_id)
-    except ConversationValidationError:
-        # Fall through to the write path below, which validates
-        # identically; this preserves exact legacy behavior for blank ids.
-        existing = None
-        skip_authz = True
-    except ConversationRepositoryError as error:
-        logger.error(
-            "conversation.append failed failure_class=%s", type(error).__name__
-        )
-        raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
-    else:
-        skip_authz = False
-    if not skip_authz:
-        if existing is None:
-            logger.info("conversation.append miss failure_class=not_found")
-            raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
-        try:
-            require_workspace_owner(existing.workspace_id, workspaces, principal)
-        except CrossOwnerAccessError:
-            logger.info("conversation.append miss failure_class=not_found")
-            raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
-    if request.role not in PUBLIC_WRITABLE_ROLES:
-        logger.info(
-            "conversation.append rejected conversation_id=%s failure_class=restricted_role",
-            conversation_id,
-        )
-        raise HTTPException(status_code=422, detail=_RESTRICTED_ROLE_DETAIL)
-
-    try:
-        message = service.append_message(
-            conversation_id=conversation_id,
-            role=request.role,
-            content=request.content,
-            source=request.source,
-            trace_visibility=request.trace_visibility,
-        )
-    except ConversationValidationError as error:
-        logger.info("conversation.append rejected failure_class=validation")
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    except ConversationNotFoundError as error:
-        logger.info("conversation.append miss failure_class=not_found")
-        raise HTTPException(
-            status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
-        ) from error
-    except ConversationRepositoryError as error:
-        logger.error(
-            "conversation.append failed failure_class=%s", type(error).__name__
-        )
-        raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
-
-    logger.info(
-        "conversation.append ok conversation_id=%s message_id=%s sequence=%s role=%s",
-        message.conversation_id,
-        message.message_id,
-        message.sequence,
-        message.role.value,
-    )
-    return MessageResponse.from_domain(message)
-
-
 @router.get(
-    "/conversations/{conversation_id}/messages", response_model=MessageListResponse
+    "/conversations/{conversation_id}/messages",
+    response_model=MessageListResponse,
 )
 def list_messages(
     conversation_id: str,
@@ -311,39 +147,15 @@ def list_messages(
     ),
     service: ConversationService = Depends(get_conversation_service),
     principal: AuthenticatedPrincipal = Depends(require_principal),
-    workspaces=Depends(get_workspace_repository),
 ) -> MessageListResponse:
-    """Read one page of message history in transcript order."""
-    try:
-        existing = service.get_conversation(conversation_id)
-    except ConversationValidationError:
-        # Fall through to the read path below, which validates
-        # identically; this preserves exact legacy behavior for blank ids.
-        existing = None
-        skip_authz = True
-    except ConversationRepositoryError as error:
-        logger.error(
-            "conversation.history failed failure_class=%s", type(error).__name__
-        )
-        raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
-    else:
-        skip_authz = False
-    if not skip_authz:
-        if existing is None:
-            logger.info("conversation.history miss failure_class=not_found")
-            raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
-        try:
-            require_workspace_owner(existing.workspace_id, workspaces, principal)
-        except CrossOwnerAccessError:
-            logger.info("conversation.history miss failure_class=not_found")
-            raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
+    """Read one page of message history in transcript order for an owned conversation."""
     try:
         query = MessageHistoryQuery(
             conversation_id=conversation_id,
             after_message_id=after_message_id,
             limit=limit,
         )
-        messages = service.list_messages(query)
+        messages = service.list_messages(query, owner_user_id=principal.owner_user_id)
     except ConversationValidationError as error:
         logger.info("conversation.history rejected failure_class=validation")
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -358,8 +170,6 @@ def list_messages(
         )
         raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
 
-    # A full page means more records may exist, so the caller receives a cursor.
-    # A short page is the last page and reports no cursor.
     next_cursor = messages[-1].message_id if len(messages) == query.limit else None
 
     logger.info(
@@ -371,4 +181,35 @@ def list_messages(
     return MessageListResponse(
         messages=[MessageResponse.from_domain(message) for message in messages],
         next_cursor=next_cursor,
+    )
+
+
+@router.delete(
+    "/conversations/{conversation_id}",
+    status_code=204,
+)
+def delete_conversation(
+    conversation_id: str,
+    service: ConversationService = Depends(get_conversation_service),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+) -> None:
+    """Tombstone one owned conversation."""
+    try:
+        service.delete_conversation(conversation_id, principal.owner_user_id)
+    except ConversationNotFoundError:
+        logger.info("conversation.delete miss failure_class=not_found")
+        raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
+    except ConversationValidationError as error:
+        logger.info("conversation.delete rejected failure_class=validation")
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except ConversationRepositoryError as error:
+        logger.error(
+            "conversation.delete failed failure_class=%s", type(error).__name__
+        )
+        raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
+
+    logger.info(
+        "conversation.delete ok conversation_id=%s owner_user_id=%s",
+        conversation_id,
+        principal.owner_user_id,
     )

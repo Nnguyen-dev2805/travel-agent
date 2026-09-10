@@ -14,7 +14,6 @@ from backend.security.authorization import (
 from backend.security.dependencies import (
     body_limit_bytes,
     enforce_request_body_limit,
-    get_optional_principal,
     require_principal,
     resolve_cors_origins,
 )
@@ -44,7 +43,6 @@ __all__ = [
     "OwnerForbiddenError",
     "body_limit_bytes",
     "enforce_request_body_limit",
-    "get_optional_principal",
     "get_workspace_repository",
     "parse_local_token_registry",
     "require_create_owner",

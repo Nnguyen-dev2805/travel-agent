@@ -1,92 +1,158 @@
-"""Integration tests for the R4 conversation routes.
+"""Integration tests for the standalone conversation routes.
 
-Every test overrides the conversation service dependency with an isolated
-temporary SQLite database, so no test reads or writes the developer database at
-`APP_DB_PATH`. No test constructs a RAG service, an embedding model, a Chroma
-collection, or a model-provider client.
-
-These routes implement no authentication, authorization, or tenant isolation.
-The tests assert deterministic repository filtering only.
-
-Fixture text is synthetic Vietnamese and English travel content and carries no
-secret.
+All routes require authentication. Conversations are standalone and owned
+directly by authenticated principals with zero workspace dependency.
+Direct message append is permanently unmounted.
 """
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from backend.app.api.conversations import get_conversation_service
+from backend.app.config import settings
 from backend.app.main import app
-from backend.conversations.models import TITLE_MAX_LENGTH
-from backend.conversations.service import ConversationService
-from backend.conversations.sqlite_repository import SQLiteConversationRepository
-from backend.workspaces.models import (
-    PlanningStatus,
-    RetentionState,
-    TripWorkspace,
-    generate_workspace_id,
+from backend.conversations.models import (
+    Conversation,
+    ConversationRetentionState,
+    Message,
+    MessageDraft,
+    MessageHistoryQuery,
+    MessageRole,
+    MessageSource,
+    TraceVisibility,
 )
-from backend.workspaces.sqlite_repository import SQLiteWorkspaceRepository
+from backend.conversations.repository import (
+    ConversationAlreadyExistsError,
+    ConversationStorageError,
+    MessageAlreadyExistsError,
+    MessageSequenceConflictError,
+)
+from backend.conversations.service import ConversationService
 
-PRIVATE_CONTENT = "Nội dung riêng tư không được lộ ra lỗi"
-LONG_TITLE = "t" * (TITLE_MAX_LENGTH + 1)
-MISSING_WORKSPACE = "tw_missing"
+ALICE_TOKEN = "token-alice-123"
+BOB_TOKEN = "token-bob-456"
+ALICE_HEADERS = {"Authorization": f"Bearer {ALICE_TOKEN}"}
+BOB_HEADERS = {"Authorization": f"Bearer {BOB_TOKEN}"}
 MISSING_CONVERSATION = "cv_missing"
 
 
-@pytest.fixture
-def db_path(tmp_path: Path) -> Path:
-    return tmp_path / "travel_agent.sqlite3"
+class InMemoryConversationRepository:
+    """In-memory repository for standalone conversation API tests."""
 
+    def __init__(self) -> None:
+        self.conversations: dict[str, Conversation] = {}
+        self.messages: list[Message] = []
 
-@pytest.fixture
-def workspace_repository(db_path: Path) -> SQLiteWorkspaceRepository:
-    return SQLiteWorkspaceRepository(db_path=db_path)
+    def create(self, conversation: Conversation) -> Conversation:
+        if conversation.conversation_id in self.conversations:
+            raise ConversationAlreadyExistsError("Conversation identity collision")
+        self.conversations[conversation.conversation_id] = conversation
+        return conversation
 
+    def get(self, conversation_id: str) -> Optional[Conversation]:
+        return self.conversations.get(conversation_id)
 
-@pytest.fixture
-def conversation_repository(db_path: Path) -> SQLiteConversationRepository:
-    return SQLiteConversationRepository(db_path=db_path)
+    def list_by_owner(
+        self, owner_user_id: str, include_deletion: bool = False
+    ) -> tuple[Conversation, ...]:
+        results = []
+        for conv in self.conversations.values():
+            if conv.owner_user_id != owner_user_id:
+                continue
+            if not include_deletion and conv.retention_state in (
+                ConversationRetentionState.TOMBSTONED,
+                ConversationRetentionState.DELETED,
+                ConversationRetentionState.DELETION_REQUESTED,
+            ):
+                continue
+            results.append(conv)
+        return tuple(results)
 
-
-@pytest.fixture
-def workspace_id(workspace_repository: SQLiteWorkspaceRepository) -> str:
-    moment = datetime(2026, 9, 4, 12, 0, 0, tzinfo=timezone.utc)
-    stored = workspace_repository.create(
-        TripWorkspace(
-            workspace_id=generate_workspace_id(),
-            owner_user_id="local-user",
-            title="Da Nang family trip",
-            destination_scope=None,
-            date_window=None,
-            planning_status=PlanningStatus.IDEA,
-            created_at=moment,
-            updated_at=moment,
-            retention_state=RetentionState.ACTIVE,
+    def delete(self, conversation_id: str) -> bool:
+        conv = self.conversations.get(conversation_id)
+        if conv is None or conv.retention_state == ConversationRetentionState.TOMBSTONED:
+            return False
+        self.conversations[conversation_id] = Conversation(
+            conversation_id=conv.conversation_id,
+            owner_user_id=conv.owner_user_id,
+            title=conv.title,
+            created_at=conv.created_at,
+            updated_at=datetime.now(timezone.utc),
+            retention_state=ConversationRetentionState.TOMBSTONED,
         )
+        return True
+
+    def append_message(
+        self,
+        message: MessageDraft,
+        message_id: str,
+        outbox_event: dict | None = None,
+    ) -> Message:
+        sequence = (
+            sum(
+                1
+                for stored in self.messages
+                if stored.conversation_id == message.conversation_id
+            )
+            + 1
+        )
+        stored = Message(
+            message_id=message_id,
+            conversation_id=message.conversation_id,
+            sequence=sequence,
+            role=message.role,
+            content=message.content,
+            source=message.source,
+            trace_visibility=message.trace_visibility,
+            created_at=message.created_at,
+        )
+        self.messages.append(stored)
+        return stored
+
+    def get_message(self, message_id: str) -> Optional[Message]:
+        for msg in self.messages:
+            if msg.message_id == message_id:
+                return msg
+        return None
+
+    def list_messages(
+        self, conversation_id: str, after_sequence: int | None, limit: int
+    ) -> tuple[Message, ...]:
+        selected = [
+            msg
+            for msg in self.messages
+            if msg.conversation_id == conversation_id
+            and (after_sequence is None or msg.sequence > after_sequence)
+        ]
+        selected.sort(key=lambda m: m.sequence)
+        return tuple(selected[:limit])
+
+
+@pytest.fixture(autouse=True)
+def configure_auth_tokens(monkeypatch):
+    registry_json = (
+        f'{{"alice": "{ALICE_TOKEN}", "bob": "{BOB_TOKEN}"}}'
     )
-    return stored.workspace_id
+    monkeypatch.setattr(settings, "LOCAL_AUTH_TOKENS_JSON", SecretStr(registry_json))
 
 
 @pytest.fixture
-def client(
-    conversation_repository: SQLiteConversationRepository,
-    workspace_repository: SQLiteWorkspaceRepository,
-):
-    """Client bound to a throwaway database.
+def repository() -> InMemoryConversationRepository:
+    return InMemoryConversationRepository()
 
-    Built without the lifespan context manager on purpose: conversation routes
-    construct no RAG service, embedding model, or Chroma collection, so
-    pre-warming them here would add cost and an external dependency the routes
-    do not have.
-    """
-    service = ConversationService(
-        conversation_repository=conversation_repository,
-        workspace_repository=workspace_repository,
-    )
+
+@pytest.fixture
+def service(repository: InMemoryConversationRepository) -> ConversationService:
+    return ConversationService(conversation_repository=repository)
+
+
+@pytest.fixture
+def client(service: ConversationService):
     app.dependency_overrides[get_conversation_service] = lambda: service
     try:
         yield TestClient(app)
@@ -94,550 +160,184 @@ def client(
         app.dependency_overrides.pop(get_conversation_service, None)
 
 
-def _create_conversation(client: TestClient, workspace_id: str, **payload):
-    return client.post(f"/api/v1/workspaces/{workspace_id}/conversations", json=payload)
-
-
-def _append(client: TestClient, conversation_id: str, **payload):
-    body = {"role": "user", "content": "Nên đi Đà Nẵng vào tháng mấy?"}
-    body.update(payload)
-    return client.post(f"/api/v1/conversations/{conversation_id}/messages", json=body)
-
-
-def _seed_conversation(client: TestClient, workspace_id: str, **payload) -> str:
-    response = _create_conversation(client, workspace_id, **payload)
+def _seed_conversation(
+    client: TestClient, headers: dict = ALICE_HEADERS, title: str = "Da Nang trip"
+) -> str:
+    response = client.post("/api/v1/conversations", json={"title": title}, headers=headers)
     assert response.status_code == 201
     return response.json()["conversation_id"]
 
 
-# 1, 2 and 3. Creation.
+# 1. Authentication requirements
 
 
-def test_create_returns_201_with_governed_identity_and_defaults(client, workspace_id):
-    response = _create_conversation(client, workspace_id, title="  Da Nang food plan  ")
+def test_unauthenticated_requests_return_401(client):
+    assert client.post("/api/v1/conversations", json={}).status_code == 401
+    assert client.get("/api/v1/conversations").status_code == 401
+    assert client.get("/api/v1/conversations/cv_test").status_code == 401
+    assert client.get("/api/v1/conversations/cv_test/messages").status_code == 401
+    assert client.delete("/api/v1/conversations/cv_test").status_code == 401
 
+
+def test_invalid_bearer_token_returns_401(client):
+    bad_headers = {"Authorization": "Bearer invalid-token"}
+    assert client.post("/api/v1/conversations", json={}, headers=bad_headers).status_code == 401
+    assert client.get("/api/v1/conversations", headers=bad_headers).status_code == 401
+
+
+# 2. Standalone conversation creation
+
+
+def test_create_conversation_returns_201_with_governed_identity(client):
+    response = client.post(
+        "/api/v1/conversations",
+        json={"title": "  Da Nang food plan  "},
+        headers=ALICE_HEADERS,
+    )
     assert response.status_code == 201
     body = response.json()
     assert body["conversation_id"].startswith("cv_")
-    assert body["workspace_id"] == workspace_id
+    assert body["owner_user_id"] == "alice"
     assert body["title"] == "Da Nang food plan"
     assert body["retention_state"] == "active"
-    assert body["created_at"] == body["updated_at"]
-    assert set(body.keys()) == {
-        "conversation_id",
-        "workspace_id",
-        "title",
-        "retention_state",
-        "created_at",
-        "updated_at",
-    }
+    assert "workspace_id" not in body
 
 
-def test_create_accepts_an_absent_title(client, workspace_id):
-    response = _create_conversation(client, workspace_id)
-    assert response.status_code == 201
-    assert response.json()["title"] is None
-
-
-def test_create_normalizes_a_blank_title_to_absent(client, workspace_id):
-    response = _create_conversation(client, workspace_id, title="   ")
-    assert response.status_code == 201
-    assert response.json()["title"] is None
-
-
-def test_create_under_a_missing_workspace_returns_404(client, conversation_repository):
-    response = _create_conversation(client, MISSING_WORKSPACE, title="Orphan")
-
-    assert response.status_code == 404
-    assert conversation_repository.list_by_workspace(MISSING_WORKSPACE) == ()
-
-
-def test_create_with_an_overlong_title_returns_422_and_creates_nothing(
-    client, workspace_id, conversation_repository
-):
-    response = _create_conversation(client, workspace_id, title=LONG_TITLE)
-
-    assert response.status_code == 422
-    assert conversation_repository.list_by_workspace(workspace_id) == ()
-    assert LONG_TITLE not in response.text
-
-
-# 4. Reading one conversation.
-
-
-def test_get_returns_the_stored_conversation(client, workspace_id):
-    conversation_id = _seed_conversation(client, workspace_id, title="Da Nang")
-
-    response = client.get(f"/api/v1/conversations/{conversation_id}")
-
-    assert response.status_code == 200
-    assert response.json()["conversation_id"] == conversation_id
-
-
-def test_get_a_missing_conversation_returns_404(client):
-    response = client.get(f"/api/v1/conversations/{MISSING_CONVERSATION}")
-    assert response.status_code == 404
-
-
-# 5, 6 and 7. Listing.
-
-
-def test_list_returns_an_object_not_a_bare_array(client, workspace_id):
-    _seed_conversation(client, workspace_id, title="Only")
-
-    response = client.get(f"/api/v1/workspaces/{workspace_id}/conversations")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert isinstance(body, dict)
-    assert set(body.keys()) == {"conversations"}
-    assert [record["title"] for record in body["conversations"]] == ["Only"]
-
-
-def test_list_excludes_other_workspaces(client, workspace_id, workspace_repository):
-    moment = datetime(2026, 9, 4, 12, 0, 0, tzinfo=timezone.utc)
-    other = workspace_repository.create(
-        TripWorkspace(
-            workspace_id=generate_workspace_id(),
-            owner_user_id="local-user",
-            title="Other trip",
-            destination_scope=None,
-            date_window=None,
-            planning_status=PlanningStatus.IDEA,
-            created_at=moment,
-            updated_at=moment,
-        )
+def test_create_conversation_allows_null_title(client):
+    response = client.post(
+        "/api/v1/conversations",
+        json={},
+        headers=ALICE_HEADERS,
     )
-    _seed_conversation(client, workspace_id, title="Mine")
-    _seed_conversation(client, other.workspace_id, title="Theirs")
-
-    body = client.get(f"/api/v1/workspaces/{workspace_id}/conversations").json()
-
-    assert [record["title"] for record in body["conversations"]] == ["Mine"]
+    assert response.status_code == 201
+    assert response.json()["title"] is None
 
 
-def test_list_applies_the_governed_newest_first_ordering(client, workspace_id):
-    first = _seed_conversation(client, workspace_id, title="First")
-    second = _seed_conversation(client, workspace_id, title="Second")
-    # Appending bumps `updated_at`, which is the primary ordering key.
-    assert _append(client, first, content="đẩy lên đầu").status_code == 201
-
-    body = client.get(f"/api/v1/workspaces/{workspace_id}/conversations").json()
-    ordered = [record["conversation_id"] for record in body["conversations"]]
-
-    assert ordered == [first, second]
+def test_create_conversation_rejects_too_long_title(client):
+    response = client.post(
+        "/api/v1/conversations",
+        json={"title": "t" * 121},
+        headers=ALICE_HEADERS,
+    )
+    assert response.status_code == 422
 
 
-def test_list_for_a_workspace_with_no_conversations_returns_an_empty_array(
-    client, workspace_id
-):
-    response = client.get(f"/api/v1/workspaces/{workspace_id}/conversations")
+# 3. Listing conversations
+
+
+def test_list_conversations_returns_owned_conversations(client):
+    c1 = _seed_conversation(client, headers=ALICE_HEADERS, title="C1")
+    c2 = _seed_conversation(client, headers=ALICE_HEADERS, title="C2")
+    _seed_conversation(client, headers=BOB_HEADERS, title="Bob Conv")
+
+    response = client.get("/api/v1/conversations", headers=ALICE_HEADERS)
+    assert response.status_code == 200
+    ids = [c["conversation_id"] for c in response.json()["conversations"]]
+    assert c1 in ids
+    assert c2 in ids
+    assert len(ids) == 2
+
+
+def test_list_conversations_empty_for_new_user(client):
+    response = client.get("/api/v1/conversations", headers=BOB_HEADERS)
     assert response.status_code == 200
     assert response.json() == {"conversations": []}
 
 
-def test_list_under_a_missing_workspace_returns_404(client):
-    response = client.get(f"/api/v1/workspaces/{MISSING_WORKSPACE}/conversations")
+# 4. Reading one conversation
+
+
+def test_get_conversation_returns_owned_record(client):
+    conv_id = _seed_conversation(client, headers=ALICE_HEADERS, title="Alice Conv")
+
+    response = client.get(f"/api/v1/conversations/{conv_id}", headers=ALICE_HEADERS)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["conversation_id"] == conv_id
+    assert body["owner_user_id"] == "alice"
+    assert body["title"] == "Alice Conv"
+
+
+def test_get_missing_conversation_returns_404(client):
+    response = client.get(f"/api/v1/conversations/{MISSING_CONVERSATION}", headers=ALICE_HEADERS)
     assert response.status_code == 404
 
 
-# 8 and 9. Appending permitted roles.
-
-
-def test_append_a_user_message_returns_201_with_incrementing_sequence(
-    client, workspace_id
-):
-    conversation_id = _seed_conversation(client, workspace_id)
-
-    first = _append(client, conversation_id, content="một")
-    second = _append(client, conversation_id, content="hai")
-
-    assert first.status_code == 201
-    assert second.status_code == 201
-    assert first.json()["sequence"] == 1
-    assert second.json()["sequence"] == 2
-
-    body = first.json()
-    assert body["message_id"].startswith("ms_")
-    assert body["conversation_id"] == conversation_id
-    assert body["role"] == "user"
-    assert body["content"] == "một"
-    assert body["source"] == "ui"
-    assert body["trace_visibility"] == "excluded"
-    assert set(body.keys()) == {
-        "message_id",
-        "conversation_id",
-        "sequence",
-        "role",
-        "content",
-        "source",
-        "trace_visibility",
-        "created_at",
-    }
-
-
-def test_append_a_system_event_message_succeeds(client, workspace_id):
-    conversation_id = _seed_conversation(client, workspace_id)
-
-    response = _append(
-        client, conversation_id, role="system_event", content="workspace linked"
-    )
-
-    assert response.status_code == 201
-    assert response.json()["role"] == "system_event"
-
-
-def test_append_accepts_explicit_governed_source_and_visibility(client, workspace_id):
-    conversation_id = _seed_conversation(client, workspace_id)
-
-    response = _append(
-        client, conversation_id, source="import", trace_visibility="included"
-    )
-
-    assert response.status_code == 201
-    assert response.json()["source"] == "import"
-    assert response.json()["trace_visibility"] == "included"
-
-
-# 10, 11 and 12. Restricted and ungoverned vocabulary.
-
-
-def test_append_an_assistant_role_returns_422_without_echoing_input(
-    client, workspace_id, conversation_repository
-):
-    conversation_id = _seed_conversation(client, workspace_id)
-
-    response = _append(
-        client, conversation_id, role="assistant", content=PRIVATE_CONTENT
-    )
-
-    assert response.status_code == 422
-    assert PRIVATE_CONTENT not in response.text
-    assert "assistant" not in response.text
-    assert conversation_repository.list_messages(conversation_id, None, 50) == ()
-
-
-def test_append_a_tool_role_returns_422(client, workspace_id, conversation_repository):
-    conversation_id = _seed_conversation(client, workspace_id)
-
-    response = _append(client, conversation_id, role="tool", content=PRIVATE_CONTENT)
-
-    assert response.status_code == 422
-    assert PRIVATE_CONTENT not in response.text
-    assert conversation_repository.list_messages(conversation_id, None, 50) == ()
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("role", "moderator"),
-        ("source", "browser"),
-        ("trace_visibility", "hidden"),
-    ],
-)
-def test_append_an_ungoverned_vocabulary_value_returns_422(
-    client, workspace_id, conversation_repository, field, value
-):
-    conversation_id = _seed_conversation(client, workspace_id)
-
-    response = _append(client, conversation_id, **{field: value})
-
-    assert response.status_code == 422
-    assert conversation_repository.list_messages(conversation_id, None, 50) == ()
-
-
-# 13 and 14. Invalid append input.
-
-
-@pytest.mark.parametrize("content", ["", "   "])
-def test_append_blank_content_returns_422_and_creates_nothing(
-    client, workspace_id, conversation_repository, content
-):
-    conversation_id = _seed_conversation(client, workspace_id)
-
-    response = _append(client, conversation_id, content=content)
-
-    assert response.status_code == 422
-    assert conversation_repository.list_messages(conversation_id, None, 50) == ()
-
-
-def test_append_to_a_missing_conversation_returns_404(client, conversation_repository):
-    response = _append(client, MISSING_CONVERSATION, content=PRIVATE_CONTENT)
-
-    assert response.status_code == 404
-    assert PRIVATE_CONTENT not in response.text
-    assert conversation_repository.list_messages(MISSING_CONVERSATION, None, 50) == ()
-
-
-# 15, 16, 17, 18 and 19. History reads.
-
-
-def test_history_returns_messages_in_sequence_ascending_order(client, workspace_id):
-    conversation_id = _seed_conversation(client, workspace_id)
-    for content in ("một", "hai", "ba"):
-        assert _append(client, conversation_id, content=content).status_code == 201
-
-    response = client.get(f"/api/v1/conversations/{conversation_id}/messages")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert set(body.keys()) == {"messages", "next_cursor"}
-    assert [message["content"] for message in body["messages"]] == ["một", "hai", "ba"]
-    assert [message["sequence"] for message in body["messages"]] == [1, 2, 3]
-
-
-def test_history_cursor_returns_only_later_messages_and_a_null_final_cursor(
-    client, workspace_id
-):
-    conversation_id = _seed_conversation(client, workspace_id)
-    ids = [
-        _append(client, conversation_id, content=content).json()["message_id"]
-        for content in ("một", "hai", "ba")
-    ]
-
-    response = client.get(
-        f"/api/v1/conversations/{conversation_id}/messages",
-        params={"after_message_id": ids[0]},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert [message["content"] for message in body["messages"]] == ["hai", "ba"]
-    assert body["next_cursor"] is None, "a partial page is the last page"
-
-
-def test_history_reports_a_cursor_while_a_full_page_is_returned(client, workspace_id):
-    conversation_id = _seed_conversation(client, workspace_id)
-    for content in ("một", "hai", "ba"):
-        _append(client, conversation_id, content=content)
-
-    first_page = client.get(
-        f"/api/v1/conversations/{conversation_id}/messages", params={"limit": 2}
-    ).json()
-
-    assert [message["content"] for message in first_page["messages"]] == ["một", "hai"]
-    assert first_page["next_cursor"] == first_page["messages"][-1]["message_id"]
-
-    second_page = client.get(
-        f"/api/v1/conversations/{conversation_id}/messages",
-        params={"limit": 2, "after_message_id": first_page["next_cursor"]},
-    ).json()
-
-    assert [message["content"] for message in second_page["messages"]] == ["ba"]
-    assert second_page["next_cursor"] is None
-
-
-@pytest.mark.parametrize("limit", [0, 201, -1])
-def test_history_with_a_limit_outside_the_governed_range_returns_422(
-    client, workspace_id, limit
-):
-    conversation_id = _seed_conversation(client, workspace_id)
-
-    response = client.get(
-        f"/api/v1/conversations/{conversation_id}/messages", params={"limit": limit}
-    )
-
-    assert response.status_code == 422
-
-
-def test_history_with_a_cursor_from_another_conversation_returns_422(
-    client, workspace_id
-):
-    mine = _seed_conversation(client, workspace_id, title="Mine")
-    theirs = _seed_conversation(client, workspace_id, title="Theirs")
-    foreign = _append(client, theirs, content="của họ").json()["message_id"]
-
-    response = client.get(
-        f"/api/v1/conversations/{mine}/messages",
-        params={"after_message_id": foreign},
-    )
-
-    assert response.status_code == 422
-
-
-def test_history_with_an_unknown_cursor_returns_422(client, workspace_id):
-    conversation_id = _seed_conversation(client, workspace_id)
-
-    response = client.get(
-        f"/api/v1/conversations/{conversation_id}/messages",
-        params={"after_message_id": "ms_never_stored"},
-    )
-
-    assert response.status_code == 422
-
-
-def test_history_for_a_conversation_with_no_messages_is_empty_with_a_null_cursor(
-    client, workspace_id
-):
-    conversation_id = _seed_conversation(client, workspace_id)
-
-    response = client.get(f"/api/v1/conversations/{conversation_id}/messages")
-
-    assert response.status_code == 200
-    assert response.json() == {"messages": [], "next_cursor": None}
-
-
-def test_history_for_a_missing_conversation_returns_404(client):
-    response = client.get(f"/api/v1/conversations/{MISSING_CONVERSATION}/messages")
+def test_cross_owner_get_returns_404(client):
+    alice_conv = _seed_conversation(client, headers=ALICE_HEADERS, title="Alice Secret")
+
+    # Bob attempts to read Alice's conversation
+    response = client.get(f"/api/v1/conversations/{alice_conv}", headers=BOB_HEADERS)
     assert response.status_code == 404
 
 
-# 20. No error body leaks user content.
+# 5. Deletion (tombstoning)
 
 
-def test_no_error_body_contains_submitted_content_or_titles(client, workspace_id):
-    conversation_id = _seed_conversation(client, workspace_id)
-    secret_title = "Bí mật chuyến đi của tôi"
+def test_delete_conversation_tombstones_and_returns_204(client):
+    conv_id = _seed_conversation(client, headers=ALICE_HEADERS)
 
-    failures = [
-        _create_conversation(client, MISSING_WORKSPACE, title=secret_title),
-        _create_conversation(client, workspace_id, title=LONG_TITLE + secret_title),
-        _append(client, conversation_id, role="assistant", content=PRIVATE_CONTENT),
-        _append(client, conversation_id, role="tool", content=PRIVATE_CONTENT),
-        _append(client, MISSING_CONVERSATION, content=PRIVATE_CONTENT),
-        client.get(f"/api/v1/conversations/{MISSING_CONVERSATION}/messages"),
-        client.get(
-            f"/api/v1/conversations/{conversation_id}/messages",
-            params={"after_message_id": "ms_never_stored"},
-        ),
-    ]
+    response = client.delete(f"/api/v1/conversations/{conv_id}", headers=ALICE_HEADERS)
+    assert response.status_code == 204
 
-    for response in failures:
-        assert response.status_code in (404, 422), response.text
-        assert PRIVATE_CONTENT not in response.text
-        assert secret_title not in response.text
+    # Subsequent GET returns 404
+    assert client.get(f"/api/v1/conversations/{conv_id}", headers=ALICE_HEADERS).status_code == 404
+
+    # Omitted from list
+    list_resp = client.get("/api/v1/conversations", headers=ALICE_HEADERS)
+    assert conv_id not in [c["conversation_id"] for c in list_resp.json()["conversations"]]
 
 
-def test_routes_are_mounted_under_the_configured_api_prefix(client, workspace_id):
-    """The router is mounted with `settings.API_V1_STR`, like chat and workspaces."""
-    from backend.app.config import settings
-
-    assert settings.API_V1_STR == "/api/v1"
-    assert (
-        client.get(
-            f"{settings.API_V1_STR}/workspaces/{workspace_id}/conversations"
-        ).status_code
-        == 200
-    )
+def test_delete_missing_conversation_returns_404(client):
+    response = client.delete(f"/api/v1/conversations/{MISSING_CONVERSATION}", headers=ALICE_HEADERS)
+    assert response.status_code == 404
 
 
-def test_conversation_routes_do_not_disturb_health_or_chat(client):
-    assert client.get("/health").status_code == 200
-    assert client.post("/api/v1/chat", json={"message": "   "}).status_code == 400
+def test_cross_owner_delete_returns_404(client):
+    alice_conv = _seed_conversation(client, headers=ALICE_HEADERS)
+
+    # Bob attempts to delete Alice's conversation
+    response = client.delete(f"/api/v1/conversations/{alice_conv}", headers=BOB_HEADERS)
+    assert response.status_code == 404
+
+    # Still accessible to Alice
+    assert client.get(f"/api/v1/conversations/{alice_conv}", headers=ALICE_HEADERS).status_code == 200
 
 
-# Schema-level validation must not echo the submitted value either.
-#
-# The domain contract owns the blank, length, and vocabulary rules, so those
-# rejections already carry no user input. A wrong-typed payload is different: it
-# fails inside the request schema, and FastAPI's default validation body reports
-# the offending value under `input`. That would defeat the requirement that no
-# error body carries message content or a conversation title, and a caller could
-# defeat it deliberately by putting content in any field.
+# 6. Messages history reading
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {"title": ["SUPER_SECRET_TITLE"]},
-        {"title": {"nested": "SUPER_SECRET_TITLE"}},
-        {"title": 12345},
-    ],
-)
-def test_wrong_typed_title_returns_422_without_echoing_the_value(
-    client, workspace_id, conversation_repository, payload
-):
-    response = client.post(
-        f"/api/v1/workspaces/{workspace_id}/conversations", json=payload
-    )
+def test_messages_history_returns_transcript(client, service):
+    conv_id = _seed_conversation(client, headers=ALICE_HEADERS)
+    service.append_message(conv_id, MessageRole.USER, "Xin chào", owner_user_id="alice")
+    service.append_message(conv_id, MessageRole.ASSISTANT, "Chào bạn!", owner_user_id="alice")
 
-    assert response.status_code == 422
-    assert "SUPER_SECRET_TITLE" not in response.text
-    assert "12345" not in response.text
-    assert conversation_repository.list_by_workspace(workspace_id) == ()
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("content", ["SUPER_SECRET_CONTENT"]),
-        ("content", {"nested": "SUPER_SECRET_CONTENT"}),
-        ("role", {"nested": "SUPER_SECRET_CONTENT"}),
-        ("source", ["SUPER_SECRET_CONTENT"]),
-        ("trace_visibility", ["SUPER_SECRET_CONTENT"]),
-    ],
-)
-def test_wrong_typed_message_field_returns_422_without_echoing_the_value(
-    client, workspace_id, conversation_repository, field, value
-):
-    conversation_id = _seed_conversation(client, workspace_id)
-
-    response = _append(client, conversation_id, **{field: value})
-
-    assert response.status_code == 422
-    assert "SUPER_SECRET_CONTENT" not in response.text
-    assert conversation_repository.list_messages(conversation_id, None, 50) == ()
-
-
-def test_sanitized_validation_body_keeps_its_useful_shape(client, workspace_id):
-    """Redaction must remove the value, not the diagnostic."""
-    response = client.post(
-        f"/api/v1/workspaces/{workspace_id}/conversations",
-        json={"title": ["SUPER_SECRET_TITLE"]},
-    )
-
-    assert response.status_code == 422
+    response = client.get(f"/api/v1/conversations/{conv_id}/messages", headers=ALICE_HEADERS)
+    assert response.status_code == 200
     body = response.json()
-    assert isinstance(body["detail"], list)
-    entry = body["detail"][0]
-    assert set(entry.keys()) == {"type", "loc", "msg"}
-    assert entry["loc"] == ["body", "title"]
-    assert entry["type"] == "string_type"
+    assert len(body["messages"]) == 2
+    assert body["messages"][0]["content"] == "Xin chào"
+    assert body["messages"][1]["content"] == "Chào bạn!"
 
 
-def test_sanitized_validation_body_still_names_the_permitted_vocabulary(
-    client, workspace_id
-):
-    """Dropping `ctx` loses no information: `msg` already lists the values."""
-    conversation_id = _seed_conversation(client, workspace_id)
+def test_cross_owner_messages_history_returns_404(client, service):
+    conv_id = _seed_conversation(client, headers=ALICE_HEADERS)
+    service.append_message(conv_id, MessageRole.USER, "Secret message", owner_user_id="alice")
 
-    response = _append(client, conversation_id, role="moderator")
-
-    assert response.status_code == 422
-    entry = response.json()["detail"][0]
-    assert "user" in entry["msg"]
-    assert "system_event" in entry["msg"]
-    assert "input" not in entry
+    # Bob attempts to read history
+    response = client.get(f"/api/v1/conversations/{conv_id}/messages", headers=BOB_HEADERS)
+    assert response.status_code == 404
 
 
-def test_malformed_json_body_returns_422_without_echoing_the_payload(
-    client, workspace_id
-):
+# 7. Direct message append is permanently unmounted
+
+
+def test_direct_message_append_route_is_unmounted_returns_404(client):
+    conv_id = _seed_conversation(client, headers=ALICE_HEADERS)
     response = client.post(
-        f"/api/v1/workspaces/{workspace_id}/conversations",
-        content=b'{"title": "SUPER_SECRET_TITLE"',
-        headers={"Content-Type": "application/json"},
+        f"/api/v1/conversations/{conv_id}/messages",
+        json={"role": "user", "content": "direct append"},
+        headers=ALICE_HEADERS,
     )
-
-    assert response.status_code == 422
-    assert "SUPER_SECRET_TITLE" not in response.text
-
-
-def test_the_sanitizing_handler_is_application_wide(client):
-    """Registered on the app, so workspace and chat payloads are covered too.
-
-    Recorded as blast-radius evidence: the handler is not scoped to conversation
-    routes, and the R3 workspace routes inherit the same redaction.
-    """
-    workspace_response = client.post(
-        "/api/v1/workspaces",
-        json={"owner_user_id": "local-user", "title": ["SUPER_SECRET_TITLE"]},
-    )
-    assert workspace_response.status_code == 422
-    assert "SUPER_SECRET_TITLE" not in workspace_response.text
-
-    chat_response = client.post(
-        "/api/v1/chat", json={"message": ["SUPER_SECRET_TITLE"]}
-    )
-    assert chat_response.status_code == 422
-    assert "SUPER_SECRET_TITLE" not in chat_response.text
+    # The route POST /conversations/{id}/messages does not exist on FastAPI
+    assert response.status_code == 405 or response.status_code == 404

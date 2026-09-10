@@ -1,11 +1,8 @@
-"""Public request and response JSON shapes for the R4 conversation routes.
+"""Public request and response JSON shapes for standalone conversation routes.
 
 These schemas own the HTTP contract only. Identity, ordering, and timestamps are
-server-owned, so `conversation_id`, `message_id`, `sequence`, `created_at`,
-`updated_at`, and `retention_state` are never accepted from a request body.
-
-List responses are objects rather than bare arrays so a later milestone can add
-pagination metadata without a breaking change.
+server-owned, so `conversation_id`, `created_at`, `updated_at`, and `retention_state`
+are never accepted from a request body.
 """
 
 from datetime import datetime
@@ -24,15 +21,7 @@ from backend.conversations.models import (
 
 
 class ConversationCreateRequest(BaseModel):
-    """Create one conversation under an existing trip workspace.
-
-    `workspace_id` arrives in the path, not the body, so scope is a structural
-    property of the route rather than a validation step a future change could
-    forget.
-
-    The title bound is enforced by the domain contract rather than declared here,
-    so a rejection message names the rule without echoing the submitted title.
-    """
+    """Create one standalone conversation."""
 
     title: Optional[str] = Field(
         None, json_schema_extra={"example": "Da Nang food plan"}
@@ -43,9 +32,9 @@ class ConversationResponse(BaseModel):
     """One conversation record."""
 
     conversation_id: str
-    workspace_id: str
+    owner_user_id: str
     title: Optional[str]
-    retention_state: ConversationRetentionState
+    retention_state: ConversationRetentionState | str
     created_at: datetime
     updated_at: datetime
 
@@ -53,7 +42,7 @@ class ConversationResponse(BaseModel):
     def from_domain(cls, conversation: Conversation) -> "ConversationResponse":
         return cls(
             conversation_id=conversation.conversation_id,
-            workspace_id=conversation.workspace_id,
+            owner_user_id=conversation.owner_user_id,
             title=conversation.title,
             retention_state=conversation.retention_state,
             created_at=conversation.created_at,
@@ -62,30 +51,9 @@ class ConversationResponse(BaseModel):
 
 
 class ConversationListResponse(BaseModel):
-    """Workspace-scoped conversation list in governed newest-first order."""
+    """Owner-scoped conversation list."""
 
     conversations: List[ConversationResponse] = Field(default_factory=list)
-
-
-class MessageAppendRequest(BaseModel):
-    """Append one message to an existing conversation.
-
-    `role` is typed as the full governed vocabulary rather than only the publicly
-    writable subset, so a restricted role is refused by the route with a message
-    that names the restriction instead of echoing the submitted value back.
-
-    The non-empty `content` rule is enforced by the domain contract, so a
-    rejection never echoes submitted message content.
-    """
-
-    role: MessageRole = Field(..., json_schema_extra={"example": "user"})
-    content: str = Field(
-        ..., json_schema_extra={"example": "Nên đi Đà Nẵng vào tháng mấy?"}
-    )
-    source: Optional[MessageSource] = Field(None, json_schema_extra={"example": "ui"})
-    trace_visibility: Optional[TraceVisibility] = Field(
-        None, json_schema_extra={"example": "excluded"}
-    )
 
 
 class MessageResponse(BaseModel):

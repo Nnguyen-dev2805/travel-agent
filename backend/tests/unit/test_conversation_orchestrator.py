@@ -414,12 +414,12 @@ class _AuthConversations:
     def get_conversation(self, conversation_id: str):
         from types import SimpleNamespace
 
-        workspaces = {"cv_mine": "tw_mine", "cv_theirs": "tw_theirs"}
-        if conversation_id not in workspaces:
+        owners = {"cv_mine": "owner_a", "cv_theirs": "owner_b"}
+        if conversation_id not in owners:
             return None
         return SimpleNamespace(
             conversation_id=conversation_id,
-            workspace_id=workspaces[conversation_id],
+            owner_user_id=owners[conversation_id],
         )
 
     def get_workspace_owner_id(self, workspace_id: str):

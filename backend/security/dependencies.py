@@ -1,15 +1,11 @@
-"""FastAPI security dependencies for milestone R9.
+"""FastAPI security dependencies for authenticated chat.
 
-`require_principal` resolves the caller to a server-side principal:
-the compatibility principal when auth is disabled, or an authenticated
-owner from the local bearer-token registry when enabled. Invalid
-credentials become controlled `401` responses here so routes never see
-raw tokens; malformed registry configuration raises
-`SecurityConfigurationError` for routes to fail closed with a `500`.
+`require_principal` resolves the caller to a server-side principal from the
+bearer-token registry unconditionally. Missing, malformed, or invalid
+credentials become controlled 401 responses without disclosing tokens.
 
 Request-size enforcement and CORS origin resolution also live here so
-both the middleware and tests share one controlled policy. Product
-authorization helpers arrive in a later R9 task.
+both the middleware and tests share one controlled policy.
 """
 
 from __future__ import annotations
@@ -26,16 +22,12 @@ from backend.security.local_tokens import (
     resolve_local_principal,
 )
 from backend.security.models import (
-    AuthMode,
     AuthenticatedPrincipal,
     AuthenticationError,
     SecurityConfigurationError,
 )
 
 logger = logging.getLogger("travel_agent_security")
-
-COMPATIBILITY_OWNER_ID = "local-developer"
-COMPATIBILITY_CREDENTIAL_LABEL = "none"
 
 _MISSING_CREDENTIAL_DETAIL = "Authentication required."
 _INVALID_CREDENTIAL_DETAIL = "Invalid bearer token."
@@ -45,15 +37,6 @@ _REQUEST_REJECTED_DETAIL = "Request rejected."
 
 _BODY_METHODS = frozenset({"POST", "PUT", "PATCH"})
 _FALLBACK_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
-
-
-def _compatibility_principal() -> AuthenticatedPrincipal:
-    """Return the non-authoritative local development principal."""
-    return AuthenticatedPrincipal(
-        owner_user_id=COMPATIBILITY_OWNER_ID,
-        auth_mode=AuthMode.COMPATIBILITY,
-        credential_label=COMPATIBILITY_CREDENTIAL_LABEL,
-    )
 
 
 def _bearer_token(request: Request) -> Optional[str]:
@@ -88,23 +71,8 @@ def _resolve_authenticated(token: Optional[str]) -> AuthenticatedPrincipal:
         raise HTTPException(status_code=401, detail=_INVALID_CREDENTIAL_DETAIL)
 
 
-def get_optional_principal(request: Request) -> AuthenticatedPrincipal:
-    """Resolve the caller principal, enforcing auth only when enabled.
-
-    In compatibility mode every caller receives the non-authoritative
-    local principal and existing request shapes keep working. When auth
-    is enabled this enforces exactly like `require_principal`: the split
-    exists so future anonymous-safe reads have a distinct seam.
-    """
-    if not settings.AUTH_REQUIRED:
-        return _compatibility_principal()
-    return _resolve_authenticated(_bearer_token(request))
-
-
 def require_principal(request: Request) -> AuthenticatedPrincipal:
-    """Resolve the caller principal, enforcing auth only when enabled."""
-    if not settings.AUTH_REQUIRED:
-        return _compatibility_principal()
+    """Resolve the caller principal unconditionally from bearer credentials."""
     return _resolve_authenticated(_bearer_token(request))
 
 
@@ -119,15 +87,7 @@ def body_limit_bytes() -> int:
 
 
 async def enforce_request_body_limit(request: Request) -> Optional[JSONResponse]:
-    """Reject oversized bodies with a content-free `413`, if oversized.
-
-    The `Content-Length` fast path avoids reading the body; requests with
-    a missing or malformed length and a body-bearing method are measured
-    from the stream up to one byte past the limit. A fitting body is
-    stashed on the request cache Starlette itself uses, so downstream
-    parsing replays the measured bytes instead of seeing a consumed
-    stream. Returns `None` when the request fits.
-    """
+    """Reject oversized bodies with a content-free `413`, if oversized."""
     limit = body_limit_bytes()
     length = request.headers.get("content-length")
     if length is not None:
@@ -155,14 +115,7 @@ async def enforce_request_body_limit(request: Request) -> Optional[JSONResponse]
 
 
 def resolve_cors_origins() -> list[str]:
-    """Resolve allowed CORS origins, failing closed on wildcard with auth.
-
-    Compatibility mode preserves the existing local origins including the
-    wildcard. When auth is enabled only explicit origins are allowed; a
-    wildcard or blank configuration fails closed.
-    """
-    if not settings.AUTH_REQUIRED:
-        return [*_FALLBACK_CORS_ORIGINS, "*"]
+    """Resolve allowed CORS origins, failing closed on wildcard."""
     origins = [
         part.strip()
         for part in settings.ALLOWED_CORS_ORIGINS.split(",")
@@ -172,6 +125,6 @@ def resolve_cors_origins() -> list[str]:
         return list(_FALLBACK_CORS_ORIGINS)
     if "*" in origins:
         raise SecurityConfigurationError(
-            "Wildcard CORS origin is not allowed when auth is required."
+            "Wildcard CORS origin is not allowed."
         )
     return origins

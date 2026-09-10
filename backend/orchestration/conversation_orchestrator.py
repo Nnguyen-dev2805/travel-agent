@@ -185,37 +185,18 @@ class ConversationOrchestrator:
         conversations = self._conversation_service_provider()
 
         conversation = conversations.get_conversation(conversation_id)
-        if conversation is not None:
-            workspace = conversations.get_workspace(conversation.workspace_id)
-            # Retention compares as plain strings so this module never
-            # imports workspace contracts behind the R4 import boundary.
-            # A deleted workspace hides its conversations from bound chat
-            # in every auth mode, mirroring the service guards.
-            if workspace is not None and workspace.retention_state.value in (
-                "deletion_requested",
-                "deleted",
-            ):
-                from backend.conversations.service import (
-                    ConversationNotFoundError,
-                )
-
-                raise ConversationNotFoundError("The conversation does not exist.")
-
-        # A str-enum member equals its value string, so this also accepts
-        # test doubles carrying the raw "authenticated" value.
-        if principal is not None and principal.auth_mode == "authenticated":
-            # Imported lazily so importing this module never loads the
-            # security package init (which pulls FastAPI and workspace
-            # adapters behind the R4 import boundary). The branch runs
-            # only for bound turns with an authenticated principal.
-            from backend.security.models import CrossOwnerAccessError
-
-            if conversation is None:
+        if conversation is None:
+            if principal is not None and getattr(principal, "auth_mode", None) == "authenticated":
+                from backend.security.models import CrossOwnerAccessError
                 raise CrossOwnerAccessError(
                     "The conversation does not exist in this owner scope."
                 )
-            owner_id = conversations.get_workspace_owner_id(conversation.workspace_id)
-            if owner_id is None or owner_id != principal.owner_user_id:
+            from backend.conversations.service import ConversationNotFoundError
+            raise ConversationNotFoundError("The conversation does not exist.")
+
+        if principal is not None and getattr(principal, "auth_mode", None) == "authenticated":
+            from backend.security.models import CrossOwnerAccessError
+            if conversation.owner_user_id != principal.owner_user_id:
                 raise CrossOwnerAccessError(
                     "The conversation does not exist in this owner scope."
                 )
@@ -411,14 +392,10 @@ class ConversationOrchestrator:
             raise MemoryRepositoryError(
                 "Memory retrieval could not resolve its conversation."
             )
-        owner_user_id = resolve_owner(conversation.workspace_id)
-        if owner_user_id is None:
-            raise MemoryRepositoryError(
-                "Memory retrieval could not resolve its workspace scope."
-            )
+        owner_user_id = conversation.owner_user_id
         return retrieval_service.select_memories(
             owner_user_id=owner_user_id,
-            workspace_id=conversation.workspace_id,
+            workspace_id=None,
             conversation_id=conversation_id,
             query=message,
             max_selected=self._max_selected,
