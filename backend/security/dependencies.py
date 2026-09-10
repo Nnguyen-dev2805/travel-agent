@@ -116,9 +116,12 @@ async def enforce_request_body_limit(request: Request) -> Optional[JSONResponse]
 
 def resolve_cors_origins() -> list[str]:
     """Resolve allowed CORS origins, failing closed on wildcard."""
+    cors_raw = getattr(settings, "ALLOWED_CORS_ORIGINS", None) or ""
+    origins_raw = getattr(settings, "ALLOWED_ORIGINS", None) or ""
+    combined = f"{cors_raw},{origins_raw}" if (cors_raw and origins_raw and cors_raw != origins_raw) else (cors_raw or origins_raw)
     origins = [
         part.strip()
-        for part in settings.ALLOWED_CORS_ORIGINS.split(",")
+        for part in combined.split(",")
         if part.strip()
     ]
     if not origins:
@@ -127,4 +130,4 @@ def resolve_cors_origins() -> list[str]:
         raise SecurityConfigurationError(
             "Wildcard CORS origin is not allowed."
         )
-    return origins
+    return list(dict.fromkeys(origins))

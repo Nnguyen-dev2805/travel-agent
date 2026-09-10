@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, SecretStr, field_validator
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 dotenv_path = ROOT_DIR / ".env"
@@ -33,9 +33,26 @@ class Settings(BaseModel):
         os.getenv("LOCAL_AUTH_TOKENS_JSON", "{}")
     )
     MAX_REQUEST_BODY_BYTES: int = int(os.getenv("MAX_REQUEST_BODY_BYTES", "1048576"))
-    ALLOWED_CORS_ORIGINS: str = os.getenv(
-        "ALLOWED_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+    ALLOWED_ORIGINS: str = os.getenv(
+        "ALLOWED_ORIGINS",
+        os.getenv(
+            "ALLOWED_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+        ),
     )
+    ALLOWED_CORS_ORIGINS: str = os.getenv(
+        "ALLOWED_CORS_ORIGINS",
+        os.getenv(
+            "ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+        ),
+    )
+
+    @field_validator("ALLOWED_ORIGINS", "ALLOWED_CORS_ORIGINS", mode="after")
+    @classmethod
+    def validate_no_wildcard(cls, v: str) -> str:
+        origins = [part.strip() for part in v.split(",") if part.strip()]
+        if "*" in origins:
+            raise ValueError("Wildcard CORS origin '*' is prohibited.")
+        return v
 
     # PostgreSQL configuration
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
