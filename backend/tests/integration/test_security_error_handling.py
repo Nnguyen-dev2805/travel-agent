@@ -1,12 +1,12 @@
-"""Integration tests for R9 request-size, CORS, and config-failure behavior.
+"""Integration tests for request-size, CORS, and config-failure behavior.
 
-Every test pins settings explicitly so ambient environment cannot change
-outcomes. All tokens are synthetic fixtures. Controlled rejection bodies
-must never echo request content or credential material.
+Every test pins settings explicitly so ambient environment cannot change outcomes.
+Controlled rejection bodies must never echo request content or credential material.
 """
 
+import json
+import logging
 from pathlib import Path
-
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 import pytest
@@ -17,21 +17,23 @@ from backend.security.dependencies import resolve_cors_origins
 from backend.security.models import SecurityConfigurationError
 
 SENTINEL_TITLE = "NEVER_LOG_OVERSIZED_TITLE " + "x" * 5000
+AUTH_TOKEN = "secret-alpha-token"
+REGISTRY = '{"owner_a": "secret-alpha-token"}'
 
 
-def _auth_on(monkeypatch, registry='{"owner_a": "secret-alpha-token"}'):
-    monkeypatch.setattr(settings, "AUTH_REQUIRED", True)
-    monkeypatch.setattr(settings, "LOCAL_AUTH_TOKENS_JSON", SecretStr(registry))
+@pytest.fixture(autouse=True)
+def _setup_auth(monkeypatch):
+    monkeypatch.setattr(settings, "LOCAL_AUTH_TOKENS_JSON", SecretStr(REGISTRY))
 
 
 def test_oversized_request_returns_413_without_echo(monkeypatch):
-    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
     monkeypatch.setattr(settings, "MAX_REQUEST_BODY_BYTES", 64)
     client = TestClient(app)
 
     response = client.post(
-        "/api/v1/workspaces",
-        json={"owner_user_id": "owner_a", "title": SENTINEL_TITLE},
+        "/api/v1/chat",
+        headers={"Authorization": f"Bearer {AUTH_TOKEN}"},
+        json={"message": SENTINEL_TITLE},
     )
 
     assert response.status_code == 413
@@ -39,13 +41,13 @@ def test_oversized_request_returns_413_without_echo(monkeypatch):
 
 
 def test_invalid_body_limit_fails_closed(monkeypatch):
-    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
     monkeypatch.setattr(settings, "MAX_REQUEST_BODY_BYTES", 0)
     client = TestClient(app)
 
     response = client.post(
-        "/api/v1/workspaces",
-        json={"owner_user_id": "owner_a", "title": "Da Nang"},
+        "/api/v1/chat",
+        headers={"Authorization": f"Bearer {AUTH_TOKEN}"},
+        json={"message": "Da Nang"},
     )
 
     assert response.status_code == 500
@@ -55,45 +57,15 @@ def test_invalid_body_limit_fails_closed(monkeypatch):
     assert response.headers["X-Request-ID"] == body["request_id"]
 
 
-def test_chunked_body_without_length_still_parses(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
-    monkeypatch.setattr(settings, "APP_DB_PATH", tmp_path / "t.sqlite3")
-    monkeypatch.setattr(settings, "MAX_REQUEST_BODY_BYTES", 1024 * 1024)
-    client = TestClient(app)
-
-    def _chunks():
-        payload = b'{"owner_user_id": "owner_a", "title": "Da Nang"}'
-        yield payload[:16]
-        yield payload[16:]
-
-    response = client.post(
-        "/api/v1/workspaces",
-        content=_chunks(),
-        headers={"Content-Type": "application/json"},
-    )
-
-    assert response.status_code == 201
-    assert response.json()["title"] == "Da Nang"
-
-
-def test_wildcard_cors_rejected_when_auth_enabled(monkeypatch):
-    monkeypatch.setattr(settings, "AUTH_REQUIRED", True)
+def test_wildcard_cors_rejected(monkeypatch):
     monkeypatch.setattr(settings, "ALLOWED_CORS_ORIGINS", "https://x.test, *")
 
     with pytest.raises(SecurityConfigurationError):
         resolve_cors_origins()
 
 
-def test_compat_mode_keeps_local_cors(monkeypatch):
-    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
-
-    origins = resolve_cors_origins()
-
-    assert "http://localhost:5173" in origins
-
-
-def test_malformed_registry_fails_closed_not_compat(monkeypatch):
-    _auth_on(monkeypatch, registry="not-json{{{")
+def test_malformed_registry_fails_closed(monkeypatch):
+    monkeypatch.setattr(settings, "LOCAL_AUTH_TOKENS_JSON", SecretStr("not-json{{{"))
     client = TestClient(app)
 
     response = client.get(
@@ -106,29 +78,21 @@ def test_malformed_registry_fails_closed_not_compat(monkeypatch):
 
 
 def test_unhandled_exception_returns_generic_correlated_500(monkeypatch, caplog):
-    import json
-    import logging
-
-    from backend.app.api.workspaces import get_workspace_service
-
-    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
+    from backend.app.api.conversations import get_conversation_service
 
     def _exploding_service():
         raise RuntimeError("NEVER_LOG_RUNTIME_SECRET")
 
-    app.dependency_overrides[get_workspace_service] = _exploding_service
+    app.dependency_overrides[get_conversation_service] = _exploding_service
     try:
-        # Unhandled exceptions always propagate out of the ASGI app, so
-        # the default client would re-raise instead of returning the
-        # handler response. Disabling that re-raise is the documented
-        # pattern for asserting error-response contracts.
         client = TestClient(app, raise_server_exceptions=False)
         with caplog.at_level(logging.INFO, logger="travel_agent_observability"):
             response = client.get(
-                "/api/v1/workspaces", params={"owner_user_id": "owner_a"}
+                "/api/v1/conversations",
+                headers={"Authorization": f"Bearer {AUTH_TOKEN}"},
             )
     finally:
-        app.dependency_overrides.pop(get_workspace_service, None)
+        app.dependency_overrides.pop(get_conversation_service, None)
 
     assert response.status_code == 500
     body = response.json()
@@ -145,17 +109,3 @@ def test_unhandled_exception_returns_generic_correlated_500(monkeypatch, caplog)
     assert completions, "expected one request completion event"
     assert completions[0]["request_id"] == body["request_id"]
     assert completions[0]["failure_class"] == "RuntimeError"
-
-
-def test_storage_exception_returns_controlled_500_without_content(
-    tmp_path: Path, monkeypatch
-):
-    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
-    monkeypatch.setattr(settings, "APP_DB_PATH", tmp_path)
-    client = TestClient(app)
-
-    response = client.get("/api/v1/workspaces", params={"owner_user_id": "owner_a"})
-
-    assert response.status_code == 500
-    assert response.json() == {"detail": "Workspace storage is unavailable."}
-    assert response.headers["X-Request-ID"].startswith("rq_")

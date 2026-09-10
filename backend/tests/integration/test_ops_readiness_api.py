@@ -1,25 +1,25 @@
-"""Integration tests for the R8 ops readiness surface.
+"""Integration tests for the ops readiness surface.
 
-Task 3 starts this file with request-id middleware coverage on the
-compatibility `/health` endpoint; Task 5 extends it with readiness route
-tests. No test touches a model provider, Chroma data creation, or the
-network.
+Tests verify request-id middleware coverage on /health and readiness route.
+No test touches a model provider, Chroma data creation, or external network.
 """
 
 import logging
 from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from backend.app.config import settings
 from backend.app.main import app
 
+AUTH_TOKEN = "ops-test-token"
+REGISTRY = '{"ops_admin": "ops-test-token"}'
+
 
 @pytest.fixture(autouse=True)
-def _compat_auth(monkeypatch):
-    """Pin compatibility mode: R9 auth must not change these R8 expectations."""
-    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
+def _setup_auth(monkeypatch):
+    monkeypatch.setattr(settings, "LOCAL_AUTH_TOKENS_JSON", SecretStr(REGISTRY))
 
 
 def test_health_body_unchanged_with_request_id_header(caplog):
@@ -38,10 +38,13 @@ def test_health_body_unchanged_with_request_id_header(caplog):
     assert "query_string" not in caplog.text
 
 
-def test_readiness_route_returns_components_with_request_id(tmp_path: Path):
+def test_readiness_route_returns_components_with_request_id():
     client = TestClient(app)
 
-    response = client.get("/api/v1/ops/readiness")
+    response = client.get(
+        "/api/v1/ops/readiness",
+        headers={"Authorization": f"Bearer {AUTH_TOKEN}"},
+    )
 
     assert response.status_code == 200
     body = response.json()
@@ -50,10 +53,8 @@ def test_readiness_route_returns_components_with_request_id(tmp_path: Path):
         "app",
         "model_provider",
         "rag_chroma",
-        "app_db",
-        "memory",
-        "planner",
-        "evaluation_reports",
+        "database",
+        "memory_write_pipeline",
     }
     assert response.headers["X-Request-ID"].startswith("rq_")
 
@@ -61,20 +62,12 @@ def test_readiness_route_returns_components_with_request_id(tmp_path: Path):
 def test_readiness_response_carries_no_paths_tokens_or_content():
     client = TestClient(app)
 
-    body = client.get("/api/v1/ops/readiness").text
+    body = client.get(
+        "/api/v1/ops/readiness",
+        headers={"Authorization": f"Bearer {AUTH_TOKEN}"},
+    ).text
 
     assert "sk-" not in body
     assert "ghp_" not in body
     assert "/Users/" not in body
     assert "prompt" not in body.lower()
-
-
-def test_readiness_route_does_not_create_missing_db(tmp_path: Path, monkeypatch):
-    missing = tmp_path / "absent.sqlite3"
-    monkeypatch.setattr(settings, "APP_DB_PATH", missing)
-    client = TestClient(app)
-
-    response = client.get("/api/v1/ops/readiness")
-
-    assert response.status_code == 200
-    assert not missing.exists()

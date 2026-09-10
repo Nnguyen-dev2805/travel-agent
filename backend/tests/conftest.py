@@ -1,6 +1,5 @@
 """Pytest shared fixtures configuration file for unit and integration tests."""
 
-# pyrefly: ignore [missing-import]
 import pytest
 from pathlib import Path
 from typing import Any, Dict
@@ -9,20 +8,6 @@ from fastapi.testclient import TestClient
 from backend.app.main import app
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-
-
-@pytest.fixture(autouse=True)
-def _compat_auth_by_default(monkeypatch):
-    """Pin compatibility mode unless a test explicitly opts into auth.
-
-    R9 route authorization reads the global auth gate. Without this pin,
-    an ambient `AUTH_REQUIRED=true` would change legacy expectations that
-    were written before the gate existed. Auth tests override the flag in
-    their own bodies, which apply after this fixture.
-    """
-    from backend.app.config import settings
-
-    monkeypatch.setattr(settings, "AUTH_REQUIRED", False)
 
 
 @pytest.fixture

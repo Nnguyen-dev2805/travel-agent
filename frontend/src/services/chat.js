@@ -1,15 +1,19 @@
 import apiClient from './api';
 
-export const listConversations = async (workspaceId) => {
-  const response = await apiClient.get(`/workspaces/${workspaceId}/conversations`);
+export const listConversations = async () => {
+  const response = await apiClient.get('/conversations');
   return response.data?.conversations || [];
 };
 
-export const createConversation = async (workspaceId, title = 'Lập kế hoạch chuyến đi') => {
-  const response = await apiClient.post(`/workspaces/${workspaceId}/conversations`, {
+export const createConversation = async (title = 'Cuộc trò chuyện mới') => {
+  const response = await apiClient.post('/conversations', {
     title: title.trim(),
   });
   return response.data;
+};
+
+export const deleteConversation = async (conversationId) => {
+  await apiClient.delete(`/conversations/${conversationId}`);
 };
 
 export const listMessages = async (conversationId) => {

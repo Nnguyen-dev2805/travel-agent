@@ -14,11 +14,11 @@ import {
 import { getUserProfile, clearToken } from '../../services/auth';
 
 export default function Sidebar({
-  workspaces = [],
-  activeWorkspaceId,
-  onSelectWorkspace,
-  onNewTripClick,
-  onDeleteWorkspace,
+  conversations = [],
+  activeConversationId,
+  onSelectConversation,
+  onNewChat,
+  onDeleteConversation,
   onLogout,
   onLoginClick,
   isOpen = false,
@@ -37,23 +37,23 @@ export default function Sidebar({
     }
   };
 
-  const handleDelete = (e, wsId, wsTitle) => {
+  const handleDelete = (e, convId, convTitle) => {
     e.stopPropagation();
-    if (window.confirm(`Bạn có chắc chắn muốn xóa chuyến đi "${wsTitle}"?`)) {
-      onDeleteWorkspace(wsId);
+    if (window.confirm(`Bạn có chắc chắn muốn xóa cuộc trò chuyện "${convTitle}"?`)) {
+      onDeleteConversation(convId);
     }
   };
 
-  const filteredWorkspaces = searchQuery.trim()
-    ? workspaces.filter((ws) =>
-        ws.title.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredConversations = searchQuery.trim()
+    ? conversations.filter((c) =>
+        (c.title || '').toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : workspaces;
+    : conversations;
 
   // Render the full expanded sidebar content
   const renderFullSidebar = () => (
     <div className="w-[260px] h-full flex flex-col shrink-0 overflow-hidden">
-      {/* Brand Header Strip: Logo on left, Collapse button on right */}
+      {/* Brand Header Strip */}
       <div className="h-[52px] px-3.5 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2 text-graphite-ink">
           <div className="w-6 h-6 rounded-md bg-graphite-ink text-pure-white flex items-center justify-center">
@@ -85,25 +85,25 @@ export default function Sidebar({
       <div className="px-2 pt-1 pb-2 space-y-1 shrink-0">
         <button
           type="button"
-          onClick={onNewTripClick}
+          onClick={onNewChat}
           className="w-full py-2 px-2.5 rounded-lg hover:bg-hover-veil text-graphite-ink text-caption font-medium transition-colors flex items-center justify-between group focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer"
         >
           <div className="flex items-center gap-2.5">
             <SquarePen className="w-4 h-4 stroke-[1.8] text-graphite-ink" aria-hidden="true" />
-            <span>Chuyến đi mới</span>
+            <span>Cuộc trò chuyện mới</span>
           </div>
           <span className="text-[11px] text-hollow font-mono">⌘K</span>
         </button>
 
         {/* Search Chats Row */}
-        {workspaces.length > 0 && (
+        {conversations.length > 0 && (
           <button
             type="button"
             onClick={() => setIsSearchOpen((prev) => !prev)}
             className="w-full py-2 px-2.5 rounded-lg hover:bg-hover-veil text-graphite-ink text-caption font-medium transition-colors flex items-center gap-2.5 group focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer"
           >
             <Search className="w-4 h-4 stroke-[1.8] text-graphite-ink" aria-hidden="true" />
-            <span>Tìm chuyến đi</span>
+            <span>Tìm kiếm</span>
           </button>
         )}
 
@@ -121,28 +121,29 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Workspaces / Chat History List */}
+      {/* Conversations History List */}
       <div className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5">
-        {workspaces.length > 0 && (
+        {conversations.length > 0 && (
           <div className="px-2.5 py-1.5 text-[11px] font-medium text-hollow flex items-center justify-between select-none">
             <span>Gần đây</span>
           </div>
         )}
 
-        {filteredWorkspaces.length === 0 ? (
+        {filteredConversations.length === 0 ? (
           <div className="p-4 text-center text-hollow text-caption">
-            {searchQuery ? 'Không tìm thấy chuyến đi nào' : 'Chưa có chuyến đi nào'}
+            {searchQuery ? 'Không tìm thấy cuộc trò chuyện nào' : 'Chưa có cuộc trò chuyện nào'}
           </div>
         ) : (
-          filteredWorkspaces.map((ws) => {
-            const isActive = ws.workspace_id === activeWorkspaceId;
+          filteredConversations.map((c) => {
+            const isActive = c.conversation_id === activeConversationId;
+            const displayTitle = c.title || 'Cuộc trò chuyện mới';
             return (
               <button
                 type="button"
-                key={ws.workspace_id}
+                key={c.conversation_id}
                 aria-current={isActive ? 'page' : undefined}
                 onClick={() => {
-                  onSelectWorkspace(ws.workspace_id);
+                  onSelectConversation(c.conversation_id);
                   if (onClose) onClose();
                 }}
                 className={`w-full text-left group relative flex items-center justify-between px-2.5 py-2 rounded-lg text-caption transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer ${
@@ -153,16 +154,16 @@ export default function Sidebar({
               >
                 <div className="min-w-0 flex-1 pr-2">
                   <div className="truncate text-caption leading-snug">
-                    {ws.title}
+                    {displayTitle}
                   </div>
                 </div>
 
                 <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     type="button"
-                    aria-label={`Xóa chuyến đi "${ws.title}"`}
-                    title="Xóa chuyến đi"
-                    onClick={(e) => handleDelete(e, ws.workspace_id, ws.title)}
+                    aria-label={`Xóa "${displayTitle}"`}
+                    title="Xóa"
+                    onClick={(e) => handleDelete(e, c.conversation_id, displayTitle)}
                     className="p-1 rounded text-mid-ash hover:text-graphite-ink hover:bg-hover-veil transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none"
                   >
                     <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
@@ -222,7 +223,7 @@ export default function Sidebar({
               Cá nhân hóa trải nghiệm
             </div>
             <p className="text-[12px] text-mid-ash leading-snug">
-              Đăng nhập để lưu lịch trình và đồng bộ các chuyến đi của bạn.
+              Đăng nhập để lưu cuộc trò chuyện và đồng bộ dữ liệu.
             </p>
             <button
               type="button"
@@ -247,7 +248,7 @@ export default function Sidebar({
         />
       )}
 
-      {/* Sidebar Container: 260px wide when expanded, 56px wide rail when collapsed on desktop */}
+      {/* Sidebar Container */}
       <aside
         className={`h-full fixed top-0 bottom-0 left-0 z-40 bg-sidebar-mist border-r border-hairline flex flex-col font-sans transition-all duration-200 ease-in-out select-none overflow-hidden ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
@@ -257,14 +258,10 @@ export default function Sidebar({
             : 'w-[260px] lg:static lg:translate-x-0 lg:w-[260px] lg:min-w-[260px]'
         }`}
       >
-        {/* If isCollapsed on desktop, render the narrow icon rail (Image 1 from ChatGPT) */}
         {isCollapsed ? (
           <>
-            {/* Desktop Icon Rail (w-full fills the 56px aside) */}
             <div className="hidden lg:flex flex-col justify-between items-center h-full py-4 w-full">
-              {/* Top Action Icons */}
-              <div className="flex flex-col items-center gap-3">
-                {/* Logo / Expand Trigger */}
+              <div className="flex items-center flex-col gap-3">
                 <button
                   type="button"
                   onClick={onToggleCollapse}
@@ -278,44 +275,40 @@ export default function Sidebar({
                   <PanelLeftOpen className="w-5 h-5 stroke-[1.8] text-graphite-ink hidden group-hover:block transition-all" aria-hidden="true" />
                 </button>
 
-                {/* New Chat Button (SquarePen matching Image 1) */}
                 <button
                   type="button"
-                  onClick={onNewTripClick}
-                  aria-label="Chuyến đi mới (⌘K)"
-                  title="Chuyến đi mới (⌘K)"
+                  onClick={onNewChat}
+                  aria-label="Cuộc trò chuyện mới (⌘K)"
+                  title="Cuộc trò chuyện mới (⌘K)"
                   className="w-9 h-9 rounded-lg flex items-center justify-center text-graphite-ink hover:bg-hover-veil transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer"
                 >
                   <SquarePen className="w-[18px] h-[18px] stroke-[1.8]" aria-hidden="true" />
                 </button>
 
-                {/* Search Chats Button */}
                 <button
                   type="button"
                   onClick={() => {
                     if (onToggleCollapse) onToggleCollapse();
                     setIsSearchOpen(true);
                   }}
-                  aria-label="Tìm chuyến đi"
-                  title="Tìm chuyến đi"
+                  aria-label="Tìm kiếm"
+                  title="Tìm kiếm"
                   className="w-9 h-9 rounded-lg flex items-center justify-center text-graphite-ink hover:bg-hover-veil transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer"
                 >
                   <Search className="w-[18px] h-[18px] stroke-[1.8]" aria-hidden="true" />
                 </button>
 
-                {/* Conversations History Button */}
                 <button
                   type="button"
                   onClick={onToggleCollapse}
-                  aria-label="Danh sách chuyến đi"
-                  title="Danh sách chuyến đi"
+                  aria-label="Danh sách cuộc trò chuyện"
+                  title="Danh sách cuộc trò chuyện"
                   className="w-9 h-9 rounded-lg flex items-center justify-center text-graphite-ink hover:bg-hover-veil transition-colors focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none cursor-pointer"
                 >
                   <MessageSquare className="w-[18px] h-[18px] stroke-[1.8]" aria-hidden="true" />
                 </button>
               </div>
 
-              {/* Bottom User Avatar (matching PD in Image 1) */}
               <div className="flex flex-col items-center">
                 {profile.token ? (
                   <button
@@ -341,7 +334,6 @@ export default function Sidebar({
               </div>
             </div>
 
-            {/* Mobile drawer (if opened on mobile viewport) */}
             <div className="flex lg:hidden h-full">
               {renderFullSidebar()}
             </div>

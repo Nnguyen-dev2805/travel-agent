@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, Calendar, ArrowRight, Plus } from 'lucide-react';
+import { MapPin, Calendar, ArrowRight } from 'lucide-react';
 
 const STARTER_TRIPS = [
   {
@@ -31,7 +31,7 @@ const STARTER_TRIPS = [
   },
 ];
 
-export default function WelcomeView({ onSelectTemplate, onOpenCreateModal }) {
+export default function WelcomeView({ onSelectTemplate }) {
   return (
     <div className="flex-1 overflow-y-auto p-6 lg:p-12 flex flex-col items-center justify-center bg-pure-white font-sans">
       <div className="max-w-3xl w-full space-y-8 animate-fade-in">
@@ -41,7 +41,7 @@ export default function WelcomeView({ onSelectTemplate, onOpenCreateModal }) {
             Where should we begin?
           </h1>
           <p className="text-caption text-mid-ash max-w-md mx-auto leading-relaxed text-pretty">
-            Chọn một hành trình gợi ý bên dưới hoặc tạo chuyến đi mới để bắt đầu.
+            Chọn một hành trình gợi ý bên dưới hoặc gửi tin nhắn để bắt đầu cuộc trò chuyện.
           </p>
         </div>
 
@@ -49,16 +49,8 @@ export default function WelcomeView({ onSelectTemplate, onOpenCreateModal }) {
         <div className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-caption font-medium uppercase tracking-wider text-mid-ash">
-              Khởi động nhanh trong 1-Click
+              Gợi ý hành trình
             </h2>
-            <button
-              type="button"
-              onClick={onOpenCreateModal}
-              className="text-caption font-medium text-graphite-ink hover:underline flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-graphite-ink focus-visible:outline-none rounded"
-            >
-              <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Tạo chuyến đi mới</span>
-            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -95,7 +87,7 @@ export default function WelcomeView({ onSelectTemplate, onOpenCreateModal }) {
                 </div>
 
                 <div className="pt-3 mt-3 border-t border-hairline flex items-center justify-between text-caption font-medium text-graphite-ink">
-                  <span>Khởi tạo ngay</span>
+                  <span>Bắt đầu ngay</span>
                   <ArrowRight className="w-3.5 h-3.5 transform group-hover:translate-x-1 transition-transform" aria-hidden="true" />
                 </div>
               </button>

@@ -11,54 +11,13 @@ if dotenv_path.exists():
 
 logger = logging.getLogger("travel_agent_config")
 
-# Shared local application store per ADR 0004. One SQLite file holds every
-# relational product record for the prototype, with schema versions tracked per
-# module. SQLite is a local development adapter; it is not production storage
-# readiness.
-DEFAULT_APP_DB_PATH = ROOT_DIR / "data" / "app" / "travel_agent.sqlite3"
-
-# The R3 default, retained only so the deprecated alias keeps its original
-# meaning for a local environment that still sets it.
-DEPRECATED_WORKSPACE_DB_PATH = (
-    ROOT_DIR / "data" / "workspaces" / "travel_agent_workspaces.sqlite3"
-)
-
 
 def _env_flag(name: str, default: bool) -> bool:
-    """Read a boolean environment flag, defaulting when unset.
-
-    Evaluated when `Settings` is defined, like every other setting in this
-    module: a process picks up flag changes on restart, not mid-run.
-    """
+    """Read a boolean environment flag, defaulting when unset."""
     raw = os.getenv(name)
     if raw is None:
         return default
     return raw.strip().lower() == "true"
-
-
-def _resolve_app_db_path() -> Path:
-    """Resolve the shared application database path, honoring the R3 alias.
-
-    `APP_DB_PATH` takes precedence. When it is unset and the deprecated
-    `WORKSPACE_DB_PATH` is set, the alias value is used and exactly one warning
-    is logged naming the variable without its value, so an existing local
-    environment keeps working instead of being silently ignored.
-
-    This runs once, when `Settings` is defined, so the warning cannot repeat.
-    """
-    configured = os.getenv("APP_DB_PATH")
-    if configured:
-        return Path(configured)
-
-    alias = os.getenv("WORKSPACE_DB_PATH")
-    if alias:
-        logger.warning(
-            "WORKSPACE_DB_PATH is deprecated and will be removed; set APP_DB_PATH "
-            "instead. Honoring the deprecated variable for this run."
-        )
-        return Path(alias)
-
-    return DEFAULT_APP_DB_PATH
 
 
 class Settings(BaseModel):
@@ -68,36 +27,8 @@ class Settings(BaseModel):
     GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
     GITHUB_MODELS_URL: str = "https://models.inference.ai.azure.com"
-    # Shared local application store for trip workspaces and conversations per
-    # ADR 0004. SQLite is a local development adapter per ADR 0003; it is not
-    # production storage readiness.
-    APP_DB_PATH: Path = _resolve_app_db_path()
-    # Deprecated R3 alias. Product code resolves `APP_DB_PATH`; this field exists
-    # so a local environment that still sets `WORKSPACE_DB_PATH` is not broken by
-    # the rename.
-    WORKSPACE_DB_PATH: Path = Path(
-        os.getenv("WORKSPACE_DB_PATH", str(DEPRECATED_WORKSPACE_DB_PATH))
-    )
-    # R6 feature-gated memory retrieval. The gate defaults to false: with it
-    # disabled, bound and unbound chat behavior remains R4/R5 behavior.
-    # Turning retrieval on by default requires memory evaluation evidence that
-    # satisfies the approved gates. Tuning defaults mirror the domain-module
-    # constants (`MEMORY_PROMOTION_MIN_CONFIDENCE` in
-    # `backend.memory.promotion` and `MEMORY_MAX_SELECTED` in
-    # `backend.memory.retrieval`); a unit test pins them equal so the two
-    # sources cannot drift silently.
-    MEMORY_RETRIEVAL_ENABLED: bool = _env_flag("MEMORY_RETRIEVAL_ENABLED", False)
-    MEMORY_PROMOTION_MIN_CONFIDENCE: float = float(
-        os.getenv("MEMORY_PROMOTION_MIN_CONFIDENCE", "0.75")
-    )
-    MEMORY_MAX_SELECTED: int = int(os.getenv("MEMORY_MAX_SELECTED", "5"))
-    # R9 local security boundary. `AUTH_REQUIRED=false` preserves
-    # unauthenticated local compatibility; `true` fails closed and
-    # requires a valid local bearer token for protected routes.
-    # `LOCAL_AUTH_TOKENS_JSON` is secret-bearing: it must never appear in
-    # settings representations, logs, readiness output, reports, or error
-    # messages.
-    AUTH_REQUIRED: bool = _env_flag("AUTH_REQUIRED", False)
+
+    # Authentication credentials
     LOCAL_AUTH_TOKENS_JSON: SecretStr = SecretStr(
         os.getenv("LOCAL_AUTH_TOKENS_JSON", "{}")
     )
@@ -105,17 +36,16 @@ class Settings(BaseModel):
     ALLOWED_CORS_ORIGINS: str = os.getenv(
         "ALLOWED_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
     )
-    # PostgreSQL for the memory write pipeline (Master Tasks 6-7). Host,
-    # port, database, and user resolve from the environment with local
-    # defaults; the password stays a secret-bearing value and must never
-    # appear in settings representations, logs, or error messages.
+
+    # PostgreSQL configuration
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
     PG_HOST: str = os.getenv("PG_HOST", "localhost")
     PG_PORT: int = int(os.getenv("PG_PORT", "5433"))
     PG_DB: str = os.getenv("PG_DB", "travel_agent")
     PG_USER: str = os.getenv("PG_USER", "travel_agent")
     PG_PASSWORD: SecretStr = SecretStr(os.getenv("POSTGRES_PASSWORD", ""))
-    # Basic semantic memory write pipeline feature gates (Child Plan 6 / ADR 0016 / ADR 0017).
-    # Default is false for safe rollout. Opt-in required for direct write path.
+
+    # Basic semantic memory write pipeline feature gates (ADR 0016 / ADR 0017)
     MEMORY_WRITE_PIPELINE_ENABLED: bool = _env_flag(
         "MEMORY_WRITE_PIPELINE_ENABLED", False
     )
@@ -129,11 +59,7 @@ class Settings(BaseModel):
 
 
 def pg_dsn(password: str, host: str, port: int, db: str, user: str) -> str:
-    """Build a psycopg DSN from explicit parts.
-
-    Kept outside `Settings` so the assembled credential-bearing string is
-    never stored on the settings object or rendered by accident.
-    """
+    """Build a psycopg DSN from explicit parts."""
     return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{db}"
 
 

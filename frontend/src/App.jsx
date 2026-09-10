@@ -4,28 +4,18 @@ import Sidebar from './components/layout/Sidebar';
 import ChatPanel from './components/chat/ChatPanel';
 import WelcomeView from './components/welcome/WelcomeView';
 import LoginModal from './components/auth/LoginModal';
-import CreateTripModal from './components/workspace/CreateTripModal';
-import MemoryManager from './components/memory/MemoryManager';
 
 import { clearToken, isAuthenticated } from './services/auth';
 import {
-  listWorkspaces,
-  createWorkspace,
-  getWorkspace,
-  deleteWorkspace,
-} from './services/workspaces';
-import {
   listConversations,
-  createConversation,
+  deleteConversation,
   listMessages,
   postChatMessage,
 } from './services/chat';
 
 export default function App() {
   const [isAuth, setIsAuth] = useState(isAuthenticated());
-  const [workspaces, setWorkspaces] = useState([]);
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
-  const [activeWorkspace, setActiveWorkspace] = useState(null);
+  const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -36,13 +26,6 @@ export default function App() {
     }
     return false;
   });
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isMemoryOpen, setIsMemoryOpen] = useState(false);
-
-  const handleCloseMemory = () => {
-    setIsMemoryOpen(false);
-    document.getElementById('memory-manager-toggle')?.focus?.();
-  };
 
   const handleToggleSidebarCollapse = () => {
     setIsSidebarCollapsed((prev) => {
@@ -54,93 +37,64 @@ export default function App() {
     });
   };
 
-  // 1. Fetch workspaces when authenticated
-  const loadWorkspaces = async (preferredWorkspaceId = null) => {
+  // 1. Fetch conversations when authenticated
+  const loadConversations = async (preferredConvId = null) => {
     try {
-      const data = await listWorkspaces();
-      setWorkspaces(data || []);
+      const data = await listConversations();
+      setConversations(data || []);
 
       if (data && data.length > 0) {
-        const targetId =
-          preferredWorkspaceId ||
-          activeWorkspaceId ||
-          localStorage.getItem('travel_agent_active_workspace') ||
-          data[0].workspace_id;
-
-        const exists = data.some((w) => w.workspace_id === targetId);
-        const resolvedId = exists ? targetId : data[0].workspace_id;
-        handleSelectWorkspace(resolvedId);
-      } else {
-        setActiveWorkspaceId(null);
-        setActiveWorkspace(null);
-        setActiveConversationId(null);
-        setMessages([]);
+        const targetId = preferredConvId || activeConversationId;
+        if (targetId && data.some((c) => c.conversation_id === targetId)) {
+          handleSelectConversation(targetId);
+        }
       }
     } catch (err) {
-      console.error('Lỗi tải workspaces:', err);
+      console.error('Lỗi tải conversations:', err);
     }
   };
 
   useEffect(() => {
     if (isAuth) {
-      loadWorkspaces();
+      loadConversations();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuth]);
 
-  // Global ⌘K / Ctrl+K keyboard shortcut to create new trip
+  // Global ⌘K / Ctrl+K keyboard shortcut to start a new chat
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setIsCreateModalOpen(true);
+        handleNewChat();
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
-  // 2. Select and load a workspace
-  const handleSelectWorkspace = async (workspaceId) => {
-    setActiveWorkspaceId(workspaceId);
-    localStorage.setItem('travel_agent_active_workspace', workspaceId);
-
+  // 2. Select conversation and load message history
+  const handleSelectConversation = async (convId) => {
+    setActiveConversationId(convId);
     try {
-      const ws = await getWorkspace(workspaceId);
-      setActiveWorkspace(ws);
-
-      // Load or create conversation for this workspace
-      const convs = await listConversations(workspaceId);
-      let convId = null;
-      if (convs && convs.length > 0) {
-        convId = convs[0].conversation_id;
-      } else {
-        const newConv = await createConversation(
-          workspaceId,
-          `Hội thoại ${ws.title}`
-        );
-        convId = newConv.conversation_id;
-      }
-
-      setActiveConversationId(convId);
-
-      // Load messages for conversation
-      if (convId) {
-        const msgs = await listMessages(convId);
-        setMessages(msgs || []);
-      }
+      const msgs = await listMessages(convId);
+      setMessages(msgs || []);
     } catch (err) {
-      console.error('Lỗi mở workspace:', err);
+      console.error('Lỗi mở conversation:', err);
     }
   };
 
-  // 3. Handle sending chat message
-  const handleSendMessage = async (text, convId = null) => {
+  // 3. Start a fresh conversation
+  const handleNewChat = () => {
+    setActiveConversationId(null);
+    setMessages([]);
+  };
+
+  // 4. Send chat message (auto-creates conversation if activeConversationId is null)
+  const handleSendMessage = async (text) => {
     if (!text.trim() || isChatLoading) return;
 
-    const targetConvId = convId || activeConversationId;
-
-    // Optimistic user message append
+    // Optimistic user message
     const tempUserMsg = {
       message_id: `temp_${Date.now()}`,
       role: 'user',
@@ -153,8 +107,14 @@ export default function App() {
     try {
       const result = await postChatMessage({
         message: text,
-        conversation_id: targetConvId,
+        conversation_id: activeConversationId,
       });
+
+      const returnedConvId = result.conversation?.conversation_id;
+      if (!activeConversationId && returnedConvId) {
+        setActiveConversationId(returnedConvId);
+        await loadConversations(returnedConvId);
+      }
 
       const assistantMsg = {
         message_id: result.conversation?.assistant_message_id || `asst_${Date.now()}`,
@@ -163,7 +123,6 @@ export default function App() {
         citations: result.citations || [],
         created_at: new Date().toISOString(),
       };
-
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
       console.error('Lỗi gửi tin nhắn:', err);
@@ -179,86 +138,35 @@ export default function App() {
     }
   };
 
-  // 4. Handle 1-Click Starter Template Selection
-  const handleSelectTemplate = async (template) => {
-    try {
-      const newWs = await createWorkspace({
-        title: template.title,
-        destination_scope: template.destination_scope,
-      });
-
-      const newConv = await createConversation(
-        newWs.workspace_id,
-        template.title
-      );
-
-      await loadWorkspaces(newWs.workspace_id);
-      setActiveWorkspaceId(newWs.workspace_id);
-      setActiveWorkspace(newWs);
-      setActiveConversationId(newConv.conversation_id);
-
-      // Automatically send the initial prompt with the new conversation ID
-      setTimeout(() => {
-        handleSendMessage(template.prompt, newConv.conversation_id);
-      }, 300);
-    } catch (err) {
-      console.error('Lỗi khởi tạo mẫu chuyến đi:', err);
-    }
+  // 5. Select template
+  const handleSelectTemplate = (template) => {
+    handleSendMessage(template.prompt);
   };
 
-  // 5. Handle Custom Trip Creation
-  const handleCustomCreate = async ({ title, destination_scope }) => {
+  // 6. Delete conversation
+  const handleDeleteConversation = async (convId) => {
     try {
-      const newWs = await createWorkspace({ title, destination_scope });
-      const newConv = await createConversation(
-        newWs.workspace_id,
-        title
-      );
-      await loadWorkspaces(newWs.workspace_id);
-      setActiveWorkspaceId(newWs.workspace_id);
-      setActiveWorkspace(newWs);
-      setActiveConversationId(newConv.conversation_id);
-      setIsCreateModalOpen(false);
+      await deleteConversation(convId);
     } catch (err) {
-      console.error('Lỗi tạo chuyến đi:', err);
+      console.error('Lỗi xóa conversation:', err);
     }
-  };
-
-  // 6. Handle Delete Workspace
-  const handleDeleteWorkspace = async (workspaceId) => {
-    try {
-      await deleteWorkspace(workspaceId);
-    } catch (err) {
-      console.error('Lỗi xóa workspace:', err);
-    }
-    const remaining = workspaces.filter((w) => w.workspace_id !== workspaceId);
-    setWorkspaces(remaining);
-    if (activeWorkspaceId === workspaceId) {
-      if (remaining.length > 0) {
-        handleSelectWorkspace(remaining[0].workspace_id);
-      } else {
-        setActiveWorkspaceId(null);
-        setActiveWorkspace(null);
-        setActiveConversationId(null);
-        setMessages([]);
-        localStorage.removeItem('travel_agent_active_workspace');
-      }
+    const remaining = conversations.filter((c) => c.conversation_id !== convId);
+    setConversations(remaining);
+    if (activeConversationId === convId) {
+      handleNewChat();
     }
   };
 
   const handleLogout = () => {
     clearToken();
     setIsAuth(false);
-    setActiveWorkspaceId(null);
-    setActiveWorkspace(null);
-    setActiveConversationId(null);
-    setMessages([]);
-    localStorage.removeItem('travel_agent_active_workspace');
+    setConversations([]);
+    handleNewChat();
   };
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-pure-white text-graphite-ink font-sans">
-      {/* Login Modal if not authenticated */}
+      {/* Login Modal if unauthenticated */}
       {!isAuth && (
         <LoginModal
           onLoginSuccess={() => {
@@ -267,20 +175,13 @@ export default function App() {
         />
       )}
 
-      {/* Create Trip Modal */}
-      <CreateTripModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        onCreateTrip={handleCustomCreate}
-      />
-
       {/* Left Sidebar */}
       <Sidebar
-        workspaces={workspaces}
-        activeWorkspaceId={activeWorkspaceId}
-        onSelectWorkspace={handleSelectWorkspace}
-        onNewTripClick={() => setIsCreateModalOpen(true)}
-        onDeleteWorkspace={handleDeleteWorkspace}
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        onSelectConversation={handleSelectConversation}
+        onNewChat={handleNewChat}
+        onDeleteConversation={handleDeleteConversation}
         onLogout={handleLogout}
         onLoginClick={() => setIsAuth(false)}
         isOpen={isSidebarOpen}
@@ -289,45 +190,35 @@ export default function App() {
         onToggleCollapse={handleToggleSidebarCollapse}
       />
 
-      {/* Main Content Area: Seamless full-height canvas (ChatGPT style) */}
+      {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         <Header
           onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
           onLoginClick={() => setIsAuth(false)}
-          onMemoryClick={() => setIsMemoryOpen(true)}
         />
 
-        {/* Dynamic Main Body: WelcomeView vs Centered Chat Hero */}
-        {!activeWorkspace ? (
-          <WelcomeView
-            onSelectTemplate={handleSelectTemplate}
-            onOpenCreateModal={() => setIsCreateModalOpen(true)}
-          />
+        {/* Dynamic Main Body: WelcomeView vs Active Chat Panel */}
+        {!activeConversationId && messages.length === 0 ? (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <WelcomeView onSelectTemplate={handleSelectTemplate} />
+            <div className="p-4 max-w-[768px] w-full mx-auto pb-6">
+              <ChatPanel
+                messages={[]}
+                onSendMessage={handleSendMessage}
+                isLoading={isChatLoading}
+              />
+            </div>
+          </div>
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden">
             <ChatPanel
               messages={messages}
               onSendMessage={handleSendMessage}
               isLoading={isChatLoading}
-              onAttachClick={() => setIsCreateModalOpen(true)}
             />
           </div>
         )}
       </div>
-
-      {/* Memory manager overlay entry */}
-      {isMemoryOpen && (
-        <div className="fixed inset-0 z-40 flex justify-end">
-          <div
-            className="fixed inset-0 bg-[#00000080]"
-            onClick={handleCloseMemory}
-            aria-hidden="true"
-          />
-          <div className="relative z-10 h-full w-full max-w-md overflow-y-auto bg-white shadow-xl">
-            <MemoryManager onClose={handleCloseMemory} />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -166,16 +166,11 @@ def test_chat_non_blocking_and_outbox_capture():
 
     conv_repo = InMemoryConvRepo()
 
-    class FakeWorkspaceRepo:
-        def get(self, ws_id):
-            return None
-
-    conv_service = ConversationService(conv_repo, FakeWorkspaceRepo())
+    conv_service = ConversationService(conv_repo)
     # Pretend conversation exists
     conv_service.get_conversation = lambda cid: Conversation(
         conversation_id=cid,
         owner_user_id="user_1",
-        workspace_id=None,
         title="Test Trip",
         created_at=utc_now(),
         updated_at=utc_now(),
@@ -286,7 +281,6 @@ def test_postgres_outbox_atomic_message_append(clean_pg):
         Conversation(
             conversation_id="conv_pg_1",
             owner_user_id="owner_1",
-            workspace_id=None,
             title="Da Nang",
             created_at=MOMENT,
             updated_at=MOMENT,
@@ -331,7 +325,6 @@ def test_postgres_outbox_parallel_worker_skip_locked(clean_pg):
         Conversation(
             conversation_id="conv_pg_2",
             owner_user_id="owner_2",
-            workspace_id=None,
             title="Hoi An",
             created_at=MOMENT,
             updated_at=MOMENT,
