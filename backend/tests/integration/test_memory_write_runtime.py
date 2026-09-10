@@ -279,7 +279,7 @@ def test_postgres_outbox_atomic_message_append(clean_pg):
     repo = PostgresConversationRepository(clean_pg)
     conv = repo.create(
         Conversation(
-            conversation_id="conv_pg_1",
+            conversation_id="cv_pg_1",
             owner_user_id="owner_1",
             title="Da Nang",
             created_at=MOMENT,
@@ -289,16 +289,16 @@ def test_postgres_outbox_atomic_message_append(clean_pg):
 
     msg = repo.append_message(
         MessageDraft(
-            conversation_id="conv_pg_1",
+            conversation_id="cv_pg_1",
             role=MessageRole.USER,
             content="I prefer quiet hotels.",
             source=MessageSource.UI,
             created_at=MOMENT,
         ),
-        message_id="msg_pg_1",
+        message_id="ms_pg_1",
         outbox_event={
             "event_type": "memory.extract.conversation_range",
-            "payload": {"conversation_id": "conv_pg_1"},
+            "payload": {"conversation_id": "cv_pg_1"},
         },
     )
 
@@ -311,8 +311,8 @@ def test_postgres_outbox_atomic_message_append(clean_pg):
     )
 
     assert len(claimed) == 1
-    assert claimed[0].conversation_id == "conv_pg_1"
-    assert claimed[0].message_id == "msg_pg_1"
+    assert claimed[0].conversation_id == "cv_pg_1"
+    assert claimed[0].message_id == "ms_pg_1"
     assert claimed[0].status == OutboxStatus.LEASED
     assert claimed[0].lease_owner == "worker_pg_1"
     assert claimed[0].attempt_count == 1
@@ -321,27 +321,26 @@ def test_postgres_outbox_atomic_message_append(clean_pg):
 def test_postgres_outbox_parallel_worker_skip_locked(clean_pg):
     """Verify FOR UPDATE SKIP LOCKED prevents concurrent workers from claiming the same events."""
     repo = PostgresConversationRepository(clean_pg)
-    repo.create(
-        Conversation(
-            conversation_id="conv_pg_2",
-            owner_user_id="owner_2",
-            title="Hoi An",
-            created_at=MOMENT,
-            updated_at=MOMENT,
-        )
-    )
-
-    # Append 3 messages with outbox events
     for i in range(3):
+        cid = f"cv_pg_2_{i}"
+        repo.create(
+            Conversation(
+                conversation_id=cid,
+                owner_user_id="owner_2",
+                title=f"Hoi An {i}",
+                created_at=MOMENT,
+                updated_at=MOMENT,
+            )
+        )
         repo.append_message(
             MessageDraft(
-                conversation_id="conv_pg_2",
+                conversation_id=cid,
                 role=MessageRole.USER,
                 content=f"Message {i}",
                 source=MessageSource.UI,
                 created_at=MOMENT + timedelta(seconds=i),
             ),
-            message_id=f"msg_multi_{i}",
+            message_id=f"ms_multi_{i}",
             outbox_event={
                 "event_type": "memory.extract.conversation_range",
                 "payload": {"idx": i},

@@ -366,9 +366,7 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
                 decision_id=None,
                 reason=change.reason,
             )
-        if operation is MemoryOperation.NOOP and (
-            decision is None or decision.outcome == DecisionOutcome.DIRECT_WRITE
-        ):
+        if operation is MemoryOperation.NOOP and not change.reason.startswith("shadow_"):
             return MemoryWriteResult(
                 operation=operation,
                 version_id=None,

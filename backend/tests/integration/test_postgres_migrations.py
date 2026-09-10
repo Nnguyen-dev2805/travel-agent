@@ -28,7 +28,6 @@ MOMENT = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
 
 EXPECTED_TABLES = frozenset(
     {
-        "workspaces",
         "conversations",
         "messages",
         "conversation_outbox",
@@ -128,7 +127,7 @@ def test_empty_upgrade_reaches_head_with_all_tables(fresh_db, pg_engine):
     _upgrade_to_head(pg_engine, _test_dsn())
 
     assert EXPECTED_TABLES <= _table_names(pg_engine)
-    assert _current_revision(pg_engine) == ("20260907_02",)
+    assert _current_revision(pg_engine) == ("20260910_01",)
 
 
 # 2. Owned-conversation backfill assigns workspace owners.
@@ -172,9 +171,9 @@ def test_backfill_assigns_workspace_owners(fresh_db, pg_engine):
             connection.execute(
                 sa.text(
                     "INSERT INTO conversations "
-                    "(conversation_id, owner_user_id, workspace_id, title, "
+                    "(conversation_id, owner_user_id, title, "
                     "retention_state, created_at, updated_at) VALUES "
-                    "('cv_null', NULL, 'tw_w1', NULL, 'active', :at, :at)"
+                    "('cv_null', NULL, NULL, 'active', :at, :at)"
                 ),
                 {"at": MOMENT},
             )
@@ -202,7 +201,7 @@ def test_backfill_missing_workspace_fails_upgrade(fresh_db, pg_engine):
     with pytest.raises(Exception):
         _upgrade_to_head(pg_engine, _test_dsn())
 
-    assert _current_revision(pg_engine) != ("20260907_02",)
+    assert _current_revision(pg_engine) != ("20260910_01",)
     with pg_engine.connect() as connection:
         nullable = connection.execute(
             sa.text(
@@ -242,7 +241,7 @@ def test_backfill_owner_mismatch_fails_upgrade(fresh_db, pg_engine):
     with pytest.raises(Exception):
         _upgrade_to_head(pg_engine, _test_dsn())
 
-    assert _current_revision(pg_engine) != ("20260907_02",)
+    assert _current_revision(pg_engine) != ("20260910_01",)
 
 
 # 5. Constraints, indexes, and RLS are present and functional.
@@ -374,10 +373,10 @@ def test_rls_enforces_tenant_isolation(fresh_db, pg_engine):
         connection.execute(
             sa.text(
                 "INSERT INTO conversations "
-                "(conversation_id, owner_user_id, workspace_id, title, "
+                "(conversation_id, owner_user_id, title, "
                 "retention_state, created_at, updated_at) VALUES "
-                "('cv_a', 'owner_a', NULL, NULL, 'active', :at, :at), "
-                "('cv_b', 'owner_b', NULL, NULL, 'active', :at, :at)"
+                "('cv_a', 'owner_a', NULL, 'active', :at, :at), "
+                "('cv_b', 'owner_b', NULL, 'active', :at, :at)"
             ),
             {"at": MOMENT},
         )
@@ -396,9 +395,9 @@ def test_rls_enforces_tenant_isolation(fresh_db, pg_engine):
                 connection.execute(
                     sa.text(
                         "INSERT INTO conversations "
-                        "(conversation_id, owner_user_id, workspace_id, title, "
+                        "(conversation_id, owner_user_id, title, "
                         "retention_state, created_at, updated_at) VALUES "
-                        "('cv_forged', 'owner_b', NULL, NULL, 'active', :at, :at)"
+                        "('cv_forged', 'owner_b', NULL, 'active', :at, :at)"
                     ),
                     {"at": MOMENT},
                 )
@@ -420,7 +419,7 @@ def test_downgrade_then_reupgrade_round_trip(fresh_db, pg_engine):
 
     _upgrade_to_head(pg_engine, _test_dsn())
     assert EXPECTED_TABLES <= _table_names(pg_engine)
-    assert _current_revision(pg_engine) == ("20260907_02",)
+    assert _current_revision(pg_engine) == ("20260910_01",)
 
 
 # 7. PG conversation adapter round trip over the migrated schema.
@@ -439,14 +438,12 @@ def test_pg_adapter_owned_conversation_round_trip(fresh_db, pg_engine):
         Conversation(
             conversation_id="cv_solo",
             owner_user_id="owner_a",
-            workspace_id=None,
             title="Solo",
             created_at=MOMENT,
             updated_at=MOMENT,
         )
     )
     assert standalone.owner_user_id == "owner_a"
-    assert standalone.workspace_id is None
     assert repository.get("cv_solo") == standalone
     assert repository.get("cv_missing") is None
 
