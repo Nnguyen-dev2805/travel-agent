@@ -8,6 +8,10 @@ services:
       - POSTGRES_USER=${PG_USER:-travel_agent}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
       - POSTGRES_DB=${PG_DB:-travel_agent}
+      - APP_DB_PASSWORD=${APP_DB_PASSWORD:-app-password-dev-only}
+      # The worker role (ADR 0028) claims the cross-owner outbox queue, so it is
+      # a separate identity from the runtime role and needs its own credential.
+      - WORKER_DB_PASSWORD=${WORKER_DB_PASSWORD:-worker-password-dev-only}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-travel_agent} -d $${POSTGRES_DB:-travel_agent}"]
       interval: 5s
@@ -15,6 +19,7 @@ services:
       retries: 5
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init-app-role.sh:/docker-entrypoint-initdb.d/10-init-app-role.sh:ro
     restart: unless-stopped
 
   backend:
@@ -27,9 +32,79 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    env_file:
-      - path: .env
-        required: false
+    environment:
+      # ADR 0034: each service declares the variables it needs, and only those.
+      # `env_file: .env` used to inject every key into this service *and* the
+      # worker, so the worker received `DATABASE_URL` — this role's credential —
+      # and this service would have received `WORKER_DATABASE_URL` had it been in
+      # that file. Values still come from `.env` via Compose interpolation; what
+      # changed is that `.env` no longer decides which keys a container receives.
+      #
+      # Single source of truth: the in-network database host is `db` on 5432.
+      # The backend connects as the least-privilege `travel_app` role, which
+      # cannot bypass row-level security; migrations keep using the
+      # bootstrap superuser through a separate PG_DSN.
+      - DATABASE_URL=postgresql+psycopg://travel_app:${APP_DB_PASSWORD:-app-password-dev-only}@db:5432/${PG_DB:-travel_agent}
+      - GITHUB_MODELS_URL=${GITHUB_MODELS_URL:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      # `${VAR:-{}}` and not `${VAR}`: unset resolves to the literal `{}`, which is
+      # `Settings`' own default. A bare `${VAR}` would resolve to an empty string,
+      # which `SecretStr` carries through to a JSON parse failure. Verified with
+      # `docker compose config`; `GITHUB_TOKEN` needs no such care because its
+      # `Settings` default is already the empty string.
+      - LOCAL_AUTH_TOKENS_JSON=${LOCAL_AUTH_TOKENS_JSON:-{}}
+      - MEMORY_WRITE_PIPELINE_ENABLED=${MEMORY_WRITE_PIPELINE_ENABLED:-false}
+      - MEMORY_SHADOW_EXTRACT_ENABLED=${MEMORY_SHADOW_EXTRACT_ENABLED:-false}
+    volumes:
+      - ./backend:/app/backend
+      - ./data:/app/data
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    restart: unless-stopped
+
+  # ADR 0029: the background Memory worker is its own process, holding only the
+  # `travel_worker` credential. It is deliberately NOT part of the backend
+  # service: one process holding both identities would collapse the
+  # least-privilege split into a union, and a memory backlog would compete with
+  # request handling for the same pool and event loop.
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: travel_agent_worker
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # ADR 0034 / ADR 0029: only the worker credential. This service declares the
+      # variables it needs rather than inheriting `.env` wholesale, so it cannot
+      # receive `DATABASE_URL`, which names the API's `travel_app` role. The worker
+      # process also asserts this at startup (`assert_credential_isolation`), so the
+      # boundary holds under any deployment mechanism, not only Compose.
+      - WORKER_DATABASE_URL=postgresql+psycopg://travel_worker:${WORKER_DB_PASSWORD:-worker-password-dev-only}@db:5432/${PG_DB:-travel_agent}
+      - GITHUB_MODELS_URL=${GITHUB_MODELS_URL:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      # Both gates stay false until shadow observation is reviewed. The worker
+      # polls an empty queue and proves it starts, idles and stops.
+      - MEMORY_WRITE_PIPELINE_ENABLED=${MEMORY_WRITE_PIPELINE_ENABLED:-false}
+      - MEMORY_SHADOW_EXTRACT_ENABLED=${MEMORY_SHADOW_EXTRACT_ENABLED:-false}
+      # ADR 0029: publish the heartbeat where the healthcheck below reads it.
+      - WORKER_HEARTBEAT_PATH=/tmp/memory-worker-heartbeat
+    command: ["python", "-m", "backend.memory.write_pipeline.runtime"]
+    # ADR 0029: liveness is the process plus a heartbeat. The worker touches
+    # `/tmp/memory-worker-heartbeat` once per completed batch (empty polls
+    # included), and this check reads its age — fresh file means the poll loop
+    # is alive; a wedged loop stops beating while the container keeps running,
+    # which `docker ps` alone cannot expose. 30s is six default poll intervals:
+    # one slow batch does not flap unhealthy, a stopped loop is flagged within
+    # half a minute.
+    healthcheck:
+      test: ["CMD", "python", "-m", "backend.memory.write_pipeline.healthcheck", "/tmp/memory-worker-heartbeat", "30"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     volumes:
       - ./backend:/app/backend
       - ./data:/app/data

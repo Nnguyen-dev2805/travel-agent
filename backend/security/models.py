@@ -54,10 +54,14 @@ class OwnerForbiddenError(Exception):
 
 
 class AuthMode(str, Enum):
-    """Governed authentication mode vocabulary."""
+    """Governed authentication mode vocabulary.
+
+    Per ADR 0018 authentication is unconditional: only `authenticated`
+    remains. The historical compatibility mode was removed, so no code
+    path can resolve an unauthenticated request to an owner.
+    """
 
     AUTHENTICATED = "authenticated"
-    COMPATIBILITY = "compatibility"
 
 
 def _require_owner(value: Any, field_name: str) -> str:
@@ -72,10 +76,9 @@ def _require_owner(value: Any, field_name: str) -> str:
 class AuthenticatedPrincipal:
     """Server-resolved identity for one local caller.
 
-    `owner_user_id` is resolved from the token registry in auth mode, or
-    the local development owner in compatibility mode. `credential_label`
-    names the credential kind (such as `local_token` or `none`) and never
-    carries secret material.
+    `owner_user_id` is resolved only from the bearer-token registry, never
+    from caller-supplied labels. `credential_label` names the credential
+    kind (such as `local_token`) and never carries secret material.
     """
 
     owner_user_id: str

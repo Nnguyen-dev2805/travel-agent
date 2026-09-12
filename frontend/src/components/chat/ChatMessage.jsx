@@ -25,6 +25,54 @@ export default function ChatMessage({ message }) {
     }
   };
 
+  // Server-owned turn status (ADR 0023). Absent means a complete turn, which is
+  // what every message written before the status column existed is.
+  const status = message.status || 'complete';
+
+  // A failed turn carries no generated content by construction, so it must be
+  // rendered as a failure rather than as an empty reply. Rendering the empty
+  // string would show a blank assistant bubble the user cannot interpret.
+  if (!isUser && status === 'failed') {
+    return (
+      <div className="flex gap-3.5 py-4 justify-start font-sans">
+        <div className="w-7 h-7 rounded-lg border border-hairline bg-pure-white text-graphite-ink flex items-center justify-center shrink-0 mt-0.5">
+          <Compass className="w-4 h-4 stroke-[1.8]" aria-hidden="true" />
+        </div>
+        <div className="max-w-[88%] sm:max-w-[82%]">
+          <div
+            data-testid="turn-failed"
+            role="status"
+            className="bg-sidebar-mist text-mid-ash px-4 py-2.5 rounded-lg border border-hairline text-body leading-body"
+          >
+            Không tạo được câu trả lời cho lượt này.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // A pending row is an allocated reply slot whose generation has not finished,
+  // or a turn left behind by a crashed process. It has no content, so it must
+  // never render as a completed empty reply.
+  if (!isUser && status === 'pending') {
+    return (
+      <div className="flex gap-3.5 py-4 justify-start font-sans">
+        <div className="w-7 h-7 rounded-lg border border-hairline bg-pure-white text-graphite-ink flex items-center justify-center shrink-0 mt-0.5">
+          <Compass className="w-4 h-4 stroke-[1.8]" aria-hidden="true" />
+        </div>
+        <div className="max-w-[88%] sm:max-w-[82%]">
+          <div
+            data-testid="turn-pending"
+            role="status"
+            className="text-mid-ash text-body leading-body italic"
+          >
+            Đang tạo câu trả lời…
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`flex gap-3.5 py-4 ${isUser ? 'justify-end' : 'justify-start'} font-sans`}>
       {/* Bot Icon */}

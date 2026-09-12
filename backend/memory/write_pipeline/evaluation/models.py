@@ -120,19 +120,34 @@ class DatasetManifest:
 
 @dataclass(frozen=True)
 class MetricAccounting:
-    """Numerator, denominator, threshold, and calculated score."""
+    """Numerator, denominator, threshold, and calculated score.
+
+    C10 / ADR 0024: a metric with no denominator is `not_measured`, not a
+    perfect score. It used to return 1.0 when both numerator and denominator
+    were zero, so an unmeasured slice reported `passed=True`.
+    """
 
     name: str
     numerator: float
     denominator: float
     threshold: float
-    passed: bool
 
     @property
-    def value(self) -> float:
+    def value(self) -> float | None:
+        """The measured ratio, or None when nothing was measured."""
         if self.denominator == 0.0:
-            return 1.0 if self.numerator == 0.0 else 0.0
+            return None
         return self.numerator / self.denominator
+
+    @property
+    def measured(self) -> bool:
+        return self.value is not None
+
+    @property
+    def passed(self) -> bool:
+        """Derived: an unmeasured metric never passes."""
+        value = self.value
+        return value is not None and value >= self.threshold
 
 
 @dataclass(frozen=True)
@@ -237,8 +252,9 @@ class SuiteReport:
             "| --- | --- | --- | --- |",
         ])
         for name, m in self.metrics.items():
-            pass_str = "YES" if m.passed else "**NO**"
-            lines.append(f"| `{name}` | {m.value:.4f} ({m.numerator:.0f}/{m.denominator:.0f}) | >={m.threshold:.2f} | {pass_str} |")
+            pass_str = "YES" if m.passed else ("not_measured" if not m.measured else "**NO**")
+            score = "not_measured" if not m.measured else f"{m.value:.4f}"
+            lines.append(f"| `{name}` | {score} ({m.numerator:.0f}/{m.denominator:.0f}) | >={m.threshold:.2f} | {pass_str} |")
 
         lines.extend([
             "",

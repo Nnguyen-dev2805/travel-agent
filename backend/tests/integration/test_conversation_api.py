@@ -54,8 +54,15 @@ class InMemoryConversationRepository:
         self.conversations[conversation.conversation_id] = conversation
         return conversation
 
-    def get(self, conversation_id: str) -> Optional[Conversation]:
-        return self.conversations.get(conversation_id)
+    def get(
+        self, conversation_id: str, owner_user_id: str | None = None
+    ) -> Optional[Conversation]:
+        conv = self.conversations.get(conversation_id)
+        if conv is None:
+            return None
+        if owner_user_id is not None and conv.owner_user_id != owner_user_id:
+            return None
+        return conv
 
     def list_by_owner(
         self, owner_user_id: str, include_deletion: bool = False
@@ -73,9 +80,12 @@ class InMemoryConversationRepository:
             results.append(conv)
         return tuple(results)
 
-    def delete(self, conversation_id: str) -> bool:
+    def delete(self, conversation_id: str, owner_user_id: str | None = None) -> bool:
         conv = self.conversations.get(conversation_id)
-        if conv is None or conv.retention_state == ConversationRetentionState.TOMBSTONED:
+        if (
+            conv is None
+            or conv.retention_state == ConversationRetentionState.TOMBSTONED
+        ):
             return False
         self.conversations[conversation_id] = Conversation(
             conversation_id=conv.conversation_id,
@@ -87,10 +97,17 @@ class InMemoryConversationRepository:
         )
         return True
 
+    def get_deletion_epoch(
+        self, conversation_id: str, owner_user_id: str | None = None
+    ) -> int:
+        conv = self.conversations.get(conversation_id)
+        return int(getattr(conv, "deletion_epoch", 0)) if conv is not None else 0
+
     def append_message(
         self,
         message: MessageDraft,
         message_id: str,
+        owner_user_id: str | None = None,
         outbox_event: dict | None = None,
     ) -> Message:
         sequence = (
@@ -114,20 +131,28 @@ class InMemoryConversationRepository:
         self.messages.append(stored)
         return stored
 
-    def get_message(self, message_id: str) -> Optional[Message]:
+    def get_message(
+        self, message_id: str, owner_user_id: str | None = None
+    ) -> Optional[Message]:
         for msg in self.messages:
             if msg.message_id == message_id:
                 return msg
         return None
 
     def list_messages(
-        self, conversation_id: str, after_sequence: int | None, limit: int
+        self,
+        conversation_id: str,
+        owner_user_id: str | None = None,
+        after_sequence: int | None = None,
+        limit: int = 50,
+        until_sequence: int | None = None,
     ) -> tuple[Message, ...]:
         selected = [
             msg
             for msg in self.messages
             if msg.conversation_id == conversation_id
             and (after_sequence is None or msg.sequence > after_sequence)
+            and (until_sequence is None or msg.sequence <= until_sequence)
         ]
         selected.sort(key=lambda m: m.sequence)
         return tuple(selected[:limit])
@@ -135,9 +160,7 @@ class InMemoryConversationRepository:
 
 @pytest.fixture(autouse=True)
 def configure_auth_tokens(monkeypatch):
-    registry_json = (
-        f'{{"alice": "{ALICE_TOKEN}", "bob": "{BOB_TOKEN}"}}'
-    )
+    registry_json = f'{{"alice": "{ALICE_TOKEN}", "bob": "{BOB_TOKEN}"}}'
     monkeypatch.setattr(settings, "LOCAL_AUTH_TOKENS_JSON", SecretStr(registry_json))
 
 
@@ -163,7 +186,9 @@ def client(service: ConversationService):
 def _seed_conversation(
     client: TestClient, headers: dict = ALICE_HEADERS, title: str = "Da Nang trip"
 ) -> str:
-    response = client.post("/api/v1/conversations", json={"title": title}, headers=headers)
+    response = client.post(
+        "/api/v1/conversations", json={"title": title}, headers=headers
+    )
     assert response.status_code == 201
     return response.json()["conversation_id"]
 
@@ -181,7 +206,10 @@ def test_unauthenticated_requests_return_401(client):
 
 def test_invalid_bearer_token_returns_401(client):
     bad_headers = {"Authorization": "Bearer invalid-token"}
-    assert client.post("/api/v1/conversations", json={}, headers=bad_headers).status_code == 401
+    assert (
+        client.post("/api/v1/conversations", json={}, headers=bad_headers).status_code
+        == 401
+    )
     assert client.get("/api/v1/conversations", headers=bad_headers).status_code == 401
 
 
@@ -259,7 +287,9 @@ def test_get_conversation_returns_owned_record(client):
 
 
 def test_get_missing_conversation_returns_404(client):
-    response = client.get(f"/api/v1/conversations/{MISSING_CONVERSATION}", headers=ALICE_HEADERS)
+    response = client.get(
+        f"/api/v1/conversations/{MISSING_CONVERSATION}", headers=ALICE_HEADERS
+    )
     assert response.status_code == 404
 
 
@@ -281,15 +311,24 @@ def test_delete_conversation_tombstones_and_returns_204(client):
     assert response.status_code == 204
 
     # Subsequent GET returns 404
-    assert client.get(f"/api/v1/conversations/{conv_id}", headers=ALICE_HEADERS).status_code == 404
+    assert (
+        client.get(
+            f"/api/v1/conversations/{conv_id}", headers=ALICE_HEADERS
+        ).status_code
+        == 404
+    )
 
     # Omitted from list
     list_resp = client.get("/api/v1/conversations", headers=ALICE_HEADERS)
-    assert conv_id not in [c["conversation_id"] for c in list_resp.json()["conversations"]]
+    assert conv_id not in [
+        c["conversation_id"] for c in list_resp.json()["conversations"]
+    ]
 
 
 def test_delete_missing_conversation_returns_404(client):
-    response = client.delete(f"/api/v1/conversations/{MISSING_CONVERSATION}", headers=ALICE_HEADERS)
+    response = client.delete(
+        f"/api/v1/conversations/{MISSING_CONVERSATION}", headers=ALICE_HEADERS
+    )
     assert response.status_code == 404
 
 
@@ -301,7 +340,12 @@ def test_cross_owner_delete_returns_404(client):
     assert response.status_code == 404
 
     # Still accessible to Alice
-    assert client.get(f"/api/v1/conversations/{alice_conv}", headers=ALICE_HEADERS).status_code == 200
+    assert (
+        client.get(
+            f"/api/v1/conversations/{alice_conv}", headers=ALICE_HEADERS
+        ).status_code
+        == 200
+    )
 
 
 # 6. Messages history reading
@@ -310,9 +354,13 @@ def test_cross_owner_delete_returns_404(client):
 def test_messages_history_returns_transcript(client, service):
     conv_id = _seed_conversation(client, headers=ALICE_HEADERS)
     service.append_message(conv_id, MessageRole.USER, "Xin chào", owner_user_id="alice")
-    service.append_message(conv_id, MessageRole.ASSISTANT, "Chào bạn!", owner_user_id="alice")
+    service.append_message(
+        conv_id, MessageRole.ASSISTANT, "Chào bạn!", owner_user_id="alice"
+    )
 
-    response = client.get(f"/api/v1/conversations/{conv_id}/messages", headers=ALICE_HEADERS)
+    response = client.get(
+        f"/api/v1/conversations/{conv_id}/messages", headers=ALICE_HEADERS
+    )
     assert response.status_code == 200
     body = response.json()
     assert len(body["messages"]) == 2
@@ -322,10 +370,14 @@ def test_messages_history_returns_transcript(client, service):
 
 def test_cross_owner_messages_history_returns_404(client, service):
     conv_id = _seed_conversation(client, headers=ALICE_HEADERS)
-    service.append_message(conv_id, MessageRole.USER, "Secret message", owner_user_id="alice")
+    service.append_message(
+        conv_id, MessageRole.USER, "Secret message", owner_user_id="alice"
+    )
 
     # Bob attempts to read history
-    response = client.get(f"/api/v1/conversations/{conv_id}/messages", headers=BOB_HEADERS)
+    response = client.get(
+        f"/api/v1/conversations/{conv_id}/messages", headers=BOB_HEADERS
+    )
     assert response.status_code == 404
 
 

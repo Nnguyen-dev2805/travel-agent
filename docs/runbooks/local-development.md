@@ -359,13 +359,49 @@ code. Route by code before destructive recovery:
 | `credential_missing` | No model credential is configured | Missing Model Credential below |
 | `path_missing` | The Chroma path is absent | Chroma or Local Data-state Problems below |
 | `postgres_unavailable` | PostgreSQL 16 is unreachable on port 5433 | PostgreSQL Database Problems below |
-| `alembic_revision_behind` | Database migration is behind head revision `20260910_01` | Run `poetry run alembic upgrade head` |
+| `alembic_revision_behind` | Database migration is behind head revision `20260912_02` | Run `poetry run alembic upgrade head` |
 | `module_missing` | A runtime module is not installed | Dependency Install Failure below |
 | `probe_failed` | A probe raised unexpectedly | Record the failure class and retry once |
 | `evidence_gap` | An evaluation report is absent | Regenerate the missing report; see the Deployment Readiness Runbook for promotion impact |
 
 If PostgreSQL reports connection errors or migration mismatches, route recovery
 through PostgreSQL Database Problems below.
+
+## Credential Isolation Failure
+
+**Symptom:** The API or the worker exits immediately at startup with
+`CredentialIsolationError`, naming `DATABASE_URL` or `WORKER_DATABASE_URL`.
+
+**Meaning:** The process holds the *other* role's database credential. ADR 0034
+makes this fatal rather than a warning, because a process holding a credential it
+must never use is one import away from using it.
+
+| Process | Must contain | Must not contain |
+| --- | --- | --- |
+| API (`backend`) | `DATABASE_URL` | `WORKER_DATABASE_URL` |
+| Worker (`worker`) | `WORKER_DATABASE_URL` | `DATABASE_URL` |
+
+**Route:** fix the environment, not the guard.
+
+1. Confirm what each service actually receives:
+   ```bash
+   docker compose config
+   ```
+   The worker's `environment` block must not list `DATABASE_URL`; the API's must not
+   list `WORKER_DATABASE_URL`.
+2. If the value came from a shell export, unset it. If it came from
+   `docker-compose.yml`, move it to the service that owns it.
+3. Do **not** add a bypass flag. There is none by design: `ALLOW_PRIVILEGED_DB_ROLE`
+   already exists for throwaway local development and is documented as weakening
+   tenant isolation.
+
+**Note for a local worker run.** `backend/app/config.py` loads the repository's
+`.env` into the process at import, and that file contains `DATABASE_URL`. A worker
+started from the repository root therefore holds the API's credential and refuses to
+start. That is the correct outcome, and it is why the supported way to run the
+worker is its Compose service: the image does not contain `.env` (the Dockerfile
+copies only `backend/` and `data/`), so the service's allow-list is the whole
+environment.
 
 ## PostgreSQL Database Problems
 
@@ -386,7 +422,7 @@ through PostgreSQL Database Problems below.
    ```
 4. Inspect current migration head:
    ```bash
-   DATABASE_URL="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" poetry run alembic current
+   PG_DSN="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" poetry run alembic current
    ```
 
 **Impact:** Application cannot persist conversations, messages, or outbox events. Read-only health probe `/health` may still succeed, but chat and conversation endpoints will fail.
@@ -396,9 +432,9 @@ through PostgreSQL Database Problems below.
    ```bash
    docker compose up -d db
    ```
-2. If migrations are behind, upgrade to head (`20260910_01`):
+2. If migrations are behind, upgrade to head (`20260912_02`)) with the superuser DSN:
    ```bash
-   DATABASE_URL="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" poetry run alembic upgrade head
+   PG_DSN="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" poetry run alembic upgrade head
    ```
 
 **Verify:** Ops readiness endpoint reports `postgres: ready` and `alembic_head: ready`:
@@ -492,6 +528,38 @@ project data.
 **Stop:** if recovery requires changing dependency versions, lockfiles,
 Dockerfiles, or base images, return to a governed code/dependency change rather
 than editing them ad hoc.
+
+## Background Memory Worker Problems
+
+The worker runs as its own process (ADR 0029). Run it locally with:
+
+```bash
+WORKER_DATABASE_URL="postgresql+psycopg://travel_worker:worker-password-dev-only@localhost:5433/travel_agent" \
+  .venv/bin/python -m backend.memory.write_pipeline.runtime
+```
+
+**Memory never forms.** With both feature gates `false` — the default — the worker
+polls an empty queue by design and creates nothing. Confirm the gates before
+suspecting the worker.
+
+**The worker exits immediately, non-zero.** Its role is a superuser or carries
+`BYPASSRLS`. The worker claims across owners by design, so it refuses to start
+where row-level security does not apply. Point `WORKER_DATABASE_URL` at
+`travel_worker`.
+
+**The worker starts but claims nothing while events exist.** This is the
+`sustained_empty_polls` case. Check that `travel_worker` holds `SELECT, UPDATE` on
+`conversation_outbox` and that the two worker policies exist on that table. The
+readiness count is the cross-check: `ready_outbox_event_count()` is a bounded
+function callable by the API role and reports the true queue depth.
+
+**The worker logs nothing.** It configures logging only when the root logger has
+no handlers. An embedding process that has already configured logging keeps its
+own setup.
+
+**No `psql` on PATH.** The integration suite reproduces the bootstrap script's
+semantics with psycopg instead; see the test-environment notes. Do not conclude the
+script is broken because `psql` is missing.
 
 ## Persistent-data Recovery Boundary
 

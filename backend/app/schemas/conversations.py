@@ -16,6 +16,7 @@ from backend.conversations.models import (
     Message,
     MessageRole,
     MessageSource,
+    MessageStatus,
     TraceVisibility,
 )
 
@@ -67,6 +68,14 @@ class MessageResponse(BaseModel):
     source: MessageSource
     trace_visibility: TraceVisibility
     created_at: datetime
+    status: MessageStatus
+    """Server-owned turn status (ADR 0023).
+
+    `pending` means the reply slot exists but generation has not finished, and
+    `failed` means generation did not produce one. The client must render those
+    distinctly: a `pending` row carries no content and must never be shown as an
+    empty successful reply.
+    """
 
     @classmethod
     def from_domain(cls, message: Message) -> "MessageResponse":
@@ -79,6 +88,7 @@ class MessageResponse(BaseModel):
             source=message.source,
             trace_visibility=message.trace_visibility,
             created_at=message.created_at,
+            status=message.status,
         )
 
 

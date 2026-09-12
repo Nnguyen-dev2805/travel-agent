@@ -146,3 +146,44 @@ describe("WelcomeView Component", () => {
     expect(handleSelectTemplate).toHaveBeenCalledOnce();
   });
 });
+
+describe("ChatMessage turn status (ADR 0023)", () => {
+  it("renders a failed turn distinctly from an empty reply", () => {
+    render(<ChatMessage message={{ role: "assistant", content: "", status: "failed" }} />);
+    expect(screen.getByTestId("turn-failed")).toBeDefined();
+    expect(screen.getByText(/không tạo được câu trả lời/i)).toBeDefined();
+  });
+
+  it("does not render a pending turn as a completed reply", () => {
+    render(<ChatMessage message={{ role: "assistant", content: "", status: "pending" }} />);
+    expect(screen.getByTestId("turn-pending")).toBeDefined();
+    // No copyable body exists yet, so the action bar must not be offered.
+    expect(screen.queryByTitle("Sao chép")).toBeNull();
+  });
+
+  it("renders a complete turn as a normal assistant reply", () => {
+    render(
+      <ChatMessage
+        message={{ role: "assistant", content: "Xin chào", status: "complete" }}
+      />
+    );
+    expect(screen.getByText("Xin chào")).toBeDefined();
+    expect(screen.queryByTestId("turn-pending")).toBeNull();
+    expect(screen.queryByTestId("turn-failed")).toBeNull();
+  });
+
+  it("treats a message with no status as complete", () => {
+    // Every row written before the status column existed has no status.
+    render(<ChatMessage message={{ role: "assistant", content: "Câu trả lời cũ" }} />);
+    expect(screen.getByText("Câu trả lời cũ")).toBeDefined();
+    expect(screen.queryByTestId("turn-pending")).toBeNull();
+    expect(screen.queryByTestId("turn-failed")).toBeNull();
+  });
+
+  it("never renders a user message as a pending or failed turn", () => {
+    render(<ChatMessage message={{ role: "user", content: "Câu hỏi" }} />);
+    expect(screen.getByText("Câu hỏi")).toBeDefined();
+    expect(screen.queryByTestId("turn-pending")).toBeNull();
+    expect(screen.queryByTestId("turn-failed")).toBeNull();
+  });
+});

@@ -29,10 +29,12 @@ from backend.conversations.models import (
     MessageHistoryQuery,
     MessageRole,
     MessageSource,
+    MessageStatus,
     TraceVisibility,
 )
 from backend.conversations.repository import (
     ConversationAlreadyExistsError,
+    ConversationGoneError,
     ConversationStorageError,
     MessageAlreadyExistsError,
     MessageSequenceConflictError,
@@ -43,6 +45,8 @@ from backend.conversations.service import (
 )
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
+
+DEFAULT_OWNER = "local-user"
 
 
 class FakeConversationRepository:
@@ -56,13 +60,20 @@ class FakeConversationRepository:
         self.remaining_identity_conflicts = 0
         self.remaining_message_identity_conflicts = 0
         self.remaining_sequence_conflicts = 0
+        self.deletion_epochs: dict[str, int] = {}
+        self.sabotage_after_get = False
 
     @property
     def writes(self) -> list[tuple]:
         return [
             call
             for call in self.calls
-            if call[0] in {"create", "append_message", "delete"}
+            if call[0] in {
+                "create",
+                "create_with_initial_turn",
+                "append_message",
+                "delete",
+            }
         ]
 
     def create(self, conversation: Conversation) -> Conversation:
@@ -73,9 +84,59 @@ class FakeConversationRepository:
         self.conversations[conversation.conversation_id] = conversation
         return conversation
 
-    def get(self, conversation_id: str) -> Conversation | None:
+    def create_with_initial_turn(
+        self,
+        conversation: Conversation,
+        message: MessageDraft,
+        message_id: str,
+        assistant_message_id: str,
+        outbox_event: dict | None = None,
+    ) -> tuple[Conversation, Message, Message]:
+        self.calls.append(
+            ("create_with_initial_turn", conversation.conversation_id, message_id)
+        )
+        if self.remaining_identity_conflicts > 0:
+            self.remaining_identity_conflicts -= 1
+            raise ConversationAlreadyExistsError("identity already used")
+        if self.remaining_message_identity_conflicts > 0:
+            self.remaining_message_identity_conflicts -= 1
+            raise MessageAlreadyExistsError("message identity already used")
+        self.conversations[conversation.conversation_id] = conversation
+        stored = Message(
+            message_id=message_id,
+            conversation_id=conversation.conversation_id,
+            sequence=1,
+            role=message.role,
+            content=message.content,
+            source=message.source,
+            trace_visibility=message.trace_visibility,
+            created_at=message.created_at,
+            status=MessageStatus.COMPLETE,
+        )
+        pending = Message(
+            message_id=assistant_message_id,
+            conversation_id=conversation.conversation_id,
+            sequence=2,
+            role=MessageRole.ASSISTANT,
+            content="",
+            source=MessageSource.MODEL,
+            trace_visibility=TraceVisibility.EXCLUDED,
+            created_at=message.created_at,
+            status=MessageStatus.PENDING,
+        )
+        self.messages.extend((stored, pending))
+        return conversation, stored, pending
+
+    def get(
+        self, conversation_id: str, owner_user_id: str | None = None
+    ) -> Conversation | None:
         self.calls.append(("get", conversation_id))
-        return self.conversations.get(conversation_id)
+        stored = self.conversations.get(conversation_id)
+        if stored is not None and self.sabotage_after_get:
+            # Simulate a concurrent delete landing after this read: the
+            # caller keeps a stale active copy while storage is tombstoned.
+            self.delete(conversation_id, owner_user_id)
+        return stored
 
     def list_by_owner(
         self, owner_user_id: str, include_deletion: bool = False
@@ -98,7 +159,7 @@ class FakeConversationRepository:
             results.append(record)
         return tuple(results)
 
-    def delete(self, conversation_id: str) -> bool:
+    def delete(self, conversation_id: str, owner_user_id: str | None = None) -> bool:
         self.calls.append(("delete", conversation_id))
         conv = self.conversations.get(conversation_id)
         if conv is None:
@@ -110,6 +171,8 @@ class FakeConversationRepository:
         )
         if ret == ConversationRetentionState.TOMBSTONED.value:
             return False
+        epoch = self.deletion_epochs.get(conversation_id, 0) + 1
+        self.deletion_epochs[conversation_id] = epoch
         tombstoned = Conversation(
             conversation_id=conv.conversation_id,
             owner_user_id=conv.owner_user_id,
@@ -117,11 +180,20 @@ class FakeConversationRepository:
             created_at=conv.created_at,
             updated_at=datetime.now(timezone.utc),
             retention_state=ConversationRetentionState.TOMBSTONED,
+            deletion_epoch=epoch,
         )
         self.conversations[conversation_id] = tombstoned
         return True
 
-    def get_message(self, message_id: str) -> Message | None:
+    def get_deletion_epoch(
+        self, conversation_id: str, owner_user_id: str | None = None
+    ) -> int:
+        self.calls.append(("get_deletion_epoch", conversation_id))
+        return self.deletion_epochs.get(conversation_id, 0)
+
+    def get_message(
+        self, message_id: str, owner_user_id: str | None = None
+    ) -> Message | None:
         self.calls.append(("get_message", message_id))
         for stored in self.messages:
             if stored.message_id == message_id:
@@ -132,9 +204,19 @@ class FakeConversationRepository:
         self,
         message: MessageDraft,
         message_id: str,
+        owner_user_id: str | None = None,
         outbox_event: dict | None = None,
     ) -> Message:
         self.calls.append(("append_message", message.conversation_id, message_id))
+        parent = self.conversations.get(message.conversation_id)
+        if parent is not None:
+            retention = (
+                parent.retention_state.value
+                if isinstance(parent.retention_state, ConversationRetentionState)
+                else str(parent.retention_state)
+            )
+            if retention != ConversationRetentionState.ACTIVE.value:
+                raise ConversationGoneError("Parent conversation is no longer active.")
         if self.remaining_message_identity_conflicts > 0:
             self.remaining_message_identity_conflicts -= 1
             raise MessageAlreadyExistsError("message identity already used")
@@ -163,7 +245,12 @@ class FakeConversationRepository:
         return stored
 
     def list_messages(
-        self, conversation_id: str, after_sequence: int | None, limit: int
+        self,
+        conversation_id: str,
+        owner_user_id: str | None = None,
+        after_sequence: int | None = None,
+        limit: int = 50,
+        until_sequence: int | None = None,
     ) -> tuple[Message, ...]:
         self.calls.append(("list_messages", conversation_id, after_sequence, limit))
         selected = [
@@ -171,6 +258,7 @@ class FakeConversationRepository:
             for stored in self.messages
             if stored.conversation_id == conversation_id
             and (after_sequence is None or stored.sequence > after_sequence)
+            and (until_sequence is None or stored.sequence <= until_sequence)
         ]
         selected.sort(key=lambda stored: stored.sequence)
         return tuple(selected[:limit])
@@ -189,7 +277,7 @@ def service(repository: FakeConversationRepository) -> ConversationService:
 def _seeded_conversation(
     service: ConversationService,
     title: str | None = "Da Nang food plan",
-    owner_user_id: str = "local-user",
+    owner_user_id: str = DEFAULT_OWNER,
 ) -> Conversation:
     return service.create_conversation(
         owner_user_id=owner_user_id,
@@ -277,17 +365,26 @@ def test_second_conversation_identity_collision_fails_closed(service, repository
 
 
 def test_get_returns_none_for_a_missing_conversation(service):
-    assert service.get_conversation("cv_absent") is None
+    assert service.get_conversation("cv_absent", DEFAULT_OWNER) is None
 
 
 def test_get_returns_the_stored_conversation(service):
     conversation = _seeded_conversation(service)
-    assert service.get_conversation(conversation.conversation_id) == conversation
+    assert (
+        service.get_conversation(conversation.conversation_id, DEFAULT_OWNER)
+        == conversation
+    )
 
 
 def test_get_rejects_a_blank_identifier(service):
     with pytest.raises(ConversationValidationError):
-        service.get_conversation("   ")
+        service.get_conversation("   ", DEFAULT_OWNER)
+
+
+def test_get_rejects_a_blank_owner(service):
+    conversation = _seeded_conversation(service)
+    with pytest.raises(ConversationValidationError):
+        service.get_conversation(conversation.conversation_id, "   ")
 
 
 def test_get_conversation_with_matching_owner(service):
@@ -300,19 +397,11 @@ def test_get_conversation_with_foreign_owner_returns_none(service):
     assert service.get_conversation(conv.conversation_id, owner_user_id="bob") is None
 
 
-def test_get_conversation_for_owner_delegates_scoped_read(service):
-    conv = _seeded_conversation(service, owner_user_id="alice")
-    assert service.get_conversation_for_owner(conv.conversation_id, "alice") == conv
-    assert service.get_conversation_for_owner(conv.conversation_id, "bob") is None
-    assert service.get_conversation_for_owner("cv_absent", "alice") is None
-
-
 def test_get_conversation_hides_tombstoned_records(service, repository):
     conv = _seeded_conversation(service, owner_user_id="alice")
-    repository.delete(conv.conversation_id)
+    repository.delete(conv.conversation_id, "alice")
 
-    assert service.get_conversation(conv.conversation_id) is None
-    assert service.get_conversation_for_owner(conv.conversation_id, "alice") is None
+    assert service.get_conversation(conv.conversation_id, "alice") is None
 
 
 # 4. Listing conversations by owner.
@@ -351,11 +440,6 @@ def test_list_conversations_rejects_blank_owner(service):
         service.list_conversations("   ")
 
 
-def test_list_conversations_by_owner_alias(service):
-    conv = _seeded_conversation(service, owner_user_id="alice")
-    assert service.list_conversations_by_owner("alice") == (conv,)
-
-
 # 5. Conversation deletion (tombstoning).
 
 
@@ -365,9 +449,32 @@ def test_delete_conversation_tombstones_and_hides_conversation(service):
     service.delete_conversation(conv.conversation_id, "alice")
 
     # Conversation is now absent from public get and list
-    assert service.get_conversation(conv.conversation_id) is None
-    assert service.get_conversation_for_owner(conv.conversation_id, "alice") is None
+    assert service.get_conversation(conv.conversation_id, "alice") is None
     assert service.list_conversations("alice") == ()
+
+
+def test_delete_conversation_bumps_the_deletion_epoch(service, repository):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+
+    service.delete_conversation(conv.conversation_id, "alice")
+
+    assert service.get_deletion_epoch(conv.conversation_id, "alice") == 1
+
+
+def test_append_after_direct_tombstone_reports_not_found(service, repository):
+    """A delete landing after the owner check fails closed as absence."""
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    repository.sabotage_after_get = True
+
+    with pytest.raises(ConversationNotFoundError):
+        service.append_message(
+            conversation_id=conv.conversation_id,
+            role=MessageRole.USER,
+            content="too late",
+            owner_user_id="alice",
+        )
+
+    assert repository.messages == []
 
 
 def test_delete_conversation_for_foreign_owner_raises_not_found(service):
@@ -398,7 +505,10 @@ def test_append_to_a_missing_conversation_raises_and_writes_nothing(
 ):
     with pytest.raises(ConversationNotFoundError):
         service.append_message(
-            conversation_id="cv_absent", role=MessageRole.USER, content="xin chào"
+            conversation_id="cv_absent",
+            role=MessageRole.USER,
+            content="xin chào",
+            owner_user_id=DEFAULT_OWNER,
         )
 
     assert repository.writes == []
@@ -441,6 +551,7 @@ def test_append_with_invalid_content_writes_nothing(service, repository, content
             conversation_id=conversation.conversation_id,
             role=MessageRole.USER,
             content=content,
+            owner_user_id=DEFAULT_OWNER,
         )
 
     assert len(repository.writes) == writes_before
@@ -453,6 +564,7 @@ def test_append_with_a_restricted_role_is_accepted_at_the_service_layer(service)
         conversation_id=conversation.conversation_id,
         role=MessageRole.ASSISTANT,
         content="Tháng 3 tới tháng 8 là đẹp nhất.",
+        owner_user_id=DEFAULT_OWNER,
         source=MessageSource.MODEL,
     )
 
@@ -468,6 +580,7 @@ def test_append_sets_created_at_and_leaves_sequence_to_the_repository(service):
         conversation_id=conversation.conversation_id,
         role=MessageRole.USER,
         content="xin chào",
+        owner_user_id=DEFAULT_OWNER,
     )
 
     after = datetime.now(timezone.utc)
@@ -486,11 +599,13 @@ def test_append_increments_the_repository_assigned_sequence(service):
         conversation_id=conversation.conversation_id,
         role=MessageRole.USER,
         content="một",
+        owner_user_id=DEFAULT_OWNER,
     )
     second = service.append_message(
         conversation_id=conversation.conversation_id,
         role=MessageRole.USER,
         content="hai",
+        owner_user_id=DEFAULT_OWNER,
     )
 
     assert (first.sequence, second.sequence) == (1, 2)
@@ -506,6 +621,7 @@ def test_duplicate_message_identity_is_retried_once_with_a_fresh_identity(
         conversation_id=conversation.conversation_id,
         role=MessageRole.USER,
         content="xin chào",
+        owner_user_id=DEFAULT_OWNER,
     )
 
     attempted = [call[2] for call in repository.calls if call[0] == "append_message"]
@@ -523,6 +639,7 @@ def test_second_message_identity_collision_fails_closed(service, repository):
             conversation_id=conversation.conversation_id,
             role=MessageRole.USER,
             content="xin chào",
+            owner_user_id=DEFAULT_OWNER,
         )
 
     assert len([call for call in repository.calls if call[0] == "append_message"]) == 2
@@ -537,6 +654,7 @@ def test_sequence_collision_is_retried_once_then_succeeds(service, repository):
         conversation_id=conversation.conversation_id,
         role=MessageRole.USER,
         content="xin chào",
+        owner_user_id=DEFAULT_OWNER,
     )
 
     attempts = [call for call in repository.calls if call[0] == "append_message"]
@@ -556,6 +674,7 @@ def test_second_sequence_collision_fails_closed_without_partial_write(
             conversation_id=conversation.conversation_id,
             role=MessageRole.USER,
             content="xin chào",
+            owner_user_id=DEFAULT_OWNER,
         )
 
     assert len([call for call in repository.calls if call[0] == "append_message"]) == 2
@@ -570,6 +689,7 @@ def test_sequence_conflict_does_not_escape_as_a_repository_error(service, reposi
         conversation_id=conversation.conversation_id,
         role=MessageRole.USER,
         content="xin chào",
+        owner_user_id=DEFAULT_OWNER,
     )
 
     assert stored.message_id.startswith("ms_")
@@ -580,7 +700,9 @@ def test_sequence_conflict_does_not_escape_as_a_repository_error(service, reposi
 
 def test_list_messages_for_a_missing_conversation_raises(service):
     with pytest.raises(ConversationNotFoundError):
-        service.list_messages(MessageHistoryQuery(conversation_id="cv_absent"))
+        service.list_messages(
+            MessageHistoryQuery(conversation_id="cv_absent"), DEFAULT_OWNER
+        )
 
 
 def test_list_messages_with_foreign_owner_raises_not_found(service):
@@ -600,11 +722,13 @@ def test_list_messages_passes_the_resolved_cursor_and_limit_through(
         conversation_id=conversation.conversation_id,
         role=MessageRole.USER,
         content="một",
+        owner_user_id=DEFAULT_OWNER,
     )
     service.append_message(
         conversation_id=conversation.conversation_id,
         role=MessageRole.USER,
         content="hai",
+        owner_user_id=DEFAULT_OWNER,
     )
 
     page = service.list_messages(
@@ -612,7 +736,8 @@ def test_list_messages_passes_the_resolved_cursor_and_limit_through(
             conversation_id=conversation.conversation_id,
             after_message_id=first.message_id,
             limit=10,
-        )
+        ),
+        DEFAULT_OWNER,
     )
 
     delegated = [call for call in repository.calls if call[0] == "list_messages"][-1]
@@ -624,7 +749,8 @@ def test_list_messages_without_a_cursor_delegates_none(service, repository):
     conversation = _seeded_conversation(service)
 
     service.list_messages(
-        MessageHistoryQuery(conversation_id=conversation.conversation_id)
+        MessageHistoryQuery(conversation_id=conversation.conversation_id),
+        DEFAULT_OWNER,
     )
 
     delegated = [call for call in repository.calls if call[0] == "list_messages"][-1]
@@ -638,6 +764,7 @@ def test_list_messages_rejects_a_cursor_from_another_conversation(service, repos
         conversation_id=second.conversation_id,
         role=MessageRole.USER,
         content="thuộc hội thoại khác",
+        owner_user_id=DEFAULT_OWNER,
     )
     calls_before = len(
         [call for call in repository.calls if call[0] == "list_messages"]
@@ -648,7 +775,8 @@ def test_list_messages_rejects_a_cursor_from_another_conversation(service, repos
             MessageHistoryQuery(
                 conversation_id=first.conversation_id,
                 after_message_id=foreign.message_id,
-            )
+            ),
+            DEFAULT_OWNER,
         )
 
     assert (
@@ -665,13 +793,14 @@ def test_list_messages_rejects_an_unknown_cursor(service):
             MessageHistoryQuery(
                 conversation_id=conversation.conversation_id,
                 after_message_id="ms_never_stored",
-            )
+            ),
+            DEFAULT_OWNER,
         )
 
 
 def test_list_messages_requires_a_history_query_contract(service):
     with pytest.raises(ConversationValidationError):
-        service.list_messages({"conversation_id": "cv_example"})
+        service.list_messages({"conversation_id": "cv_example"}, DEFAULT_OWNER)
 
 
 def test_get_history_for_owner_succeeds(service):
@@ -680,6 +809,7 @@ def test_get_history_for_owner_succeeds(service):
         conversation_id=conv.conversation_id,
         role=MessageRole.USER,
         content="hello alice",
+        owner_user_id="alice",
     )
     history = service.get_history(conv.conversation_id, "alice")
     assert len(history) == 1
@@ -694,12 +824,46 @@ def test_get_history_with_foreign_owner_raises_not_found(service):
 
 def test_get_messages_in_range(service):
     conv = _seeded_conversation(service)
-    service.append_message(conv.conversation_id, MessageRole.USER, "m1")
-    service.append_message(conv.conversation_id, MessageRole.USER, "m2")
+    service.append_message(conv.conversation_id, MessageRole.USER, "m1", DEFAULT_OWNER)
+    service.append_message(conv.conversation_id, MessageRole.USER, "m2", DEFAULT_OWNER)
 
-    messages = service.get_messages_in_range(conv.conversation_id, after_sequence=1, limit=5)
+    messages = service.get_messages_in_range(
+        conv.conversation_id, DEFAULT_OWNER, after_sequence=1, limit=5
+    )
     assert len(messages) == 1
     assert messages[0].content == "m2"
+
+
+def test_get_messages_in_range_requires_owner(service):
+    conv = _seeded_conversation(service, owner_user_id="alice")
+    with pytest.raises(ConversationNotFoundError):
+        service.get_messages_in_range(conv.conversation_id, "bob")
+
+
+def test_create_conversation_with_initial_turn(service, repository):
+    conv, msg, pending = service.create_conversation_with_initial_turn(
+        owner_user_id="alice",
+        title="Trip to Da Nang",
+        content="Hello Da Nang",
+    )
+    assert conv.owner_user_id == "alice"
+    assert conv.title == "Trip to Da Nang"
+    assert msg.conversation_id == conv.conversation_id
+    assert msg.sequence == 1
+    assert msg.role == MessageRole.USER
+    assert msg.content == "Hello Da Nang"
+    # The first turn also allocates the reply slot (ADR 0023), so a first-turn
+    # failure has a row to mark rather than an orphan.
+    assert pending.conversation_id == conv.conversation_id
+    assert pending.sequence == 2
+    assert pending.role == MessageRole.ASSISTANT
+    assert pending.status is MessageStatus.PENDING
+    assert pending.content == ""
+    assert (
+        "create_with_initial_turn",
+        conv.conversation_id,
+        msg.message_id,
+    ) in repository.calls
 
 
 # 8. Dependency boundary assertion.

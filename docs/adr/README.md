@@ -155,3 +155,21 @@ evidence.
 | 0015 | Memory Sensitivity and Confirmed User Control | Superseded | 2026-09-07 | [ADR 0015](./0015-memory-sensitivity-and-confirmed-user-control.md) |
 | 0016 | Focused Memory Write Evaluation and Rollout | Accepted | 2026-09-07 | [ADR 0016](./0016-focused-memory-write-evaluation-and-rollout.md) |
 | 0017 | Risk-based Memory Confirmation | Accepted | 2026-09-07 | [ADR 0017](./0017-risk-based-memory-confirmation.md) |
+| 0018 | Authenticated Chat-Only Product Container | Accepted | 2026-09-10 | [ADR 0018](./0018-authenticated-chat-only-product-container.md) |
+| 0019 | PostgreSQL-Only Application Relational Persistence and SQLite Retirement | Accepted | 2026-09-10 | [ADR 0019](./0019-postgresql-only-application-persistence-sqlite-retirement.md) |
+| 0020 | Removal of Public Memory Management Surface | Accepted | 2026-09-10 | [ADR 0020](./0020-removal-of-public-memory-management-surface.md) |
+| 0021 | Standalone Conversation Ownership, Route Contract, and Auto-Create Behavior | Accepted | 2026-09-10 | [ADR 0021](./0021-standalone-conversation-ownership-and-auto-create.md) |
+| 0022 | Clean-Break Migration, Data Disposal, and Rollback Authority | Accepted | 2026-09-10 | [ADR 0022](./0022-clean-break-migration-data-disposal-rollback.md) |
+| 0023 | Atomic Two-Phase Chat Turn | Accepted | 2026-09-11 | [ADR 0023](./0023-atomic-two-phase-chat-turn.md) |
+| 0024 | Evaluation Results Distinguish Unmeasurable from Perfect | Accepted | 2026-09-11 | [ADR 0024](./0024-evaluation-results-distinguish-unmeasurable-from-perfect.md) |
+| 0025 | The Message Status/Content Invariant Is Enforced in the Database | Accepted | 2026-09-11 | [ADR 0025](./0025-message-status-content-invariant-in-database.md) |
+| 0026 | Authentication Is Enforced in Middleware, Before the Request Body Is Parsed | Accepted | 2026-09-11 | [ADR 0026](./0026-authentication-enforced-in-middleware-before-body-parsing.md) |
+| 0027 | An Outbox Event Is Released Only When Its Turn Is Terminal | Accepted | 2026-09-11 | [ADR 0027](./0027-outbox-event-released-only-when-turn-terminal.md) |
+| 0028 | The Background Worker Claims Through a Role-Scoped Policy, and Binds a Tenant After the Claim | Accepted | 2026-09-11 | [ADR 0028](./0028-worker-role-and-outbox-claim-boundary.md) |
+| 0029 | The Background Memory Worker Runs as Its Own Service Under Its Own Role | Accepted | 2026-09-12 | [ADR 0029](./0029-the-memory-worker-runs-as-its-own-service.md) |
+| 0030 | A Conversation's Outbox Events Are Claimed Under a Per-Conversation Advisory Lock | Accepted | 2026-09-12 | [ADR 0030](./0030-a-conversation-is-claimed-under-an-advisory-lock.md) |
+| 0031 | The Idempotency Key Is Reserved Before the Semantic Effect It Guards | Accepted | 2026-09-12 | [ADR 0031](./0031-the-idempotency-key-is-reserved-before-the-effect.md) |
+| 0032 | An Outbox Lease Is Judged Valid Against Database Time, and Held by a Process Identity | Accepted | 2026-09-12 | [ADR 0032](./0032-lease-validity-is-database-time.md) |
+| 0033 | A Fenced Worker Stops Without Cancelling the Conversation's Other Events | Accepted | 2026-09-12 | [ADR 0033](./0033-a-fenced-worker-stops-without-cancelling.md) |
+| 0034 | Each Process Receives Only the Credential Its Role Requires | Accepted | 2026-09-12 | [ADR 0034](./0034-per-process-credential-isolation.md) |
+| 0035 | Application Composition Happens at Startup, and a Request Without It Fails Closed | Accepted | 2026-09-12 | [ADR 0035](./0035-application-composition-happens-at-startup.md) |

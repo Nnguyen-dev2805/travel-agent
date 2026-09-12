@@ -76,6 +76,26 @@ class ProviderPermanentError(ModelAdapterError):
     """Permanent provider failure (e.g. 400, 401, 403, or invalid schema after repair)."""
 
 
+def schema_failure_reason(exc: BaseException) -> str:
+    """Render a failure as governed codes and field paths only.
+
+    Never emits a field value, the model output, or `str(exc)`. The extraction
+    prompt is built from conversation messages, so a rendered pydantic
+    `ValidationError` carries user content inside its `input_value=` text — and
+    this string reaches both the log stream and
+    `conversation_outbox.error_message`.
+    """
+    if isinstance(exc, ValidationError):
+        locations = sorted(
+            {
+                ".".join(str(part) for part in err.get("loc", ())) or "<root>"
+                for err in exc.errors()
+            }
+        )
+        return f"schema_validation_failed fields={','.join(locations[:8])}"
+    return f"model_adapter_failed class={type(exc).__name__}"
+
+
 class LLMProvider(Protocol):
     """Protocol for the underlying generative model client."""
 
@@ -155,7 +175,6 @@ class StructuredRelationPrompt:
         )
 
 
-
 class StructuredExtractionPrompt:
     """Prompt templates for focused preference extraction."""
 
@@ -167,7 +186,7 @@ class StructuredExtractionPrompt:
         "Bilingual support: User may express in English or Vietnamese (e.g., 'yên tĩnh' -> quiet, 'sôi động' -> lively, 'trung tâm' -> central, 'biệt lập' -> secluded).\n"
         "Respond ONLY with valid JSON conforming to the following JSON schema:\n"
         '{"candidates": [{"canonical_key": "travel.preference.hotel_atmosphere", "value": "<value>", "display_text": "<text>", "confidence": 1.0}]}\n'
-        "If no hotel atmosphere preference is mentioned, return: {\"candidates\": []}\n"
+        'If no hotel atmosphere preference is mentioned, return: {"candidates": []}\n'
     )
 
     @classmethod
@@ -251,7 +270,10 @@ class MemoryExtractionModel:
         # If any message contains a prohibited secret, reject immediately without sending to LLM.
         for msg in messages:
             content = msg.get("content", "")
-            if isinstance(content, str) and detect_prohibited_content(content) is not None:
+            if (
+                isinstance(content, str)
+                and detect_prohibited_content(content) is not None
+            ):
                 logger.warning(
                     "Pre-model secret scan detected prohibited content; skipping model call conversation_id=%s",
                     conversation_id,
@@ -270,9 +292,20 @@ class MemoryExtractionModel:
             raise
         except Exception as error:
             error_str = str(error).lower()
-            if any(t in error_str for t in ("429", "503", "rate limit", "timeout", "temporarily unavailable")):
-                raise ProviderTransientError(f"Transient model error: {error}") from error
-            raise ProviderPermanentError(f"Permanent model error: {error}") from error
+            if any(
+                t in error_str
+                for t in (
+                    "429",
+                    "503",
+                    "rate limit",
+                    "timeout",
+                    "temporarily unavailable",
+                )
+            ):
+                raise ProviderTransientError(
+                    schema_failure_reason(error)
+                ) from error
+            raise ProviderPermanentError(schema_failure_reason(error)) from error
 
         # 3. Parse JSON with bounded repair
         parsed_output = self._parse_with_repair(raw_response)
@@ -282,15 +315,42 @@ class MemoryExtractionModel:
         observed_time = _utc_now()
 
         for raw_cand in parsed_output.candidates:
-            # Strictly filter to known key in focused scope
+            # Strictly filter to known key in focused scope.
+            #
+            # The rejection is logged as a governed code, never with the key. The
+            # key arrives in the model's JSON, so an unexpected one is untrusted
+            # content, not the bounded registry vocabulary it is meant to be.
+            # SECURITY.md: full prompt, conversation, retrieved content or
+            # model-output logging is not the default mechanism. `conversation_id`
+            # and a counter are the metadata this event is allowed to carry.
             if raw_cand.canonical_key != HOTEL_ATMOSPHERE_KEY:
-                logger.debug("Skipping candidate with outside-scope key: %s", raw_cand.canonical_key)
+                logger.debug("memory_candidate_rejected reason=outside_scope_key")
                 continue
 
             try:
                 norm_val = normalize_value(raw_cand.canonical_key, raw_cand.value)
             except RegistryValidationError:
-                logger.debug("Skipping candidate with un-normalizable value: %s", raw_cand.value)
+                # Same rule for the value: it is model output derived from the
+                # conversation. The key is safe to name *here* because it has just
+                # been proved equal to the registry constant, so it carries no
+                # model-chosen content.
+                logger.debug(
+                    "memory_candidate_rejected reason=un_normalizable_value key=%s",
+                    HOTEL_ATMOSPHERE_KEY,
+                )
+                continue
+
+            # Post-extraction secret scan: model output itself must never
+            # carry prohibited material into a candidate. Findings carry no
+            # content — only a counter moves.
+            if (
+                detect_prohibited_content(f"{raw_cand.value}\n{raw_cand.display_text}")
+                is not None
+            ):
+                logger.warning(
+                    "Post-extraction secret scan dropped a candidate; "
+                    "no model output is persisted."
+                )
                 continue
 
             candidate = MemoryCandidate(
@@ -307,6 +367,7 @@ class MemoryExtractionModel:
                 subject_key="self",
                 condition="",
                 observed_at=observed_time,
+                confidence=raw_cand.confidence,
             )
             candidates.append(candidate)
 
@@ -324,9 +385,8 @@ class MemoryExtractionModel:
                 completion_tokens=completion_tokens,
                 total_tokens=prompt_tokens + completion_tokens,
             )
-        cost = (
-            (self._last_token_usage.prompt_tokens * 0.075 / 1_000_000)
-            + (self._last_token_usage.completion_tokens * 0.30 / 1_000_000)
+        cost = (self._last_token_usage.prompt_tokens * 0.075 / 1_000_000) + (
+            self._last_token_usage.completion_tokens * 0.30 / 1_000_000
         )
         self._last_cost_evidence = CostEvidence(
             estimated_cost_usd=round(cost, 8),
@@ -341,11 +401,18 @@ class MemoryExtractionModel:
             data = json.loads(raw_response)
             return ExtractionOutputSchema.model_validate(data)
         except (json.JSONDecodeError, ValidationError) as initial_error:
-            logger.info("Model response invalid; attempting bounded repair. Error: %s", initial_error)
+            logger.info(
+                "Model response invalid; attempting bounded repair. %s",
+                schema_failure_reason(initial_error),
+            )
             if self._max_repair_attempts <= 0:
-                raise ProviderPermanentError(f"Schema validation failed: {initial_error}") from initial_error
+                raise ProviderPermanentError(
+                    schema_failure_reason(initial_error)
+                ) from initial_error
 
-            # 1 repair attempt
+            # 1 repair attempt. The repair prompt intentionally carries the raw
+            # output: repairing it is the purpose, and the value goes to the
+            # provider, never to a log or a persisted error message.
             repair_prompt = StructuredExtractionPrompt.build_repair_prompt(
                 raw_response, str(initial_error)
             )
@@ -358,7 +425,7 @@ class MemoryExtractionModel:
                 raise
             except Exception as repair_error:
                 raise ProviderPermanentError(
-                    f"Model response failed schema validation after repair attempt: {repair_error}"
+                    f"schema_repair_exhausted {schema_failure_reason(repair_error)}"
                 ) from repair_error
 
     def classify_relation(
@@ -386,9 +453,23 @@ class MemoryExtractionModel:
             raise
         except Exception as error:
             error_str = str(error).lower()
-            if any(t in error_str for t in ("429", "503", "rate limit", "timeout", "temporarily unavailable")):
-                raise ProviderTransientError(f"Transient model error in relation classification: {error}") from error
-            logger.warning("Provider error in relation classification; falling back to UNCERTAIN: %s", error)
+            if any(
+                t in error_str
+                for t in (
+                    "429",
+                    "503",
+                    "rate limit",
+                    "timeout",
+                    "temporarily unavailable",
+                )
+            ):
+                raise ProviderTransientError(
+                    f"Transient model error in relation classification: {error}"
+                ) from error
+            logger.warning(
+                "Provider error in relation classification; falling back to UNCERTAIN: %s",
+                schema_failure_reason(error),
+            )
             return MemoryRelation.UNCERTAIN
 
         return self._parse_relation_with_repair(raw_response)
@@ -400,9 +481,14 @@ class MemoryExtractionModel:
             parsed = RelationClassificationSchema.model_validate(data)
             return parsed.relation
         except (json.JSONDecodeError, ValidationError) as initial_error:
-            logger.info("Relation output invalid; attempting bounded repair. Error: %s", initial_error)
+            logger.info(
+                "Relation output invalid; attempting bounded repair. %s",
+                schema_failure_reason(initial_error),
+            )
             if self._max_repair_attempts <= 0:
-                logger.warning("Max repair attempts reached for relation; falling back to UNCERTAIN")
+                logger.warning(
+                    "Max repair attempts reached for relation; falling back to UNCERTAIN"
+                )
                 return MemoryRelation.UNCERTAIN
 
             repair_prompt = StructuredRelationPrompt.build_repair_prompt(
@@ -417,7 +503,6 @@ class MemoryExtractionModel:
             except Exception as repair_error:
                 logger.warning(
                     "Relation repair failed; falling back to UNCERTAIN: %s",
-                    repair_error,
+                    schema_failure_reason(repair_error),
                 )
                 return MemoryRelation.UNCERTAIN
-

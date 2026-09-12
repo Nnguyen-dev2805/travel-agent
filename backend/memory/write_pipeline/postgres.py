@@ -24,6 +24,7 @@ from sqlalchemy import (
     MetaData,
     Table,
     Text,
+    and_,
     exc as sa_exc,
     select,
     text,
@@ -45,16 +46,13 @@ from backend.memory.write_pipeline.models import (
 from backend.memory.write_pipeline.uow import (
     ConcurrentWriteError,
     CrossOwnerDeniedError,
+    FenceContext,
+    FenceReason,
+    FencedWriteError,
     MemoryUnitOfWork,
     MemoryWriteError,
     MemoryWriteResult,
     StaleVersionError,
-)
-from backend.memory.write_pipeline.service import (
-    DELETION_TARGET_TYPE,
-    MemoryCommandNotFoundError,
-    MemoryCommandStaleError,
-    UndoDescriptor,
 )
 from backend.security.models import AuthenticatedPrincipal
 from backend.storage.postgres import (
@@ -255,6 +253,24 @@ def read_current_versions(
     )
 
 
+def _require_fence_reason(reason: FenceReason | None, check: str) -> FenceReason:
+    """Return the reason a fence check refused with, or fail loudly.
+
+    `check_conversation_fence` and `check_outbox_lease` return a reason whenever
+    they return `False`. A `None` here means that contract broke, and defaulting
+    to some plausible reason would silently misclassify the fence — which is how
+    the caller decides whether cancelling the conversation's other work is
+    justified (ADR 0033). Misclassifying in that direction destroys valid memory
+    formation, so the failure is raised instead of guessed.
+    """
+    if reason is None:
+        raise RuntimeError(
+            f"The {check} fence refused a write without naming a FenceReason; "
+            "a refusal must always carry one."
+        )
+    return reason
+
+
 class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
     """Apply resolved changes atomically against PostgreSQL."""
 
@@ -272,9 +288,12 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
         decision: MemoryDecisionDraft | None = None,
         idempotency_key: str | None = None,
         expected_version_id: str | None = None,
+        fence: FenceContext | None = None,
     ) -> MemoryWriteResult:
         """Apply one change with bounded retry on write contention."""
         self._check_inputs(change, principal, evidence, decision, idempotency_key)
+        if fence is not None and not isinstance(fence, FenceContext):
+            raise MemoryWriteError("A fence must be a FenceContext or null.")
         if change.identity is None:
             if change.operation in (MemoryOperation.REJECT, MemoryOperation.NOOP):
                 return MemoryWriteResult(
@@ -302,6 +321,7 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
                         decision,
                         idempotency_key,
                         expected_version_id,
+                        fence,
                     )
             except MemoryWriteError:
                 raise
@@ -349,10 +369,13 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
         decision,
         idempotency_key: str | None,
         expected_version_id: str | None,
+        fence: FenceContext | None,
     ) -> MemoryWriteResult:
         owner = principal.owner_user_id
         set_tenant(connection, owner)
         require_tenant_context(connection)
+        if fence is not None:
+            self._check_fence(connection, fence, owner)
         identity = change.identity
         assert identity is not None  # narrowed by the caller
 
@@ -366,7 +389,9 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
                 decision_id=None,
                 reason=change.reason,
             )
-        if operation is MemoryOperation.NOOP and not change.reason.startswith("shadow_"):
+        if operation is MemoryOperation.NOOP and not change.reason.startswith(
+            "shadow_"
+        ):
             return MemoryWriteResult(
                 operation=operation,
                 version_id=None,
@@ -376,10 +401,30 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
                 reason=change.reason,
             )
 
+        should_reserve = idempotency_key is not None and (
+            change.operation in _WRITING_OPERATIONS
+            or (change.operation is MemoryOperation.NOOP and decision is not None)
+        )
+
         if idempotency_key is not None:
             prior = self._lookup_idempotency(connection, idempotency_key, owner)
             if prior is not None:
                 return prior
+
+        if should_reserve:
+            # ADR 0031: claim the key *before* writing the effect it guards.
+            # Recording it afterwards meant a losing transaction committed its
+            # evidence, decision, version and event rows and then swallowed the
+            # conflict — one key, two semantic effects.
+            #
+            # The reservation and the fill share this transaction, so a row any
+            # other transaction can see is always complete. That is why no
+            # "incomplete" marker is needed and the table's shape is unchanged.
+            #
+            # A conflict is deliberately not caught here: it propagates, the
+            # transaction aborts and commits nothing, and the outer retry loop's
+            # next attempt finds the winner's completed row and returns it.
+            self._reserve_idempotency(connection, idempotency_key, owner, change)
 
         assertion_id = self._resolve_assertion(connection, identity, owner)
         fresh = self._read_locked_versions(connection, assertion_id)
@@ -459,8 +504,49 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
             superseded,
             reference,
             decision_id,
-            idempotency_key,
+            idempotency_key if should_reserve else None,
         )
+
+    @staticmethod
+    def _check_fence(
+        connection: Connection,
+        fence: FenceContext,
+        owner: str,
+    ) -> None:
+        """Verify the source conversation and outbox lease inside this txn.
+
+        Raises `FencedWriteError` without touching state when the
+        conversation is gone or not active, the deletion epoch moved, or
+        the outbox event is no longer leased to the expected worker *within its
+        lease window*. This closes the race between a worker's pre-extraction
+        revalidation and its memory commit.
+
+        The window matters: matching the holder alone proved identity, not
+        current authority, so a worker whose lease had expired could still write.
+
+        No `now` is accepted or forwarded. Both checks judge their own state
+        inside this transaction: the conversation by the row it locks, the lease
+        by `now()`. A caller-supplied timestamp let the party being judged choose
+        the clock (ADR 0032).
+        """
+        from backend.conversations.postgres_repository import (
+            check_conversation_fence,
+            check_outbox_lease,
+        )
+
+        ok, reason = check_conversation_fence(
+            connection, fence.conversation_id, fence.expected_epoch, owner
+        )
+        if not ok:
+            raise FencedWriteError(
+                _require_fence_reason(reason, "conversation")
+            )
+
+        ok, reason = check_outbox_lease(connection, fence.outbox_id, fence.lease_owner)
+        if not ok:
+            raise FencedWriteError(
+                _require_fence_reason(reason, "outbox lease")
+            )
 
     def _lookup_idempotency(
         self, connection: Connection, key: str, owner: str
@@ -708,45 +794,63 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
             )
         )
 
-    def _record_idempotency(
-        self,
+    @staticmethod
+    def _reserve_idempotency(
+        connection: Connection,
+        key: str,
+        owner: str,
+        change,
+    ) -> None:
+        """Claim the key before the effect it guards (ADR 0031).
+
+        The operation and the reason are known here; the result columns are
+        filled by `_fill_idempotency` once the effect exists. Both run in the
+        same transaction, so any row another transaction can *see* is complete —
+        which is why no "incomplete" marker is needed.
+
+        A conflict is deliberately not caught. It propagates, the transaction
+        aborts and commits nothing, and the caller's retry loop finds the
+        winner's completed row on its next attempt.
+        """
+        connection.execute(
+            idempotency_table.insert().values(
+                idempotency_key=key,
+                owner_user_id=owner,
+                operation=change.operation.value,
+                version_id=None,
+                decision_id=None,
+                superseded_version_ids=[],
+                reference_version_id=None,
+                reason_code=change.reason,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
+    def _fill_idempotency(
         connection: Connection,
         key: str,
         owner: str,
         result: MemoryWriteResult,
     ) -> None:
-        try:
-            # Savepoint: same discipline as the assertion insert — a lost
-            # redelivery race must not poison this transaction.
-            with connection.begin_nested():
-                connection.execute(
-                    idempotency_table.insert().values(
-                        idempotency_key=key,
-                        owner_user_id=owner,
-                        operation=result.operation.value,
-                        version_id=result.version_id,
-                        decision_id=result.decision_id,
-                        superseded_version_ids=list(result.superseded_version_ids),
-                        reference_version_id=result.reference_version_id,
-                        reason_code=result.reason,
-                        created_at=datetime.now(timezone.utc),
-                    )
+        """Record the effect on the key reserved earlier in this transaction."""
+        connection.execute(
+            idempotency_table.update()
+            .where(
+                and_(
+                    idempotency_table.c.idempotency_key == key,
+                    idempotency_table.c.owner_user_id == owner,
                 )
-        except sa_exc.IntegrityError:
-            # A concurrent redelivery recorded first; its result stands.
-            existing = (
-                connection.execute(
-                    select(idempotency_table).where(
-                        idempotency_table.c.idempotency_key == key
-                    )
-                )
-                .mappings()
-                .fetchone()
             )
-            if (
-                existing is None or existing["owner_user_id"] != owner
-            ):  # pragma: no cover
-                raise
+            .values(
+                operation=result.operation.value,
+                version_id=result.version_id,
+                decision_id=result.decision_id,
+                superseded_version_ids=list(result.superseded_version_ids),
+                reference_version_id=result.reference_version_id,
+                reason_code=result.reason,
+            )
+        )
 
     def _finish(
         self,
@@ -768,14 +872,10 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
             decision_id=decision_id,
             reason=change.reason,
         )
-        should_record_idempotency = (
-            idempotency_key is not None and (
-                change.operation in _WRITING_OPERATIONS
-                or (change.operation is MemoryOperation.NOOP and decision_id is not None)
-            )
-        )
-        if should_record_idempotency:
-            self._record_idempotency(connection, idempotency_key, owner, result)
+        # The caller passes the key only when it reserved one (ADR 0031), so a
+        # non-null key here means a reservation is waiting to be filled.
+        if idempotency_key is not None:
+            self._fill_idempotency(connection, idempotency_key, owner, result)
         logger.info(
             "memory.write applied operation=%s reason=%s",
             change.operation.value,
@@ -783,30 +883,51 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
         )
         return result
 
+    def get_active_versions(
+        self, owner_user_id: str, canonical_key: str
+    ) -> tuple[MemoryVersion, ...]:
+        """Return the active versions for one owner and canonical key.
 
-def pg_list_active_versions(engine: Engine, owner: str) -> tuple[MemoryVersion, ...]:
-    """List one owner's active versions, oldest first (PG read seam)."""
-    with engine.connect() as connection:
-        rows = (
-            connection.execute(
-                text(
-                    "SELECT v.version_id, v.owner_user_id, a.scope, a.scope_id, "
-                    "a.canonical_key, a.subject_key, a.condition_fingerprint, "
-                    "v.normalized_value, "
-                    "v.value_payload ->> 'display_text' AS display_text, "
-                    "v.authority, v.sensitivity, v.status, v.valid_from, "
-                    "v.supersedes_version_id "
-                    "FROM memory_versions AS v "
-                    "JOIN memory_assertions AS a "
-                    "ON v.assertion_id = a.assertion_id "
-                    "WHERE v.owner_user_id = :owner AND v.status = 'active' "
-                    "ORDER BY v.valid_from ASC, v.version_id ASC"
-                ),
-                {"owner": owner},
-            )
-            .mappings()
-            .fetchall()
-        )
+        Tenant-scoped: `app.tenant` is bound and verified for the duration of
+        the read, so row-level security filters to the same owner the predicate
+        checks. A cross-owner read returns empty, never another owner's versions.
+        """
+        with transaction(self._engine) as connection:
+            set_tenant(connection, owner_user_id)
+            require_tenant_context(connection)
+            return pg_list_active_versions(connection, owner_user_id, canonical_key)
+
+
+def pg_list_active_versions(
+    connection: Connection, owner: str, canonical_key: str | None = None
+) -> tuple[MemoryVersion, ...]:
+    """List one owner's active versions, oldest first.
+
+    Takes a **tenant-bound connection**, not an engine. Under row-level security
+    an unbound connection sees no rows at all, so a bare `engine.connect()` here
+    would silently return an empty tuple — indistinguishable from a real empty
+    history, which is the defect this read exists to remove. `canonical_key`
+    narrows the read to one assertion key.
+    """
+    statement = (
+        "SELECT v.version_id, v.owner_user_id, a.scope, a.scope_id, "
+        "a.canonical_key, a.subject_key, a.condition_fingerprint, "
+        "v.normalized_value, "
+        "v.value_payload ->> 'display_text' AS display_text, "
+        "v.authority, v.sensitivity, v.status, v.valid_from, "
+        "v.supersedes_version_id "
+        "FROM memory_versions AS v "
+        "JOIN memory_assertions AS a "
+        "ON v.assertion_id = a.assertion_id "
+        "WHERE v.owner_user_id = :owner AND v.status = 'active' "
+    )
+    params: dict[str, Any] = {"owner": owner}
+    if canonical_key is not None:
+        statement += "AND a.canonical_key = :canonical_key "
+        params["canonical_key"] = canonical_key
+    statement += "ORDER BY v.valid_from ASC, v.version_id ASC"
+
+    rows = connection.execute(text(statement), params).mappings().fetchall()
     return tuple(
         MemoryVersion(
             version_id=row["version_id"],
@@ -825,111 +946,4 @@ def pg_list_active_versions(engine: Engine, owner: str) -> tuple[MemoryVersion, 
             supersedes_version_id=row["supersedes_version_id"],
         )
         for row in rows
-    )
-
-
-def pg_commit_delete_one(
-    engine: Engine, owner: str, version_id: str, reason: str
-) -> UndoDescriptor:
-    """Tombstone one active version plus a deletion-ledger row, atomically.
-
-    The version flips to superseded without a successor; the ledger row
-    is the source of truth that the transition was a delete. The
-    descriptor names the restore target; nothing is restored implicitly.
-    """
-    now = datetime.now(timezone.utc)
-    ledger_id = f"mdel_{uuid.uuid4().hex}"
-    with transaction(engine) as connection:
-        set_tenant(connection, owner)
-        require_tenant_context(connection)
-        row = (
-            connection.execute(
-                text(
-                    "SELECT status FROM memory_versions "
-                    "WHERE version_id = :version AND owner_user_id = :owner "
-                    "FOR UPDATE"
-                ),
-                {"version": version_id, "owner": owner},
-            )
-            .mappings()
-            .fetchone()
-        )
-        if row is None:
-            raise MemoryCommandNotFoundError("The memory entry does not exist.")
-        if row["status"] != "active":
-            raise MemoryCommandStaleError("The memory entry already changed.")
-        connection.execute(
-            text(
-                "UPDATE memory_versions SET status = 'superseded' "
-                "WHERE version_id = :version AND status = 'active'"
-            ),
-            {"version": version_id},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO memory_deletion_ledger "
-                "(ledger_id, owner_user_id, target_type, target_id, "
-                "deleted_at, reason) "
-                "VALUES (:ledger, :owner, :type, :target, :at, :reason)"
-            ),
-            {
-                "ledger": ledger_id,
-                "owner": owner,
-                "type": DELETION_TARGET_TYPE,
-                "target": version_id,
-                "at": now,
-                "reason": reason,
-            },
-        )
-    return UndoDescriptor(
-        action="restore",
-        version_ids=(version_id,),
-        note="Restore keeps history; re-check scope before restoring.",
-    )
-
-
-def pg_commit_bulk_delete(
-    engine: Engine, owner: str, version_ids: tuple[str, ...], reason: str
-) -> UndoDescriptor:
-    """Tombstone every target plus ledger rows in one transaction.
-
-    The affected count must match exactly; any drift aborts the whole
-    commit so a bulk delete never partially lands.
-    """
-    identities = tuple(version_ids)
-    now = datetime.now(timezone.utc)
-    with transaction(engine) as connection:
-        set_tenant(connection, owner)
-        require_tenant_context(connection)
-        result = connection.execute(
-            text(
-                "UPDATE memory_versions SET status = 'superseded' "
-                "WHERE owner_user_id = :owner AND status = 'active' "
-                "AND version_id = ANY(:versions)"
-            ),
-            {"owner": owner, "versions": list(identities)},
-        )
-        if result.rowcount != len(identities):
-            raise MemoryCommandStaleError("The memory entries already changed.")
-        for version_id in identities:
-            connection.execute(
-                text(
-                    "INSERT INTO memory_deletion_ledger "
-                    "(ledger_id, owner_user_id, target_type, target_id, "
-                    "deleted_at, reason) "
-                    "VALUES (:ledger, :owner, :type, :target, :at, :reason)"
-                ),
-                {
-                    "ledger": f"mdel_{uuid.uuid4().hex}",
-                    "owner": owner,
-                    "type": DELETION_TARGET_TYPE,
-                    "target": version_id,
-                    "at": now,
-                    "reason": reason,
-                },
-            )
-    return UndoDescriptor(
-        action="restore",
-        version_ids=identities,
-        note="Restore keeps history; re-check scope before restoring.",
     )

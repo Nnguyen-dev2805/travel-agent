@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field, model_serializer
+from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
@@ -72,21 +72,3 @@ class ChatResponse(BaseModel):
     citations: List[Citation] = Field(default_factory=list)
     conversation: Optional[ConversationTurnPayload] = None
     memory: Optional[ChatMemoryPayload] = None
-
-    @model_serializer(mode="wrap")
-    def _omit_absent_conversation(self, handler) -> Dict[str, Any]:
-        """Drop `conversation` and `memory` entirely when each is absent.
-
-        R3 froze `reply`, `model`, and `citations`. An unbound response must carry
-        no `conversation` key at all, not a `null` one, so an existing client
-        observes no difference. The same rule covers `memory`: a gate-disabled
-        or unbound turn carries no `memory` key at all. Nested `null` values
-        inside a present `conversation` object are preserved, because a `null`
-        `assistant_message_id` is meaningful.
-        """
-        data = handler(self)
-        if data.get("conversation") is None:
-            data.pop("conversation", None)
-        if data.get("memory") is None:
-            data.pop("memory", None)
-        return data

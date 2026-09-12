@@ -5,8 +5,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 # pyrefly: ignore [missing-import]
 import chromadb
+
 # pyrefly: ignore [missing-import]
 from chromadb.config import Settings
 from backend.rag.chunking.chunker import TextChunk
@@ -25,30 +27,47 @@ class ChromaVectorStore:
         self,
         persist_directory: Optional[Path] = None,
         collection_name: str = "vietnam_travel_knowledge",
+        read_only: bool = False,
     ) -> None:
         """Initialize ChromaDB client and collection.
 
         Args:
             persist_directory: Path to persistent storage on disk.
             collection_name: ChromaDB collection identifier.
+            read_only: When True, never create directories or collections:
+                the store must already exist and is opened with
+                `get_collection`, which raises instead of silently
+                materializing an empty index. Read paths (chat retrieval,
+                evaluation preflight) must use read-only mode.
         """
         self.persist_directory = persist_directory or DEFAULT_CHROMADB_DIR
-        self.persist_directory.mkdir(parents=True, exist_ok=True)
         self.collection_name = collection_name
+        self.read_only = read_only
+
+        if read_only and not self.persist_directory.is_dir():
+            # Fail before constructing the client: even a read-only
+            # PersistentClient creates the directory on initialization.
+            raise FileNotFoundError(
+                f"ChromaDB store directory does not exist: {self.persist_directory}"
+            )
+
+        if not read_only:
+            self.persist_directory.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Connecting to ChromaDB at: {self.persist_directory}")
         self.client = chromadb.PersistentClient(
             path=str(self.persist_directory),
             settings=Settings(anonymized_telemetry=False),
         )
-        self.collection = self.client.get_or_create_collection(
-            name=self.collection_name,
-            metadata={"description": "Vietnam Travel Knowledge Base Vectors"},
-        )
+        if read_only:
+            self.collection = self.client.get_collection(name=self.collection_name)
+        else:
+            self.collection = self.client.get_or_create_collection(
+                name=self.collection_name,
+                metadata={"description": "Vietnam Travel Knowledge Base Vectors"},
+            )
 
-    def add_chunks(
-        self, chunks: List[TextChunk], embeddings: List[List[float]]
-    ) -> int:
+    def add_chunks(self, chunks: List[TextChunk], embeddings: List[List[float]]) -> int:
         """Store Baseline TextChunks and their vectors in ChromaDB."""
         if not chunks or not embeddings:
             return 0
@@ -77,7 +96,9 @@ class ChromaVectorStore:
             )
             total_added += len(batch_ids)
 
-        logger.info(f"Upserted {total_added} baseline chunks into collection '{self.collection_name}'.")
+        logger.info(
+            f"Upserted {total_added} baseline chunks into collection '{self.collection_name}'."
+        )
         return total_added
 
     def add_parent_child_chunks(
@@ -88,7 +109,9 @@ class ChromaVectorStore:
             return 0
 
         if len(child_chunks) != len(embeddings):
-            raise ValueError("Length of child_chunks and embeddings must match exactly.")
+            raise ValueError(
+                "Length of child_chunks and embeddings must match exactly."
+            )
 
         ids = [chunk.child_id for chunk in child_chunks]
         documents = [chunk.retrieval_text for chunk in child_chunks]
@@ -125,7 +148,9 @@ class ChromaVectorStore:
             )
             total_added += len(batch_ids)
 
-        logger.info(f"Upserted {total_added} parent-child chunks into collection '{self.collection_name}'.")
+        logger.info(
+            f"Upserted {total_added} parent-child chunks into collection '{self.collection_name}'."
+        )
         return total_added
 
     def search_similar(
@@ -156,7 +181,11 @@ class ChromaVectorStore:
             for chunk_id, text, meta, dist in zip(ids, docs, metas, distances):
                 similarity_score = round(1.0 / (1.0 + float(dist)), 4)
                 # Prefer clean source_text from metadata if available
-                display_text = meta.get("source_text") if meta and meta.get("source_text") else text
+                display_text = (
+                    meta.get("source_text")
+                    if meta and meta.get("source_text")
+                    else text
+                )
                 formatted_results.append(
                     {
                         "chunk_id": chunk_id,

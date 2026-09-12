@@ -51,8 +51,8 @@ _STORAGE_ERROR_DETAIL = "Conversation storage is unavailable."
 )
 def create_conversation(
     request: ConversationCreateRequest,
-    service: ConversationService = Depends(get_conversation_service),
     principal: AuthenticatedPrincipal = Depends(require_principal),
+    service: ConversationService = Depends(get_conversation_service),
 ) -> ConversationResponse:
     """Create one standalone conversation for the authenticated principal."""
     try:
@@ -82,8 +82,8 @@ def create_conversation(
     response_model=ConversationListResponse,
 )
 def list_conversations(
-    service: ConversationService = Depends(get_conversation_service),
     principal: AuthenticatedPrincipal = Depends(require_principal),
+    service: ConversationService = Depends(get_conversation_service),
 ) -> ConversationListResponse:
     """List all active conversations owned by the authenticated principal."""
     try:
@@ -107,12 +107,12 @@ def list_conversations(
 )
 def get_conversation(
     conversation_id: str,
-    service: ConversationService = Depends(get_conversation_service),
     principal: AuthenticatedPrincipal = Depends(require_principal),
+    service: ConversationService = Depends(get_conversation_service),
 ) -> ConversationResponse:
     """Retrieve one owned conversation by identifier, 404 if not found or foreign."""
     try:
-        conversation = service.get_conversation_for_owner(
+        conversation = service.get_conversation(
             conversation_id, principal.owner_user_id
         )
     except ConversationValidationError as error:
@@ -145,8 +145,8 @@ def list_messages(
         le=MAX_HISTORY_LIMIT,
         description="Maximum messages to return",
     ),
-    service: ConversationService = Depends(get_conversation_service),
     principal: AuthenticatedPrincipal = Depends(require_principal),
+    service: ConversationService = Depends(get_conversation_service),
 ) -> MessageListResponse:
     """Read one page of message history in transcript order for an owned conversation."""
     try:
@@ -190,8 +190,8 @@ def list_messages(
 )
 def delete_conversation(
     conversation_id: str,
-    service: ConversationService = Depends(get_conversation_service),
     principal: AuthenticatedPrincipal = Depends(require_principal),
+    service: ConversationService = Depends(get_conversation_service),
 ) -> None:
     """Tombstone one owned conversation."""
     try:

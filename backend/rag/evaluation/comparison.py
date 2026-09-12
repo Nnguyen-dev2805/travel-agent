@@ -70,6 +70,33 @@ _CANDIDATE_CHANGE_FIELDS: tuple[str, ...] = (
 )
 
 
+def _is_self_comparison(
+    baseline_record: Mapping[str, Any], candidate_record: Mapping[str, Any]
+) -> bool:
+    """True when both runs were produced by the same pipeline.
+
+    ADR 0024. The identity is the tuple of the fields that legitimately differ
+    between a baseline and a candidate; when none of them differs, the A/B gate
+    is comparing a code path with itself.
+    """
+    if not isinstance(baseline_record, Mapping) or not isinstance(
+        candidate_record, Mapping
+    ):
+        # Malformed input is not a self-comparison; the contract validator
+        # below reports it as INVALID.
+        return False
+    baseline_identity = tuple(
+        baseline_record.get(field) for field in _CANDIDATE_CHANGE_FIELDS
+    )
+    candidate_identity = tuple(
+        candidate_record.get(field) for field in _CANDIDATE_CHANGE_FIELDS
+    )
+    if not any(baseline_identity):
+        # Unknown provenance: not enough information to claim a self-comparison.
+        return False
+    return baseline_identity == candidate_identity
+
+
 def _example_slice_labels(record: Mapping[str, Any]) -> tuple[str, ...]:
     """Frozen per-example slice labels from the dataset contract.
 
@@ -747,6 +774,25 @@ def compare_runs(
     mismatches = validate_comparison_contract(
         baseline_record, baseline_examples, candidate_record, candidate_examples
     )
+
+    if _is_self_comparison(baseline_record, candidate_record):
+        # ADR 0024: comparing a pipeline with itself yields all-zero deltas and
+        # a meaningless PASS. Refuse rather than publish a null result as
+        # evidence. Both shipped adapters deliberately execute the same
+        # generation code path, so this is the current shipped state.
+        return ComparisonResult(
+            state=ResultState.INVALID,
+            paired_deltas={},
+            slice_deltas={},
+            failed_gates=(),
+            candidate_changes={},
+            uncertainty={},
+            reason=(
+                "Self-comparison: baseline and candidate were produced by the "
+                "same pipeline (runtime_adapter, prompt_id and config_id all "
+                "match). The comparison is not informative."
+            ),
+        )
 
     if mismatches:
         return ComparisonResult(

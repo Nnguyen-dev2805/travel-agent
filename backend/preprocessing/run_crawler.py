@@ -36,33 +36,46 @@ def setup_logging(project_dir: Path) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Crawl vietnam.travel source HTML.")
-    parser.add_argument("--config", default=str(ROOT / "configs" / "crawler.yaml"), help="Path to config YAML.")
-    parser.add_argument("--max-pages", type=int, default=None, help="Maximum pages to request.")
+    parser.add_argument(
+        "--config",
+        default=str(ROOT / "configs" / "crawler.yaml"),
+        help="Path to config YAML.",
+    )
+    parser.add_argument(
+        "--max-pages", type=int, default=None, help="Maximum pages to request."
+    )
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint.")
-    parser.add_argument("--dry-run", action="store_true", help="Discover and filter URLs without fetching pages.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Discover and filter URLs without fetching pages.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     """Run the crawler CLI."""
     args = parse_args()
-    
+
     try:
         from crawler.config import load_config  # type: ignore # noqa: F401
+
         config = load_config(args.config)
         setup_logging(config.project_dir)
         crawler = VietnamTravelCrawler(config)
         if args.dry_run:
             report = crawler.dry_run()
-            print(f"Dry-run complete: {report['candidate_urls_after_filter']} candidate URLs after filter.")
+            print(
+                f"Dry-run complete: {report['candidate_urls_after_filter']} candidate URLs after filter."
+            )
             return 0
 
         report = crawler.run(max_pages=args.max_pages, resume=args.resume)
         print(f"Crawl complete: {report['successful_pages']} successful.")
+        return 0
     except Exception as e:
-        print(f"Crawler CLI Status: Ready ({str(e)})")
-    
-    return 0
+        print(f"Crawler CLI failed: {str(e)}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -163,3 +163,91 @@ def test_injected_client_used_and_no_real_client_constructed(monkeypatch):
 
     generator.generate("câu hỏi", _insufficient_bundle())
     assert len(client.chat.completions.create_calls) == 1
+
+
+class _NullContentClient:
+    """Provider client whose completion carries no usable content."""
+
+    def __init__(self, content: Any) -> None:
+        self._content = content
+
+    @property
+    def chat(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **_: SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=self._content))]
+                )
+            )
+        )
+
+
+class _ClosableClient(FakeLLMClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_owned_client_is_constructed_with_a_bounded_timeout_and_retries(monkeypatch):
+    """C1: the provider call must be bounded, not left at the SDK default."""
+    captured: dict[str, Any] = {}
+
+    def record_openai(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return FakeLLMClient()
+
+    monkeypatch.setattr(llm_module, "OpenAI", record_openai)
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "test-token", raising=False)
+
+    LLMGenerator()._get_llm_client()
+
+    assert captured["timeout"] == settings.LLM_REQUEST_TIMEOUT_SECONDS
+    assert captured["max_retries"] == settings.LLM_MAX_RETRIES
+    assert 0 < settings.LLM_REQUEST_TIMEOUT_SECONDS <= 30.0
+
+
+def test_owned_client_is_reused_across_calls(monkeypatch):
+    """C1: one client per generator, not one per request."""
+    constructed: list[dict[str, Any]] = []
+
+    def record_openai(**kwargs: Any) -> Any:
+        constructed.append(kwargs)
+        return FakeLLMClient()
+
+    monkeypatch.setattr(llm_module, "OpenAI", record_openai)
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "test-token", raising=False)
+
+    generator = LLMGenerator()
+    assert generator._get_llm_client() is generator._get_llm_client()
+    assert len(constructed) == 1
+
+
+def test_close_releases_the_owned_client(monkeypatch):
+    owned = _ClosableClient()
+    monkeypatch.setattr(llm_module, "OpenAI", lambda **_: owned)
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "test-token", raising=False)
+
+    generator = LLMGenerator()
+    generator._get_llm_client()
+    generator.close()
+
+    assert owned.closed is True
+    assert generator._owned_client is None
+
+
+def test_close_leaves_an_injected_client_alone():
+    injected = _ClosableClient()
+    LLMGenerator(client=injected).close()
+    assert injected.closed is False
+
+
+@pytest.mark.parametrize("content", [None, "", "   "])
+def test_unusable_provider_content_raises_generation_error(content):
+    """A null/blank completion must not become an empty assistant message."""
+    generator = LLMGenerator(client=_NullContentClient(content))
+
+    with pytest.raises(llm_module.GenerationError):
+        generator.generate("câu hỏi", _non_empty_bundle())

@@ -32,9 +32,11 @@ local untracked `.env` only when a local workflow needs environment values.
 | --- | --- | --- | --- | --- |
 | `GITHUB_TOKEN` | Backend settings and external model client | Stage B external generation | Yes | Placeholder only; do not commit real values |
 | `LLM_MODEL` | Backend settings | Selecting the external model | No secret by itself | Defaults to `gpt-4o-mini` |
+| `GITHUB_MODELS_URL` | Backend settings and external model client | External model provider endpoint | No secret by itself | **Required — there is no default in the source.** Must speak the OpenAI chat-completions protocol; use `https://models.inference.ai.azure.com` for GitHub Models. Left unset, the first model call fails with `APIConnectionError`. |
 | `VITE_API_URL` | Frontend API client and Docker Compose frontend service | Browser-to-backend API origin | No secret by itself | Defaults to `http://localhost:8000` |
-| `DATABASE_URL` | Backend settings, SQLAlchemy engine, runtime container, Alembic | PostgreSQL relational persistence | No secret by default (local dev) | Defaults to `postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent`. Per ADR 0018, PostgreSQL 16 is the sole database; historical `APP_DB_PATH` and `WORKSPACE_DB_PATH` are retired. |
-| `PG_TEST_DSN` | Integration test runner | Isolated PostgreSQL integration tests | No secret by default (local dev) | Connection string for disposable test database, e.g. `postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent`. Required for integration tests to run with zero skips. |
+| `DATABASE_URL` | Backend settings, SQLAlchemy engine, runtime container, readiness probes | PostgreSQL relational persistence | No secret by default (local dev) | Must use the least-privilege `travel_app` role (Compose sets `travel_app@db:5432`). The backend refuses to start on a superuser/BYPASSRLS role unless `ALLOW_PRIVILEGED_DB_ROLE=true` (throwaway local dev only). Migrations use superuser `PG_DSN` instead. |
+| `PG_TEST_DSN` | Integration test runner | Isolated PostgreSQL integration tests that need DDL | No secret by default (local dev) | Connection string for a disposable test database, e.g. `postgresql+psycopg://travel_agent:password@localhost:5433/travel_test`. Must be a DDL-capable role: the migration tests run `DROP SCHEMA public CASCADE`. Required for integration tests to run with zero skips. |
+| `PG_RUNTIME_TEST_DSN` | Integration test runner | Tenant-isolation integration tests | No secret by default (local dev) | Least-privilege connection string, e.g. `postgresql+psycopg://travel_app:app-password-dev-only@localhost:5433/travel_test`. **Must not be a superuser or `BYPASSRLS` role**: such a role ignores every RLS policy, so isolation assertions made through it pass whether or not the policy exists. Falls back to `PG_TEST_DSN`. Both DSNs resolve through `backend/tests/integration/pg_dsn.py`, and `assert_rls_enforced` fails loudly on the wrong role. |
 | `MEMORY_WRITE_PIPELINE_ENABLED` | Backend settings and write pipeline | Enabling basic semantic memory write pipeline (Child Plan 6) | No secret by itself | Defaults to `false`. Safe opt-in rollout gate |
 | `MEMORY_SHADOW_EXTRACT_ENABLED` | Backend settings and background worker | Enabling shadow candidate extraction worker | No secret by itself | Defaults to `false`. Hot-path decoupled worker gate |
 | `MEMORY_WRITE_EVAL_FIXTURES_PATH` | Backend settings and evaluation harness | Evaluation benchmark fixtures path | No secret by itself | Defaults to `docs/evaluation/fixtures/memory/write-pipeline-hotel-atmosphere-v0.1` |
@@ -67,10 +69,10 @@ Verify that PostgreSQL is healthy on port `5433` (mapped from container port 543
 docker compose ps db
 ```
 
-Run Alembic migrations to bring the database schema to the clean-break head (`20260910_01`):
+Run Alembic migrations to bring the database schema to the current head (`20260912_02`)):
 
 ```bash
-DATABASE_URL="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" poetry run alembic upgrade head
+PG_DSN="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" poetry run alembic upgrade head
 ```
 
 Then start the complete development stack (backend, frontend, and database):
@@ -232,7 +234,10 @@ The `POST /api/v1/chat` endpoint handles conversation turns with automatic lifec
 The basic semantic memory write pipeline (ADR 0020) manages versioned assertions, authority ranking, row locking, and idempotent commits against PostgreSQL:
 
 ```bash
-python3 -m backend.memory.write_pipeline.evaluation.cli run-scenarios
+python3 -m backend.memory.write_pipeline.evaluation.cli run \
+  --dataset docs/evaluation/fixtures/memory/write-pipeline-hotel-atmosphere-v0.1 \
+  --suite all \
+  --output-dir docs/reports/memory-write-pipeline/candidate
 ```
 
 ### Local Ops Readiness
@@ -244,7 +249,6 @@ the diagnostic surface:
 ```bash
 curl --fail --silent --show-error http://localhost:8000/health
 curl --fail --silent --show-error http://localhost:8000/api/v1/ops/readiness
-./.venv/bin/python -m backend.observability.evaluation.cli run-readiness --suite r8-operational-readiness-v0.1
 ```
 
 Rules:
@@ -258,6 +262,11 @@ Rules:
 4. A `degraded`, `not_ready`, or `unknown` component names its reason code;
    follow the runbook routing in `docs/runbooks/local-development.md`
    before any destructive recovery.
+5. The `rag_chroma` component opens the Chroma store file read-only and
+   reports `path_missing`, `index_missing`, `collection_missing`,
+   `collection_empty`, `index_unreadable`, `collection_unavailable`, or
+   `collection_open`; only `collection_open` (with a `vectors` count) means
+   retrieval can serve traffic.
 
 ### Local Auth and Security Verification
 
@@ -268,9 +277,6 @@ Tokens are configured via `LOCAL_AUTH_TOKENS_JSON` or local test tokens:
 ```bash
 curl --fail --silent --show-error http://localhost:8000/api/v1/conversations \
   -H "Authorization: Bearer <owner-token>"
-
-LOCAL_AUTH_TOKENS_JSON='{"owner_a":"secret-alpha-token","owner_b":"secret-beta-token"}' \
-  python -m backend.security.evaluation.cli run-security --suite r9-security-privacy-v0.1
 ```
 
 Rules:
@@ -283,7 +289,7 @@ Rules:
 | Category | Working directory | Command | Claim | Writes | Network | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | Backend static check | repository root | `python -m compileall backend` in CI; `python3 -m compileall backend` on hosts without `python` | Python source imports and compiles | Python cache files | No expected external call | `python3` verified-pass; `python` unavailable in current shell |
-| Backend tests | repository root | `pytest backend/tests` in CI; `python3 -m pytest backend/tests` when pytest is installed as a module | Backend tests pass or fail honestly | Test and Python caches | No expected external call for normal tests | host pytest unavailable in current shell |
+| Backend tests | repository root | `pytest backend/tests` in CI; `python3 -m pytest backend/tests` when pytest is installed as a module | Backend tests pass or fail honestly | Test and Python caches | **No expected external call**: `backend/tests/conftest.py` pins the HuggingFace hub offline before anything imports it, so the embedder test cannot hang on a metadata check | host pytest unavailable in current shell |
 | Frontend install | `frontend/` | `npm ci` | Dependencies match lockfile | `node_modules/`, npm cache | Yes when cache is cold | verified-pass |
 | Frontend lint | `frontend/` | `npm run lint` | ESLint checks pass or fail honestly | No expected source writes | No expected external call after install | verified-pass |
 | Frontend tests | `frontend/` | `npm run test` | Vitest checks pass or fail honestly | Test caches | No expected external call after install | verified-pass |
@@ -291,13 +297,13 @@ Rules:
 | Compose config | repository root | `docker compose config` | Compose file is syntactically valid | No expected source writes | No expected external call | verified-pass |
 | Stage A smoke | repository root | `docker compose up --build` plus `curl --fail --silent --show-error http://localhost:8000/health` | Dev stack starts and health responds | Docker state, mounted app/data paths, possible Chroma state | Possible during image build or dependency install | blocked by missing Docker daemon/socket in current environment |
 | Stage B chat readiness | repository root | opt-in chat request to `/api/v1/chat` | Chat path can reach retrieval and model provider | Possible logs/cache/data state | Yes | Opt-in, not default CI |
-| PostgreSQL tests | repository root | `DATABASE_URL=... PG_TEST_DSN=... pytest backend/tests/ -v` | All unit, boundary, and integration tests pass with zero skips | Test caches | Isolated PostgreSQL on port 5433 | Verified-pass (807 passed, 0 skipped) |
+| PostgreSQL tests | repository root | `PG_TEST_DSN=... PG_RUNTIME_TEST_DSN=... pytest backend/tests/integration -m integration -v` | All integration tests pass with zero skips | Test caches | Isolated PostgreSQL with migrated schema, plus both a DDL-capable and a least-privilege role | Verified-pass when a live database is available |
 | Boundary checks | repository root | `pytest backend/tests/boundaries/ -v` | Clean-break architectural sentinels pass | Test caches | No expected external call | Verified-pass (5 passed) |
 | Authenticated conversation routes | repository root | `curl` requests to `/api/v1/conversations` with `Authorization: Bearer` | Conversations and messages created and read under PostgreSQL | PostgreSQL database | No expected external call | Requires Bearer token |
 | Authenticated chat turn | repository root | `POST /api/v1/chat` with `Authorization: Bearer` | Auto-creates or continues conversation, persists turn to PG | PostgreSQL database | Calls model provider | Verified-pass |
-| Semantic memory write evaluation | repository root | `python3 -m backend.memory.write_pipeline.evaluation.cli run-scenarios` | Full write pipeline evaluation report | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
+| Semantic memory write evaluation | repository root | `python3 -m backend.memory.write_pipeline.evaluation.cli run --dataset <fixtures> --suite all --output-dir <reports>` | Full write pipeline evaluation report | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
 | Local ops readiness | repository root | `curl` requests to `/health` and `/api/v1/ops/readiness` | Liveness plus component diagnostics (PostgreSQL, Alembic head, Chroma, Model) | No expected source writes | No expected external call | Requires Bearer token for readiness |
-| Local security evaluation | repository root | `LOCAL_AUTH_TOKENS_JSON='{...}' python -m backend.security.evaluation.cli run-security --suite r9-security-privacy-v0.1` | Security report with zero-tolerance gates | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
+| Local security evaluation | repository root | Security and privacy unit/boundary tests plus the live PostgreSQL tenant-isolation integration tests (`backend/tests/integration/test_tenant_isolation.py`, run with `PG_RUNTIME_TEST_DSN` against the non-superuser `travel_app` role; schema setup uses the DDL-capable `PG_TEST_DSN`) | Mandatory Bearer auth, enforced tenant RLS, content-free errors | PostgreSQL for the RLS proof | Deterministic; PG proof requires a live database |
 | RAG and memory evaluation | repository root | later approved evaluation command | Approved metric-specific quality claim | Evaluation outputs | Depends on later plan | Future milestone |
 
 ## Opt-in Data and Model Operations
@@ -306,6 +312,11 @@ Crawling, ETL, indexing, embedding model downloads, model-dependent chat
 readiness, and model-dependent evaluation are opt-in operations. They can
 mutate local data, populate Chroma, write cache files, use network access, call
 external services, or incur provider-side usage.
+
+Note: the web crawler itself (`backend/preprocessing/crawler.py`) is currently
+a stub — its helper fetch submodules are not vendored, so discovery/fetch
+return empty scaffolds. The HTML and semantic cleaners downstream of it are
+live. Treat crawling as planned, not operational, until the fetcher lands.
 
 Do not run these operations inside R0 default verification. Run them only under
 the approved task that owns their inputs, side effects, and evidence.
@@ -321,7 +332,7 @@ the approved task that owns their inputs, side effects, and evidence.
 | CI is green | CI commands completed, not proof of RAG quality | Read the exact workflow steps and exit statuses |
 | Docker fails in a sandbox | Docker socket or localhost access may be blocked by the environment | Retry only with approved host access or record the limitation |
 | PostgreSQL connection fails | Database container is stopped or port 5433 is blocked | Run `docker compose up -d db` and verify `docker compose ps db` |
-| Alembic revision mismatch | Database schema is behind head revision | Run `poetry run alembic upgrade head` to apply migrations up to `20260910_01` |
+| Alembic revision mismatch | Database schema is behind head revision | Run `poetry run alembic upgrade head` to apply migrations up to (`20260912_02`) |
 | API returns `401 Unauthorized` | Missing or invalid Bearer token | Include a valid `Authorization: Bearer <token>` header on all `/api/v1` requests |
 | Conversation route returns `404` | Conversation does not exist or belongs to another owner | Verify conversation ID; cross-owner requests return 404 to prevent enumeration |
 | Conversation history returns `422` | The `limit` is outside `1` to `200` | Re-read the page with a valid limit |
@@ -427,22 +438,10 @@ Preconditions:
 
 ## Local Memory Evaluation
 
-Shadow evaluation is local and deterministic. It requires no provider,
-embedding model, Chroma data, or Docker:
-
-```bash
-python -m backend.memory.evaluation.cli run-shadow \
-  --fixture docs/evaluation/fixtures/memory/r5-shadow-v0.1/manifest.json \
-  --output-dir docs/reports/memory
-```
-
-The command replays the tracked synthetic fixtures end to end through the
-real stores and service, then writes `r5-shadow-v0.1.md` and
-`r5-shadow-v0.1.json` with the result state (`PASS`, `FAIL`,
-`INCONCLUSIVE`, or `INVALID`), metric values, mandatory-slice evidence, and
-applicable hard-gate counts. Fixture source files stay tracked under
-`docs/evaluation/fixtures/memory/`; reports carry identifiers and codes
-only, never message content or candidate text.
+The legacy shadow evaluation CLI (`backend.memory.evaluation.cli`) was
+retired with the legacy memory surface (ADR 0020). Shadow memory behavior is
+now proven by the unit suite `backend/tests/unit/memory_write_pipeline/` and
+the deterministic write-pipeline harness in the next section.
 
 ## Local Memory Write Pipeline Evaluation
 

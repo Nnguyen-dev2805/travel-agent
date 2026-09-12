@@ -17,10 +17,11 @@ from fastapi import Depends, Request
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-from backend.app.config import Settings, get_settings, pg_dsn
+from backend.app.config import Settings, get_settings
 from backend.conversations.postgres_repository import PostgresConversationRepository
 from backend.conversations.repository import ConversationRepository
 from backend.conversations.service import ConversationService
+from backend.storage.postgres import ALEMBIC_HEAD, assert_least_privilege_role
 from backend.orchestration.conversation_orchestrator import ConversationOrchestrator
 
 logger = logging.getLogger("travel_agent_runtime")
@@ -52,11 +53,72 @@ class PostgresReadinessProbe:
                 "error": type(exc).__name__,
             }
 
-    def check_revision(self, expected_revision: str = "20260910_01") -> dict[str, Any]:
+    def count_ready_outbox_events(self) -> int:
+        """Count outbox events a worker could claim right now.
+
+        Reads through `ready_outbox_event_count()`, a parameterless
+        `SECURITY DEFINER` function (ADR 0028). `conversation_outbox` is
+        protected by a tenant policy that this role is subject to, and the
+        claim path binds no tenant, so selecting the table directly returned a
+        confident zero rather than the queue depth. The function also counts
+        only *released* events: under ADR 0027 an event whose turn is not
+        terminal is not claimable, so counting it would overstate the queue.
+
+        Raises when the outbox cannot be read, so the readiness probe can
+        report `not_ready` instead of a constant. Bounded by a statement
+        timeout so a probe cannot become a load source.
+        """
+        with self._engine.connect() as conn:
+            conn.execute(text("SET LOCAL statement_timeout = '2s'"))
+            return int(
+                conn.execute(text("SELECT ready_outbox_event_count()")).scalar()
+                or 0
+            )
+
+    def oldest_ready_outbox_event_age_seconds(self) -> int:
+        """Age, in whole seconds, of the oldest event a worker could claim now.
+
+        The signal that separates "busy" from "stalled". Queue *depth* cannot:
+        five events drained steadily is healthy, and one event nobody has claimed
+        for twenty minutes is not. Read through a parameterless `SECURITY DEFINER`
+        function for the same reason the count is — `conversation_outbox` is
+        protected by a tenant policy this role cannot satisfy — so it cannot
+        return a row, a payload, an owner, or a count.
+
+        Raises when the outbox cannot be read, so the readiness probe reports
+        `not_ready` rather than a constant. Bounded by a statement timeout so a
+        probe cannot become a load source.
+        """
+        with self._engine.connect() as conn:
+            conn.execute(text("SET LOCAL statement_timeout = '2s'"))
+            return int(
+                conn.execute(
+                    text("SELECT oldest_ready_outbox_event_age_seconds()")
+                ).scalar()
+                or 0
+            )
+
+    def dead_letter_outbox_event_count(self) -> int:
+        """How many outbox events exhausted their attempts.
+
+        Reported, not alerted on: a dead letter is a data condition an operator
+        inspects, and it does not by itself mean the service cannot serve. It is
+        read through a `SECURITY DEFINER` function like the other two signals.
+        """
+        with self._engine.connect() as conn:
+            conn.execute(text("SET LOCAL statement_timeout = '2s'"))
+            return int(
+                conn.execute(text("SELECT dead_letter_outbox_event_count()")).scalar()
+                or 0
+            )
+
+    def check_revision(self, expected_revision: str = ALEMBIC_HEAD) -> dict[str, Any]:
         """Check current Alembic revision in PostgreSQL without side effects."""
         try:
             with self._engine.connect() as conn:
-                result = conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+                result = conn.execute(
+                    text("SELECT version_num FROM alembic_version LIMIT 1")
+                )
                 row = result.first()
                 current_rev = str(row[0]) if row and row[0] is not None else None
             if current_rev == expected_revision:
@@ -105,18 +167,12 @@ class RuntimeContainer:
 
     @property
     def _dsn(self) -> str:
-        password = (
-            self._settings.PG_PASSWORD.get_secret_value()
-            if hasattr(self._settings.PG_PASSWORD, "get_secret_value")
-            else str(self._settings.PG_PASSWORD)
-        )
-        return pg_dsn(
-            password=password,
-            host=self._settings.PG_HOST,
-            port=self._settings.PG_PORT,
-            db=self._settings.PG_DB,
-            user=self._settings.PG_USER,
-        )
+        """Return the one PostgreSQL DSN resolved from settings.
+
+        Delegates to `Settings.database_dsn()` so `DATABASE_URL` is honored
+        when present and stays consistent with Alembic and readiness probes.
+        """
+        return self._settings.database_dsn()
 
     @property
     def engine(self) -> Engine:
@@ -130,11 +186,31 @@ class RuntimeContainer:
         return self._engine
 
     async def startup(self) -> None:
-        """Initialize process-scoped resources including the PostgreSQL engine."""
+        """Initialize process-scoped resources including the PostgreSQL engine.
+
+        Fails closed when the connected role is a superuser or bypasses
+        row-level security, unless `ALLOW_PRIVILEGED_DB_ROLE` explicitly
+        permits it for throwaway local development. Without this guard a
+        `PG_*` fallback to the bootstrap superuser would silently nullify
+        the enforced tenant policies.
+        """
         logger.info("Initializing RuntimeContainer...")
         _ = self.engine
+        self._assert_least_privilege_role()
         self._started = True
         logger.info("RuntimeContainer startup complete.")
+
+    def _assert_least_privilege_role(self) -> None:
+        """Reject superuser / BYPASSRLS runtime roles unless explicitly allowed.
+
+        Delegates to the shared guard so the API runtime and the background
+        worker cannot drift apart on the rule.
+        """
+        assert_least_privilege_role(
+            self.engine,
+            allowed=self._settings.ALLOW_PRIVILEGED_DB_ROLE,
+            context="RuntimeContainer",
+        )
 
     async def shutdown(self) -> None:
         """Dispose of process-scoped resources including connection pools."""
@@ -142,6 +218,8 @@ class RuntimeContainer:
         if self._engine is not None and self._owns_engine:
             self._engine.dispose()
             self._engine = None
+        if self._rag_service is not None:
+            self._rag_service.generator.close()
         self._started = False
         logger.info("RuntimeContainer shutdown complete.")
 
@@ -162,7 +240,8 @@ class RuntimeContainer:
     def rag_service(self) -> Any:
         """Return the RAG service instance."""
         if self._rag_service is None:
-            from backend.rag.generation import RAGService
+            from backend.rag.generation.rag_service import RAGService
+
             self._rag_service = RAGService()
         return self._rag_service
 
@@ -191,12 +270,36 @@ class RuntimeContainer:
         return self._readiness_probe
 
 
+class ContainerUnavailableError(RuntimeError):
+    """No composed RuntimeContainer is bound to the application.
+
+    Raised when a request is served without the FastAPI lifespan having run. It is
+    a broken deployment, not a request to serve.
+    """
+
+
 def get_runtime_container(request: Request) -> RuntimeContainer:
-    """FastAPI dependency to retrieve the active RuntimeContainer from app state."""
+    """Return the container the lifespan bound to `app.state`.
+
+    **Fails closed when it is absent.** This used to construct a production
+    container on demand and run the least-privilege role check on it, which made
+    request processing a second composition root: a request served without the
+    lifespan — a bare ASGI mount, a probe, a test — silently built its own runtime
+    instead of reporting that startup had not happened.
+
+    That was not only a design smell. The lazy path opened a *real* PostgreSQL
+    connection from a unit test, so the suite's result depended on whether a
+    database happened to be reachable, and on which role it granted. Application
+    composition happens at startup (ADR 0035); a request that finds no container
+    is a process that never composed itself.
+    """
     container = getattr(request.app.state, "container", None)
     if container is None:
-        container = RuntimeContainer()
-        request.app.state.container = container
+        raise ContainerUnavailableError(
+            "No RuntimeContainer is bound to app.state. Application composition "
+            "happens in the FastAPI lifespan; this process is serving requests "
+            "without it."
+        )
     return container
 
 

@@ -21,6 +21,11 @@ node_modules/
 frontend/node_modules/
 frontend/dist/
 
+# Vite transient build artifacts (e.g. vite.config.js.timestamp-*-.mjs),
+# written next to the config while the dev server restarts and never meant
+# for delivery.
+frontend/vite.config.js.timestamp-*
+
 # Local Databases, Vector Store & Caches
 data/chromadb/
 data/processed/
@@ -36,6 +41,8 @@ data
 Thumbs.db
 .vscode/
 .idea/
+.workbuddy-ai
+.freebuff
 
 # Logs
 *.log

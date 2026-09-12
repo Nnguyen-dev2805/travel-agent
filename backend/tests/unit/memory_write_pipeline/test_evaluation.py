@@ -122,26 +122,64 @@ def test_dataset_count_mismatch(tmp_path: Path) -> None:
 
 
 def test_metric_accounting() -> None:
-    """MetricAccounting calculates ratios and compares with thresholds."""
+    """MetricAccounting derives the score and the pass/fail verdict."""
     metric = MetricAccounting(
         name="precision",
         numerator=95.0,
         denominator=100.0,
         threshold=0.95,
-        passed=True,
     )
     assert metric.value == 0.95
     assert metric.passed is True
 
-    # Zero denominator
+    below = MetricAccounting(
+        name="below",
+        numerator=50.0,
+        denominator=100.0,
+        threshold=0.95,
+    )
+    assert below.value == 0.5
+    assert below.passed is False
+
+
+def test_zero_denominator_is_not_a_perfect_score() -> None:
+    """C10: this used to return 1.0 with passed=True, so an unmeasured slice
+    reported a perfect score and no regression could ever be detected."""
     zero_metric = MetricAccounting(
         name="empty",
         numerator=0.0,
         denominator=0.0,
         threshold=1.0,
-        passed=True,
     )
-    assert zero_metric.value == 1.0
+
+    assert zero_metric.value is None
+    assert zero_metric.measured is False
+    assert zero_metric.passed is False
+
+
+def test_relationship_accuracy_is_not_a_hardcoded_pass() -> None:
+    """C10: `relationship_correct` was hardcoded to 1.0.
+
+    `resolve_change` exposes no relation, so the metric is now reported as
+    unmeasured rather than as a fabricated pass.
+    """
+    runner = EvaluationRunner()
+    report = runner.run_suite(FIXTURES_DIR, suite_type=SuiteType.QUALITY)
+
+    metric = report.metrics["relationship_accuracy"]
+    assert metric.value is None
+    assert metric.passed is False
+
+
+def test_no_metric_is_reported_as_a_perfect_score_without_a_denominator() -> None:
+    """Every metric with a zero denominator must be not_measured, not 1.0."""
+    runner = EvaluationRunner()
+    report = runner.run_suite(FIXTURES_DIR, suite_type=SuiteType.ALL)
+
+    for name, metric in report.metrics.items():
+        if metric.denominator == 0:
+            assert metric.value is None, f"{name} scored without a denominator"
+            assert metric.passed is False, f"{name} passed without a denominator"
 
 
 def test_runner_executes_suite_and_generates_reports(tmp_path: Path) -> None:

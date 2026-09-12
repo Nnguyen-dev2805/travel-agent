@@ -38,14 +38,6 @@ def test_blank_owner_rejected():
 
 
 def test_credential_label_validation():
-    assert (
-        AuthenticatedPrincipal(
-            owner_user_id="owner_a",
-            auth_mode="compatibility",
-            credential_label="none",
-        ).auth_mode
-        is AuthMode.COMPATIBILITY
-    )
     with pytest.raises(SecurityValidationError):
         AuthenticatedPrincipal(
             owner_user_id="owner_a",
@@ -54,11 +46,18 @@ def test_credential_label_validation():
         )
 
 
-def test_auth_mode_vocabulary():
-    assert {item.value for item in AuthMode} == {
-        "authenticated",
-        "compatibility",
-    }
+def test_auth_mode_vocabulary_is_authenticated_only():
+    assert {item.value for item in AuthMode} == {"authenticated"}
+
+
+def test_compatibility_mode_is_removed():
+    assert not hasattr(AuthMode, "COMPATIBILITY")
+    with pytest.raises(SecurityValidationError):
+        AuthenticatedPrincipal(
+            owner_user_id="owner_a",
+            auth_mode="compatibility",
+            credential_label="local_token",
+        )
 
 
 def test_security_errors_share_a_common_base():

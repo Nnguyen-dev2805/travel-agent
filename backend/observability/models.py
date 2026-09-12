@@ -329,12 +329,23 @@ class OperationalEvent:
 
 @dataclass(frozen=True)
 class ReadinessComponent:
-    """One inspected dependency with a controlled reason code."""
+    """One inspected dependency with a controlled reason code.
+
+    `critical` decides whether this component may drive the *aggregate* status, and
+    therefore the HTTP status a load balancer reads. It is `True` by default,
+    because a dependency that is silent about its own importance should be treated
+    as one the instance cannot serve without.
+
+    A background subsystem sets it `False`: it is still reported, with its own
+    status and reason code, but a stalled background worker must not remove a
+    perfectly healthy chat instance from rotation.
+    """
 
     name: str
     status: ReadinessStatus
     reason_code: str
     details: Mapping[str, Any] = field(default_factory=dict)
+    critical: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", _require_text(self.name, "name"))
@@ -355,6 +366,7 @@ class ReadinessComponent:
             "status": self.status.value,
             "reason_code": self.reason_code,
             "details": dict(self.details),
+            "critical": self.critical,
         }
 
 

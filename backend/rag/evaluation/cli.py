@@ -20,6 +20,14 @@ from backend.rag.evaluation.dataset import load_dataset, load_run_config
 from backend.rag.evaluation.runner import EvaluationRunner, RunMode
 from backend.rag.evaluation.runtime import preflight
 
+# ADR 0024: a comparison that did not pass must not exit 0.
+_STATE_EXIT_CODES = {
+    "pass": 0,
+    "inconclusive": 2,
+    "fail": 2,
+    "invalid": 3,
+}
+
 
 def cmd_validate_dataset(args: argparse.Namespace) -> int:
     """Validate dataset manifest and JSONL examples."""
@@ -122,7 +130,9 @@ def cmd_compare(args: argparse.Namespace) -> int:
             f"failed_gates={list(result.failed_gates)} "
             f"output={output_path}"
         )
-        return 0
+        # C12 / ADR 0024: a failed or invalid comparison must fail a build.
+        # This used to return 0 unconditionally, so a regression never failed CI.
+        return _STATE_EXIT_CODES.get(result.state.value, 1)
     except Exception as err:
         print(f"Comparison FAILED: {err}", file=sys.stderr)
         return 1

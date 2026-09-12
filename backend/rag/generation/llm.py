@@ -18,6 +18,10 @@ PROMPT_ID = "rag-structured-prompt-v1"
 GENERATION_TEMPERATURE = 0.7
 GENERATION_MAX_TOKENS = 800
 
+
+class GenerationError(RuntimeError):
+    """The provider returned no usable content. Carries no provider output."""
+
 INSUFFICIENT_EVIDENCE_REPLY = (
     "Tôi chưa có đủ thông tin trong cẩm nang để trả lời câu hỏi này một cách đáng tin cậy."
 )
@@ -39,17 +43,32 @@ class LLMGenerator:
 
     def __init__(self, client: Optional[OpenAI] = None) -> None:
         self._client = client
+        self._owned_client: Optional[OpenAI] = None
 
     def _get_llm_client(self) -> OpenAI:
-        """Get OpenAI client configured for GitHub Models API (legacy behavior)."""
-        if not settings.GITHUB_TOKEN:
-            logger.warning("GITHUB_TOKEN missing in environment settings.")
-            raise ValueError("GITHUB_TOKEN is missing in server environment.")
+        """Return the shared provider client, constructing it at most once.
 
-        return OpenAI(
-            base_url=settings.GITHUB_MODELS_URL,
-            api_key=settings.GITHUB_TOKEN,
-        )
+        An injected client belongs to the caller and is never closed here.
+        """
+        if self._client is not None:
+            return self._client
+        if self._owned_client is None:
+            if not settings.GITHUB_TOKEN:
+                logger.warning("GITHUB_TOKEN missing in environment settings.")
+                raise ValueError("GITHUB_TOKEN is missing in server environment.")
+            self._owned_client = OpenAI(
+                base_url=settings.GITHUB_MODELS_URL,
+                api_key=settings.GITHUB_TOKEN,
+                timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS,
+                max_retries=settings.LLM_MAX_RETRIES,
+            )
+        return self._owned_client
+
+    def close(self) -> None:
+        """Release the owned client. Injected clients are the caller's."""
+        if self._owned_client is not None:
+            self._owned_client.close()
+            self._owned_client = None
 
     def generate(self, user_message: str, context: ContextBundle) -> GeneratedAnswer:
         """Generate an answer for the user message using the assembled context.
@@ -83,6 +102,8 @@ class LLMGenerator:
         )
 
         reply_content = completion.choices[0].message.content
+        if not isinstance(reply_content, str) or not reply_content.strip():
+            raise GenerationError("The provider returned no usable content.")
 
         return GeneratedAnswer(
             reply=reply_content,

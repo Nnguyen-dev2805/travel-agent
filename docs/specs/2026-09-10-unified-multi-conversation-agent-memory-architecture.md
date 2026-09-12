@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Status | In Review |
-| Version | 0.1 |
-| Date | 2026-09-10 |
+| Version | 0.2 Draft |
+| Date | 2026-09-11 |
 | Change class | Level 3 - Architecture Design |
 | Decision owner | Repository owner |
 | Scope | Chat-first, PostgreSQL-backed, multi-conversation agent Memory with typed turn understanding, explicit chat commands, background formation, consolidation, activation, read, use, and evaluation |
@@ -67,6 +67,7 @@ framework's storage model verbatim.
 | Fresh unit verification on 2026-09-10 | `202 passed` in `backend/tests/unit/memory_write_pipeline` | Pure V2 modules have strong focused coverage |
 | Fresh PostgreSQL-focused verification on 2026-09-10 | `3 passed, 35 skipped` without the required PostgreSQL environment | Runtime database claims remain unproven locally |
 | Fresh bound-Chat verification on 2026-09-10 | Fails because `ConversationCreate` requires an omitted `owner_user_id` | Conversation ownership migration must precede Memory integration |
+| ADR 0027 outbox turn-readiness barrier (2026-09-11) | `released_at` gate added to `conversation_outbox`; `complete_turn` / `fail_turn` atomically release or cancel; claim predicates require the gate; worker transcript excludes non-terminal rows | Prevents extraction over an incomplete turn when the worker is mounted |
 
 ## Users and Actors
 
@@ -189,6 +190,31 @@ Current-turn information may suppress an older Memory for the response without
 immediately superseding the durable version. Durable correction requires the
 relevant consolidation and activation policy.
 
+## Precedence Resolution
+
+The precedence chain in the previous section is a starting point, not a
+sufficient algorithm. When two Memory items conflict, resolution must be
+performed **per assertion** across six dimensions:
+
+1. **Authority** — deterministic policy outranks model proposal; explicit user
+   correction outranks inferred extraction.
+2. **Scope** — conversation-scoped overrides are stronger than user-scoped
+   defaults for the current conversation, but weaker for later conversations.
+3. **Temporal validity** — an explicit expiration or update timestamp outranks
+   an undated item.
+4. **Explicitness** — a direct user statement outranks an inference, even when
+   the inference carries high model confidence.
+5. **Sensitivity** — a higher-sensitivity classification is never demoted by a
+   lower-sensitivity item.
+6. **Lifecycle** — only `active` versions are eligible; `pending`, `shadow`,
+   `rejected`, `superseded`, or `expired` rows are excluded before ranking.
+
+The rule "current request wins" applies **only to soft preferences**. It never
+overrides a verified hard constraint, a deterministic policy, or a prohibited
+classification. A conflict that remains unresolved after these dimensions is
+persisted as `PENDING_CONFLICT` and excluded from read selection until a
+consolidation decision resolves it.
+
 ## Turn Understanding Interface
 
 `TurnUnderstanding` is a deep module with this external interface:
@@ -233,6 +259,42 @@ activate Memory, or generate SQL.
 Turn Understanding is not background Memory extraction. It supports routing
 and current-turn behavior. Background formation may inspect a bounded transcript
 range and existing Memory state without delaying the current response.
+
+## Bounded Context Workflow
+
+The synchronous Chat path is a **bounded workflow**, not an unbounded agent
+loop. It runs at most one tool phase per turn.
+
+### Phase Semantics
+
+`max_tool_phases = 1` means one phase, not one tool call. Inside that single
+phase the system may run Memory Read and RAG Retrieval **in parallel**, because
+they are independent projections with no ordering dependency. The phase result
+is a `ContextPlan` that the Context Arbiter may accept, modify, or reject based
+on deterministic authority rules.
+
+If the bounded phase cannot satisfy the request — for example, because
+retrieval is required but the source is unavailable — the response must be
+explicitly marked `incomplete` or `needs_follow_up`, not presented as a
+successful answer. Hard-stopping at the boundary and returning a false-success
+answer is a correctness failure.
+
+### DialogueState and Working Memory
+
+`DialogueState` is an **ephemeral, derivable projection** tied to a
+`context_snapshot_sequence`. It is reconstructed on every turn from the
+conversation transcript and current Memory selection. It is not persisted and
+must not carry durable authority.
+
+`Working Memory` is the **durable, versioned conversation projection**. It
+carries a source message range, a prompt/schema version, and an expiry. It is
+formed by deterministic or background summarization, not by the current-turn
+model.
+
+These two concepts must not duplicate mutable state. If both store
+`active_topic` or `pending_action`, precedence and invalidation become
+ambiguous. The rule is: DialogueState is read-only to the model; Working Memory
+is the only durable projection that may influence later turns.
 
 ## Components and Dependency Direction
 
@@ -441,6 +503,52 @@ The composer emits typed context, for example:
 Raw source messages, model explanations, hidden confidence, SQL data, and
 untrusted instruction text are excluded. Memory is not a citation. The current
 request wins over soft Memory.
+
+## Retrieval Planning and Context Engineering
+
+### Retrieval Plans
+
+The planner selects one of four **retrieval plans** for a turn:
+
+| Plan | Meaning |
+| --- | --- |
+| `none` | No Memory or RAG retrieval; generate from prompt and current request only. |
+| `rag_only` | RAG retrieval only; no Memory read. |
+| `memory_only` | Memory read only; no RAG retrieval. |
+| `both` | Memory read and RAG retrieval in parallel; results are composed, not concatenated. |
+
+The plan is a **starting point**, not a final authority. The Context Arbiter may
+override it when policy, sensitivity, or budget constraints require abstention
+or a different combination.
+
+### Context-Engineering Operations
+
+Independently of the retrieval plan, the composer performs four
+**context-engineering operations**:
+
+1. **Select** — choose which retrieved items enter the context window.
+2. **Compress** — summarize or truncate selected items to fit the token budget.
+3. **Isolate** — separate hard constraints, soft preferences, episodes, and
+   procedural policy so the model receives them with distinct influence labels.
+4. **Write** — update working-memory projections (conversation summary, open
+   goals) based on the current turn, but never mutate durable semantic or
+   episodic Memory inside the hot path.
+
+These operations are **orthogonal** to the retrieval plan. A `both` plan still
+requires select, compress, and isolate. A `none` plan may still require write
+for working-state maintenance.
+
+### Context Arbiter
+
+The Arbiter is a deterministic module with no model authority. It consumes the
+planner's proposal, the budget, the sensitivity classifications, and any policy
+conflicts. It emits an `ArbitrationResult` that the composer must follow. The
+Arbiter may:
+
+- downgrade `both` to `memory_only` or `rag_only` when one source is prohibited;
+- upgrade `none` to `memory_only` when a hard constraint exists;
+- reject an item that passed retrieval but fails sensitivity or scope checks;
+- emit `ABSTAIN` when no eligible source satisfies the request.
 
 ## Working Summary and Episode Formation
 
@@ -710,6 +818,8 @@ Existing accepted decisions to retain or amend:
 3. ADR 0013: model-assisted extraction and deterministic resolution.
 4. ADR 0014: transactional outbox and idempotent workers.
 5. ADR 0017: risk-based Memory controls.
+6. ADR 0027: outbox turn-readiness barrier — an outbox event is released only
+   when its turn reaches a terminal status (`complete` or `failed`).
 
 New decisions required before implementation:
 
@@ -753,9 +863,27 @@ Version 0.1 is in review. Approval authorizes preparation of the required ADRs
 and staged implementation plans only. It does not authorize runtime edits,
 database migration, SQLite deletion, dependency changes, or Git delivery.
 
+## Changelog
+
+### v0.2 Draft — 2026-09-11
+
+- Added **Precedence Resolution** section: per-assertion resolution across six
+  dimensions (authority, scope, temporal validity, explicitness, sensitivity,
+  lifecycle). Clarifies that "current request wins" applies only to soft
+  preferences.
+- Added **Bounded Context Workflow** section: `max_tool_phases=1` semantics,
+  parallel Memory+RAG inside one phase, explicit `incomplete` response on
+  boundary hit, and the DialogueState / Working Memory distinction.
+- Added **Retrieval Planning and Context Engineering** section: four retrieval
+  plans (`none|rag_only|memory_only|both`) and four orthogonal
+  context-engineering operations (`select|compress|isolate|write`). Introduces
+  the Context Arbiter as a deterministic authority module.
+- Added ADR 0027 to required decisions.
+- Updated Current-State Evidence with the outbox turn-readiness barrier.
+
 ## References
 
-1. LangMem, “Long-term Memory in LLM Applications”:
+1. LangMem, "Long-term Memory in LLM Applications":
    <https://langchain-ai.github.io/langmem/concepts/conceptual_guide/>
 2. LangGraph, “Memory overview”:
    <https://langchain-ai.github.io/langgraphjs/how-tos/delete-messages/>

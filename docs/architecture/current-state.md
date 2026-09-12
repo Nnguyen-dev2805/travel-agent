@@ -107,7 +107,7 @@ Key runtime invariants:
 
 ## Data Model and Persistence
 
-The storage tier is powered exclusively by PostgreSQL 16, governed by Alembic migrations with head revision `20260910_01` (`20260910_01_clean_break_remove_workspace`).
+The storage tier is powered exclusively by PostgreSQL 16, governed by Alembic migrations with head revision `20260912_02` (`20260912_02_worker_column_grants`).
 
 ### Active PostgreSQL Tables
 1. `conversations`: Standalone conversation records owned directly by `owner_user_id` (NOT NULL). Contains `conversation_id`, `owner_user_id`, `title`, `retention_state`, `created_at`, `updated_at`.
@@ -139,7 +139,7 @@ The storage tier is powered exclusively by PostgreSQL 16, governed by Alembic mi
    - Wildcard `*` CORS origins are prohibited when authentication is active. Startup fails closed if misconfigured.
    - Trusted local origins (`http://localhost:5173`, `http://127.0.0.1:5173`) are explicitly allowlisted.
 3. **Request Body Limiting**:
-   - Request bodies are enforced up to `MAX_REQUEST_BODY_BYTES` (default 64 KB). Oversized requests return `413 Request rejected.` with correlated request ID.
+    - Request bodies are enforced up to `MAX_REQUEST_BODY_BYTES` (default 1,048,576 bytes). Oversized requests return `413 Request body too large.` with correlated request ID.
 4. **Safe Error Handling**:
    - Validation failures (`422`) and unhandled exceptions (`500`) return content-free error envelopes containing only safe details and an `X-Request-ID` correlation header. No prompts, tokens, or stack traces are echoed.
 5. **Observability Redaction**:

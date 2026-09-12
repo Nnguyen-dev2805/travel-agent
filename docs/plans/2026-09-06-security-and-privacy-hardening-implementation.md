@@ -21,7 +21,7 @@ existing R8 observability events, existing docs report pattern.
 
 | Field | Value |
 | --- | --- |
-| Status | In Progress |
+| Status | Completed |
 | Plan version | 0.3 |
 | Date | 2026-09-06 |
 | Approved specification | [Security and Privacy Hardening Design](../specs/2026-09-06-security-and-privacy-hardening-design.md), version 0.2, approved by repository owner on 2026-09-06 |

@@ -288,3 +288,106 @@ def test_rag_evaluation_flow_baseline_candidate_compare(tmp_path: Path) -> None:
     assert comparison_result.state == ResultState.PASS
     assert len(comparison_result.failed_gates) == 0
     assert comparison_result.paired_deltas["hit@5"] == 0.0
+
+
+def _config(config_id: str, collection_name: str, judge_conf: JudgeConfig) -> RunConfig:
+    """One governed run configuration, differing only where it must."""
+    return RunConfig(
+        config_id=config_id,
+        version="0.1",
+        runtime_adapter="current_runtime",
+        collection_name=collection_name,
+        embedding_model="BAAI/bge-m3",
+        retrieval_k_values=(1, 3, 5, 10, 20),
+        primary_k=5,
+        score_semantics="higher_is_better_similarity",
+        generation_context_top_k=4,
+        generation_model="gpt-4o-mini",
+        prompt_id="rag-current-prompt-v0.1",
+        temperature=0.7,
+        max_tokens=800,
+        judge=judge_conf,
+    )
+
+
+def _judge_conf() -> JudgeConfig:
+    return JudgeConfig(
+        model="gpt-4o-mini",
+        prompt_id="rag-answer-judge-v0.1",
+        rubric_id="d5-rag-answer-v0.1",
+        schema_version=1,
+        temperature=0.0,
+    )
+
+
+def test_a_below_threshold_run_fails_and_names_the_gate(tmp_path: Path) -> None:
+    """The other run in this module uses perfect doubles, so `PASS` was inevitable
+    for any gate implementation — the gates were unverifiable. This run must fail,
+    and must say which gate fired.
+    """
+    dataset = _build_test_dataset(tmp_path / "dataset")
+
+    artifact = EvaluationRunner(
+        dataset=dataset,
+        config=_config(
+            "rag-below-threshold-v0.1", "vietnam_travel_knowledge", _judge_conf()
+        ),
+        runtime=DeterministicMockRuntime(),
+        judge_adapter=DeterministicMockJudge(mean_score=1),
+    ).run(mode=RunMode.FULL, output_dir=tmp_path / "runs" / "below")
+
+    record = artifact.run_record
+    assert record["state"] == ResultState.FAIL.value, record["state"]
+    assert "mean_groundedness_minimum" in record["failed_gates"], record["failed_gates"]
+
+
+def test_a_declining_candidate_fails_the_comparison_while_both_runs_pass(
+    tmp_path: Path,
+) -> None:
+    """The D5 decline gate, which perfect doubles could never exercise.
+
+    Both runs are individually acceptable — 4.0 meets the 4.0 minimum — so only
+    the comparison can catch the decline. That is precisely the gate the existing
+    test asserts is never violated.
+    """
+    dataset = _build_test_dataset(tmp_path / "dataset")
+
+    baseline = EvaluationRunner(
+        dataset=dataset,
+        config=_config(
+            "rag-baseline-v0.1", "vietnam_travel_knowledge", _judge_conf()
+        ),
+        runtime=DeterministicMockRuntime(),
+        judge_adapter=DeterministicMockJudge(mean_score=5),
+    ).run(mode=RunMode.FULL, output_dir=tmp_path / "runs" / "baseline")
+
+    candidate = EvaluationRunner(
+        dataset=dataset,
+        config=_config(
+            "rag-candidate-v0.1", "vietnam_travel_parent_child", _judge_conf()
+        ),
+        runtime=DeterministicMockRuntime(),
+        judge_adapter=DeterministicMockJudge(mean_score=4),
+    ).run(
+        mode=RunMode.FULL,
+        output_dir=tmp_path / "runs" / "candidate",
+        # Required by the comparison contract: without it `compare_runs` refuses
+        # as INVALID rather than evaluating the gates.
+        baseline_run_id=baseline.run_record["run_id"],
+    )
+
+    assert baseline.run_record["state"] == ResultState.PASS.value
+    assert candidate.run_record["state"] == ResultState.PASS.value, (
+        "4.0 meets the 4.0 minimum, so the decline must be caught by the "
+        "comparison rather than by either run"
+    )
+
+    result = compare_runs(
+        baseline.run_record,
+        baseline.example_records,
+        candidate.run_record,
+        candidate.example_records,
+    )
+
+    assert result.state != ResultState.PASS, result.state
+    assert result.failed_gates, "a failing comparison must name the gate that fired"

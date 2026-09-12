@@ -191,19 +191,26 @@ def cmd_compare(args: argparse.Namespace) -> int:
     print("-" * 65)
 
     for m_name, c_metric in cand_metrics.items():
-        c_val = c_metric.get("value", 0.0)
+        c_val = c_metric.get("value")
         b_metric = base_metrics.get(m_name)
-        b_val = b_metric.get("value", 0.0) if b_metric else None
+        b_val = b_metric.get("value") if b_metric else None
 
-        if b_val is not None:
+        c_text = "not_measured" if c_val is None else f"{c_val:.4f}"
+        b_text = "not_measured" if b_val is None else f"{b_val:.4f}"
+
+        if b_val is not None and c_val is not None:
             if c_val < b_val - 1e-6:
                 status = "REGRESSION"
                 regressions.append(f"Metric '{m_name}' regressed from {b_val:.4f} to {c_val:.4f}")
             else:
                 status = "IMPROVED/EQUAL"
-            print(f"{m_name:<32} | {b_val:<10.4f} | {c_val:<10.4f} | {status}")
+        elif c_val is None:
+            # ADR 0024: unmeasured is neither a regression nor a pass.
+            status = "NOT MEASURED"
         else:
-            print(f"{m_name:<32} | {'N/A':<10} | {c_val:<10.4f} | NEW")
+            status = "NEW"
+
+        print(f"{m_name:<32} | {b_text:<10} | {c_text:<10} | {status}")
 
     # 3. Check candidate state
     cand_state = candidate_data.get("result_state")

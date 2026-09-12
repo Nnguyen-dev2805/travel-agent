@@ -11,6 +11,7 @@ from sqlalchemy.engine import Engine
 
 from backend.app.config import Settings, get_settings
 from backend.app.runtime_container import (
+    ContainerUnavailableError,
     PostgresReadinessProbe,
     RuntimeContainer,
     get_conversation_orchestrator,
@@ -58,6 +59,60 @@ async def test_container_lifecycle_startup_and_shutdown(mock_engine):
     assert container._started is True
 
     await container.shutdown()
+    assert container._started is False
+
+
+def _role_flag_engine(elevated: bool) -> MagicMock:
+    """Engine whose role check returns a concrete True/False flag."""
+    engine = MagicMock(spec=Engine)
+    connection = engine.connect.return_value.__enter__.return_value
+    connection.execute.return_value.scalar.return_value = elevated
+    return engine
+
+
+@pytest.mark.anyio
+async def test_startup_rejects_privileged_role_by_default():
+    container = RuntimeContainer(
+        settings=Settings(ALLOW_PRIVILEGED_DB_ROLE=False),
+        engine=_role_flag_engine(True),
+    )
+    with pytest.raises(RuntimeError, match="superuser|row-level security"):
+        await container.startup()
+    assert container._started is False
+
+
+@pytest.mark.anyio
+async def test_startup_allows_privileged_role_with_explicit_opt_in():
+    container = RuntimeContainer(
+        settings=Settings(ALLOW_PRIVILEGED_DB_ROLE=True),
+        engine=_role_flag_engine(True),
+    )
+    await container.startup()
+    assert container._started is True
+
+
+@pytest.mark.anyio
+async def test_startup_accepts_least_privilege_role():
+    container = RuntimeContainer(
+        settings=Settings(ALLOW_PRIVILEGED_DB_ROLE=False),
+        engine=_role_flag_engine(False),
+    )
+    await container.startup()
+    assert container._started is True
+
+
+@pytest.mark.anyio
+async def test_startup_propagates_role_check_failure():
+    """A role lookup failure must surface, never pass silently."""
+    engine = MagicMock(spec=Engine)
+    connection = engine.connect.return_value.__enter__.return_value
+    connection.execute.side_effect = RuntimeError("connection lost")
+    container = RuntimeContainer(
+        settings=Settings(ALLOW_PRIVILEGED_DB_ROLE=False),
+        engine=engine,
+    )
+    with pytest.raises(RuntimeError, match="connection lost"):
+        await container.startup()
     assert container._started is False
 
 
@@ -160,14 +215,20 @@ def test_no_sqlite_or_workspace_planner_imports():
         if isinstance(node, ast.Import):
             for alias in node.names:
                 for bad in forbidden:
-                    assert bad not in alias.name, f"Forbidden import found: {alias.name}"
+                    assert bad not in alias.name, (
+                        f"Forbidden import found: {alias.name}"
+                    )
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 for bad in forbidden:
-                    assert bad not in node.module, f"Forbidden import found: {node.module}"
+                    assert bad not in node.module, (
+                        f"Forbidden import found: {node.module}"
+                    )
             for alias in node.names:
                 for bad in forbidden:
-                    assert bad not in alias.name, f"Forbidden symbol found: {alias.name}"
+                    assert bad not in alias.name, (
+                        f"Forbidden symbol found: {alias.name}"
+                    )
 
 
 def test_fastapi_dependency_helpers(container):
@@ -185,10 +246,111 @@ def test_fastapi_dependency_helpers(container):
     assert isinstance(orchestrator, ConversationOrchestrator)
 
 
-def test_fastapi_dependency_helper_fallback_creates_container():
+def test_the_dependency_fails_closed_without_a_composed_container():
+    """The defect: this used to build a production container on demand.
+
+    That made request processing a second composition root, and it made this very
+    test open a real PostgreSQL connection — so the suite's result depended on
+    whether a database happened to be reachable. Application composition happens
+    in the lifespan; a request that finds no container is a broken deployment.
+    """
     app_state = SimpleNamespace()
     mock_request = SimpleNamespace(app=SimpleNamespace(state=app_state))
 
-    retrieved = get_runtime_container(mock_request)
-    assert isinstance(retrieved, RuntimeContainer)
-    assert app_state.container is retrieved
+    with pytest.raises(ContainerUnavailableError):
+        get_runtime_container(mock_request)
+
+    assert getattr(app_state, "container", None) is None, (
+        "the dependency must not bind a container it did not compose"
+    )
+
+
+# --- ADR 0028: the least-privilege guard is shared, not container-local -------
+
+
+def test_shared_guard_rejects_an_elevated_role():
+    from backend.storage.postgres import (
+        PrivilegedRoleError,
+        assert_least_privilege_role,
+    )
+
+    with pytest.raises(PrivilegedRoleError, match="superuser|row-level security"):
+        assert_least_privilege_role(
+            _role_flag_engine(True), allowed=False, context="test"
+        )
+
+
+def test_shared_guard_accepts_a_least_privilege_role():
+    from backend.storage.postgres import assert_least_privilege_role
+
+    assert_least_privilege_role(
+        _role_flag_engine(False), allowed=False, context="test"
+    )
+
+
+def test_shared_guard_honours_the_explicit_opt_in():
+    from backend.storage.postgres import assert_least_privilege_role
+
+    # No exception even though the role is elevated: the flag is the escape hatch.
+    assert_least_privilege_role(
+        _role_flag_engine(True), allowed=True, context="test"
+    )
+
+
+def test_the_container_delegates_to_the_shared_guard():
+    """The worker will call the same guard, so the rule must live in one place."""
+    source = (
+        ROOT_DIR / "backend" / "app" / "runtime_container.py"
+    ).read_text(encoding="utf-8")
+    assert "assert_least_privilege_role" in source, (
+        "the container must delegate rather than reimplement the rule"
+    )
+    assert "rolsuper OR rolbypassrls" not in source, (
+        "the raw role query belongs in backend.storage.postgres only"
+    )
+
+
+# --- there is no lazy composition path any more --------------------------------
+
+
+def test_a_request_never_composes_a_container(monkeypatch):
+    """`RuntimeContainer` must be unreachable from a request.
+
+    The old lazy path constructed a container and then ran the role check on it,
+    which is why a unit test reached the database. Now the dependency either
+    returns what the lifespan bound or refuses, so construction must not be
+    reachable from a request at all — asserted by making construction explode
+    rather than by inspecting the source.
+    """
+    from backend.app import runtime_container as module
+
+    def _explode(*_args, **_kwargs):
+        raise AssertionError(
+            "a request composed a RuntimeContainer; composition belongs to the lifespan"
+        )
+
+    monkeypatch.setattr(module, "RuntimeContainer", _explode)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    with pytest.raises(ContainerUnavailableError):
+        module.get_runtime_container(request)
+
+
+def test_started_container_does_not_rerun_the_guard(monkeypatch):
+    from backend.app import runtime_container as module
+
+    checked: list = []
+    monkeypatch.setattr(
+        module.RuntimeContainer,
+        "_assert_least_privilege_role",
+        lambda self: checked.append(self),
+    )
+
+    started = module.RuntimeContainer(engine=MagicMock(spec=Engine))
+    started._started = True
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(container=started))
+    )
+
+    assert module.get_runtime_container(request) is started
+    assert checked == [], "an already-started container is not re-checked"

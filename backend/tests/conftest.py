@@ -1,5 +1,27 @@
 """Pytest shared fixtures configuration file for unit and integration tests."""
 
+import os
+
+# --- pin the suite offline, before anything can import HuggingFace -------------
+#
+# `huggingface_hub.constants` reads these at *import* time, so this has to run
+# before the first import that reaches `sentence_transformers` — which the
+# `backend.app.main` import below does. Setting them further down, or in a fixture,
+# would be too late.
+#
+# Why it matters: `VectorEmbedder.model` calls `SentenceTransformer(model_name)`,
+# and the hub checks remote metadata even when the weights are already cached.
+# Measured on this repository: the embedder test took 11.89s with the network
+# reachable and 5.83s with `HF_HUB_OFFLINE=1`. Where outbound traffic to
+# huggingface.co is blocked rather than merely slow, that check does not fail — it
+# hangs, and the whole suite hangs with it.
+#
+# `setdefault`, not assignment: a developer who deliberately wants the hub can pass
+# `HF_HUB_OFFLINE=0`, which is falsy to the hub's own parser.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+
 import pytest
 from pathlib import Path
 from typing import Any, Dict

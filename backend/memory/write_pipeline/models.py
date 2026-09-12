@@ -249,6 +249,7 @@ class MemoryCandidate:
     condition: str = ""
     subject_key: str = "self"
     observed_at: datetime | None = None
+    confidence: float = 1.0
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -301,6 +302,11 @@ class MemoryCandidate:
         )
         if not isinstance(self.condition, str):
             raise ValueError("Field 'condition' must be a string.")
+        if isinstance(self.confidence, bool) or not isinstance(
+            self.confidence, (int, float)
+        ):
+            raise ValueError("Field 'confidence' must be a number.")
+        object.__setattr__(self, "confidence", float(self.confidence))
         object.__setattr__(
             self, "subject_key", _require_text(self.subject_key, "subject_key")
         )

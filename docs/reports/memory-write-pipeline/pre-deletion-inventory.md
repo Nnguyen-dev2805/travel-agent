@@ -2,7 +2,7 @@
 
 Assessment: Confirmed all data is synthetic local development and test data. Safe to delete.
 
-## Database: `/Users/tnhatnguyendev2805/Documents/Projects/travel-agent/data/app/travel_agent.sqlite3`
+## Database: `data/app/travel_agent.sqlite3`
 | Table Name | Row Count |
 | --- | --- |
 | `schema_versions` | 5 |
@@ -18,7 +18,7 @@ Assessment: Confirmed all data is synthetic local development and test data. Saf
 | `planner_trip_decisions` | 0 |
 | `planner_operations` | 0 |
 
-## Database: `/Users/tnhatnguyendev2805/Documents/Projects/travel-agent/data/travel_agent.db`
+## Database: `data/travel_agent.db`
 | Table Name | Row Count |
 | --- | --- |
 

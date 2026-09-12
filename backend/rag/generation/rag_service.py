@@ -52,6 +52,15 @@ class RAGService:
         self.generator = generator or LLMGenerator()
         self.top_k = top_k
 
+    def warm(self) -> None:
+        """Load the embedding model now rather than on the first user query.
+
+        Reaching through `self.retriever.embedder` from the caller would make the
+        startup path depend on two levels of internal structure; this keeps the
+        knowledge where the structure is.
+        """
+        self.retriever.embedder.warm()
+
     def generate_answer(
         self, user_message: str, top_k: Optional[int] = None
     ) -> Dict[str, Any]:
@@ -64,6 +73,12 @@ class RAGService:
 
         Returns:
             Dictionary containing 'reply', 'model', and 'citations'.
+
+        Error contract: an empty index yields the insufficient-evidence
+            reply with no citations; a missing or unreadable index raises
+            (surfaced as HTTP 500 upstream) instead of silently
+            materializing an empty store — retrieval opens the store
+            read-only.
         """
         bundle = self.build_travel_context(user_message, top_k=top_k)
         return self.generate_from_context(user_message, bundle)

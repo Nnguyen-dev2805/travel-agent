@@ -237,6 +237,28 @@ class LegacyBaselineExtractor:
         return []
 
 
+class PartialTransactionProbe:
+    """A unit of work that fails mid-write, to prove nothing was committed.
+
+    Offline stand-in for the real adapter. It exercises the contract that a
+    failing write leaves no committed state. Database-level rollback is a
+    PostgreSQL property and is verified by
+    `backend/tests/integration/test_memory_write_postgres.py`.
+
+    `leak=True` simulates the failure mode the gate exists to catch: a write
+    that raises after having already committed.
+    """
+
+    def __init__(self, leak: bool = False) -> None:
+        self.committed = False
+        self._leak = leak
+
+    def apply_memory_change(self, *_args: Any, **_kwargs: Any) -> None:
+        if self._leak:
+            self.committed = True
+        raise MemoryWriteError("simulated mid-write failure")
+
+
 class EvaluationRunner:
     """Orchestrates test suites against evaluation fixtures and computes scores."""
 
@@ -406,19 +428,34 @@ class EvaluationRunner:
             expected_rel = _coerce_relation(rel_str)
 
             # Hard Gate: cross_owner_access (S13)
-            foreign_versions = [v for v in existing_records if v.owner_user_id != cand.owner_user_id]
-            if foreign_versions and example.hard_gate == "cross_owner_access":
-                # Ensure isolated resolver input contains only own records
-                own_records = [v for v in existing_records if v.owner_user_id == cand.owner_user_id]
+            # The gate must fire when a foreign record is VISIBLE to resolution.
+            # It used to filter `own_records` first and then test that filtered
+            # list for a foreign owner, which is structurally always False.
+            foreign_versions = [
+                v for v in existing_records if v.owner_user_id != cand.owner_user_id
+            ]
+            if example.hard_gate == "cross_owner_access":
+                own_records = [
+                    v for v in existing_records if v.owner_user_id == cand.owner_user_id
+                ]
                 change = resolve_change(
                     candidate=cand,
                     current=tuple(own_records),
                     relation=expected_rel,
                 )
-                # If foreign version leaked into change targets:
-                if any(v.owner_user_id != cand.owner_user_id for v in own_records):
+                # The gate fires when the resolver's OUTPUT targets a version
+                # owned by someone else. The original predicate tested
+                # `own_records` — already filtered to this owner — for a
+                # foreign owner, which is structurally always False.
+                foreign_ids = {
+                    getattr(v, "version_id", None) for v in foreign_versions
+                } - {None}
+                targeted = set(change.superseded_version_ids)
+                if change.reference_version_id is not None:
+                    targeted.add(change.reference_version_id)
+                if targeted & foreign_ids:
                     hard_gate_violated = "cross_owner_access"
-                    reasons.append("Cross-owner version accessed during resolution")
+                    reasons.append("Resolver targeted a cross-owner version")
             else:
                 change = resolve_change(
                     candidate=cand,
@@ -427,8 +464,13 @@ class EvaluationRunner:
                 )
 
             # Metric: relationship_accuracy
-            metrics["relationship_tested"] = 1.0
-            metrics["relationship_correct"] = 1.0  # Relationship classification matches expected_rel
+            # `resolve_change` returns a MemoryChangeSet, which carries no
+            # relation, so the classification cannot be compared against
+            # `expected_rel` here. Report nothing rather than a hardcoded pass:
+            # a tested-count of 0 aggregates to `not_measured` (ADR 0024).
+            # Closing this needs `classify_relation` wired into the resolver.
+            metrics["relationship_tested"] = 0.0
+            metrics["relationship_correct"] = 0.0
 
             # Metric: resolver_accuracy
             metrics["resolver_tested"] = 1.0
@@ -483,8 +525,20 @@ class EvaluationRunner:
 
             # Hard Gate: partial_transaction_state (S12, S21)
             elif example.hard_gate == "partial_transaction_state" or example.slice == "transaction_failure":
-                # Simulated rollback verification: partial state must never leak
-                pass
+                # This gate used to be a bare `pass`, so it reported zero
+                # violations unconditionally. Verify the unit-of-work contract
+                # instead: a write that raises must leave nothing committed.
+                leak = bool(
+                    (example.expected_persisted_state or {}).get("leak_partial_write")
+                )
+                probe = PartialTransactionProbe(leak=leak)
+                try:
+                    probe.apply_memory_change()
+                except MemoryWriteError:
+                    pass
+                if probe.committed:
+                    hard_gate_violated = "partial_transaction_state"
+                    reasons.append("Partial transaction state leaked after failure")
 
             # Hard Gate: unprovenanced_active_memory (All candidates must have evidence)
             elif example.hard_gate == "unprovenanced_active_memory":
@@ -617,113 +671,102 @@ class EvaluationRunner:
         computed_metrics: dict[str, MetricAccounting] = {}
 
         # 1. candidate_precision
-        prec_val = total_cand_matched / total_produced if total_produced > 0 else 1.0
+        prec_val = total_cand_matched / total_produced if total_produced > 0 else None
         computed_metrics["candidate_precision"] = MetricAccounting(
             name="candidate_precision",
             numerator=total_cand_matched,
             denominator=total_produced,
             threshold=INITIAL_THRESHOLDS["candidate_precision"],
-            passed=prec_val >= INITIAL_THRESHOLDS["candidate_precision"],
         )
 
         # 2. candidate_recall
-        rec_val = total_cand_matched / total_expected if total_expected > 0 else 1.0
+        rec_val = total_cand_matched / total_expected if total_expected > 0 else None
         computed_metrics["candidate_recall"] = MetricAccounting(
             name="candidate_recall",
             numerator=total_cand_matched,
             denominator=total_expected,
             threshold=INITIAL_THRESHOLDS["candidate_recall"],
-            passed=rec_val >= INITIAL_THRESHOLDS["candidate_recall"],
         )
 
         # 3. key_accuracy
-        key_val = total_key_matched / total_produced if total_produced > 0 else 1.0
+        key_val = total_key_matched / total_produced if total_produced > 0 else None
         computed_metrics["key_accuracy"] = MetricAccounting(
             name="key_accuracy",
             numerator=total_key_matched,
             denominator=total_produced,
             threshold=INITIAL_THRESHOLDS["key_accuracy"],
-            passed=key_val >= INITIAL_THRESHOLDS["key_accuracy"],
         )
 
         # 4. value_normalization_accuracy
-        val_acc = total_val_matched / total_produced if total_produced > 0 else 1.0
+        val_acc = total_val_matched / total_produced if total_produced > 0 else None
         computed_metrics["value_normalization_accuracy"] = MetricAccounting(
             name="value_normalization_accuracy",
             numerator=total_val_matched,
             denominator=total_produced,
             threshold=INITIAL_THRESHOLDS["value_normalization_accuracy"],
-            passed=val_acc >= INITIAL_THRESHOLDS["value_normalization_accuracy"],
         )
 
         # 5. value_normalization_vi_accuracy
-        vi_acc = vi_val_matched / vi_produced if vi_produced > 0 else 1.0
+        vi_acc = vi_val_matched / vi_produced if vi_produced > 0 else None
         computed_metrics["value_normalization_vi_accuracy"] = MetricAccounting(
             name="value_normalization_vi_accuracy",
             numerator=vi_val_matched,
             denominator=vi_produced,
             threshold=INITIAL_THRESHOLDS["value_normalization_vi_accuracy"],
-            passed=vi_acc >= INITIAL_THRESHOLDS["value_normalization_vi_accuracy"],
         )
 
         # 6. value_normalization_en_accuracy
-        en_acc = en_val_matched / en_produced if en_produced > 0 else 1.0
+        en_acc = en_val_matched / en_produced if en_produced > 0 else None
         computed_metrics["value_normalization_en_accuracy"] = MetricAccounting(
             name="value_normalization_en_accuracy",
             numerator=en_val_matched,
             denominator=en_produced,
             threshold=INITIAL_THRESHOLDS["value_normalization_en_accuracy"],
-            passed=en_acc >= INITIAL_THRESHOLDS["value_normalization_en_accuracy"],
         )
 
         # 7. scope_accuracy
-        scope_acc = total_scope_matched / total_produced if total_produced > 0 else 1.0
+        scope_acc = total_scope_matched / total_produced if total_produced > 0 else None
         computed_metrics["scope_accuracy"] = MetricAccounting(
             name="scope_accuracy",
             numerator=total_scope_matched,
             denominator=total_produced,
             threshold=INITIAL_THRESHOLDS["scope_accuracy"],
-            passed=scope_acc >= INITIAL_THRESHOLDS["scope_accuracy"],
         )
 
         # 8. scope_hard_accuracy
-        hard_acc = hard_scope_matched / hard_scope_count if hard_scope_count > 0 else 1.0
+        hard_acc = hard_scope_matched / hard_scope_count if hard_scope_count > 0 else None
         computed_metrics["scope_hard_accuracy"] = MetricAccounting(
             name="scope_hard_accuracy",
             numerator=hard_scope_matched,
             denominator=hard_scope_count,
             threshold=INITIAL_THRESHOLDS["scope_hard_accuracy"],
-            passed=hard_acc >= INITIAL_THRESHOLDS["scope_hard_accuracy"],
         )
 
         # 9. sensitivity_accuracy
-        sens_val = sens_correct / sens_tested if sens_tested > 0 else 1.0
+        sens_val = sens_correct / sens_tested if sens_tested > 0 else None
         computed_metrics["sensitivity_accuracy"] = MetricAccounting(
             name="sensitivity_accuracy",
             numerator=sens_correct,
             denominator=sens_tested,
             threshold=INITIAL_THRESHOLDS["sensitivity_accuracy"],
-            passed=sens_val >= INITIAL_THRESHOLDS["sensitivity_accuracy"],
         )
 
         # 10. relationship_accuracy
-        rel_val = rel_correct / rel_tested if rel_tested > 0 else 1.0
+        rel_val = rel_correct / rel_tested if rel_tested > 0 else None
         computed_metrics["relationship_accuracy"] = MetricAccounting(
             name="relationship_accuracy",
             numerator=rel_correct,
             denominator=rel_tested,
             threshold=INITIAL_THRESHOLDS["relationship_accuracy"],
-            passed=rel_val >= INITIAL_THRESHOLDS["relationship_accuracy"],
         )
 
         # 11. resolver_accuracy
-        res_val = res_correct / res_tested if res_tested > 0 else 1.0
+        res_val = res_correct / res_tested if res_tested > 0 else None
         computed_metrics["resolver_accuracy"] = MetricAccounting(
             name="resolver_accuracy",
             numerator=res_correct,
             denominator=res_tested,
             threshold=INITIAL_THRESHOLDS["resolver_accuracy"],
-            passed=res_val >= INITIAL_THRESHOLDS["resolver_accuracy"],
         )
 
         # Determine ResultState
@@ -735,8 +778,18 @@ class EvaluationRunner:
         elif total_hard_violations > 0 or failed_count > 0:
             state = ResultState.FAIL
         else:
-            all_metrics_passed = all(m.passed for m in computed_metrics.values())
-            state = ResultState.PASS if all_metrics_passed else ResultState.FAIL
+            # ADR 0024: PASS means "everything I could measure passed, and I
+            # measured something". Unmeasured metrics are named in the report
+            # as `not_measured` rather than silently counted as passes.
+            measured = [m for m in computed_metrics.values() if m.measured]
+            if not measured:
+                state = ResultState.INVALID
+            else:
+                state = (
+                    ResultState.PASS
+                    if all(m.passed for m in measured)
+                    else ResultState.FAIL
+                )
 
         env_metadata = {
             "python_version": sys.version.split()[0],

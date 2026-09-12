@@ -27,6 +27,17 @@ export default function App() {
     return false;
   });
 
+  // C3/C4: a resolved response must only be applied to the conversation it was
+  // requested for. Each async path takes a sequence token and drops its result
+  // if a newer request has since started or the active conversation changed.
+  const historySeqRef = React.useRef(0);
+  const sendSeqRef = React.useRef(0);
+  const activeConversationIdRef = React.useRef(activeConversationId);
+
+  React.useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
+
   const handleToggleSidebarCollapse = () => {
     setIsSidebarCollapsed((prev) => {
       const next = !prev;
@@ -46,9 +57,28 @@ export default function App() {
       if (data && data.length > 0) {
         const targetId = preferredConvId || activeConversationId;
         if (targetId && data.some((c) => c.conversation_id === targetId)) {
-          handleSelectConversation(targetId);
+          // Awaited, so the caller can rely on the history having landed. It used
+          // to be fire-and-forget, which let `handleSelectConversation`'s
+          // `setMessages(history)` resolve *after* a caller appended a message of
+          // its own — and the history overwrote it.
+          await handleSelectConversation(targetId);
         }
       }
+    } catch (err) {
+      console.error('Lỗi tải conversations:', err);
+    }
+  };
+
+  // Refresh only the sidebar list, leaving the message view alone.
+  //
+  // The first turn needs this and not `loadConversations`: the reply for that turn
+  // is already in local state, so a history read would either race the append
+  // (fire-and-forget) or render the stored reply a second time (awaited). The list
+  // refresh is all that is actually missing after a conversation is created.
+  const refreshConversationList = async () => {
+    try {
+      const data = await listConversations();
+      setConversations(data || []);
     } catch (err) {
       console.error('Lỗi tải conversations:', err);
     }
@@ -69,6 +99,11 @@ export default function App() {
       setConversations([]);
       setActiveConversationId(null);
       setMessages([]);
+      // Same reason as `handleNewChat`: a history response already in flight
+      // would otherwise resolve into the logged-out view. This handler clears
+      // state directly rather than going through `handleNewChat`, so the
+      // invalidation has to be repeated here.
+      historySeqRef.current += 1;
     };
     if (typeof window !== "undefined") {
       window.addEventListener("auth:unauthorized", handleUnauthorized);
@@ -90,17 +125,41 @@ export default function App() {
 
   // 2. Select conversation and load message history
   const handleSelectConversation = async (convId) => {
+    const seq = ++historySeqRef.current;
     setActiveConversationId(convId);
+    setMessages([]);
     try {
       const msgs = await listMessages(convId);
+      if (seq !== historySeqRef.current) return;
       setMessages(msgs || []);
     } catch (err) {
+      if (seq !== historySeqRef.current) return;
       console.error('Lỗi mở conversation:', err);
+      setMessages([{
+        message_id: `err_${Date.now()}`,
+        role: 'assistant',
+        content: 'Không tải được nội dung hội thoại này.',
+        created_at: new Date().toISOString(),
+      }]);
     }
   };
 
   // 3. Start a fresh conversation
   const handleNewChat = () => {
+    // Invalidate any in-flight history load. `handleSelectConversation` bumps
+    // this counter, so select-vs-select is already safe — but New Chat, delete
+    // and logout all land here, and without the bump a response for the
+    // conversation the user just left resolves into the new, empty view.
+    historySeqRef.current += 1;
+
+    // Both of these have to move *synchronously*, not via the effect that
+    // maintains `activeConversationIdRef`. `isStale()` reads that ref and the send
+    // sequence, and in this tick neither the effect nor the state update has run —
+    // so an in-flight send could still compare equal and append its reply to the
+    // new, empty conversation.
+    sendSeqRef.current += 1;
+    activeConversationIdRef.current = null;
+
     setActiveConversationId(null);
     setMessages([]);
   };
@@ -108,6 +167,12 @@ export default function App() {
   // 4. Send chat message (auto-creates conversation if activeConversationId is null)
   const handleSendMessage = async (text) => {
     if (!text.trim() || isChatLoading) return;
+
+    const sendSeq = ++sendSeqRef.current;
+    const targetConvId = activeConversationId;
+    const isStale = () =>
+      sendSeq !== sendSeqRef.current ||
+      targetConvId !== activeConversationIdRef.current;
 
     // Optimistic user message
     const tempUserMsg = {
@@ -122,13 +187,22 @@ export default function App() {
     try {
       const result = await postChatMessage({
         message: text,
-        conversation_id: activeConversationId,
+        conversation_id: targetConvId,
       });
 
+      if (isStale()) return;
+
       const returnedConvId = result.conversation?.conversation_id;
-      if (!activeConversationId && returnedConvId) {
+      if (!targetConvId && returnedConvId) {
+        // Move the ref synchronously for the same reason `handleNewChat` does: the
+        // effect that maintains it has not run yet, so a second send started in
+        // this window would compare against the wrong conversation.
+        activeConversationIdRef.current = returnedConvId;
         setActiveConversationId(returnedConvId);
-        await loadConversations(returnedConvId);
+        // The list only. This turn's messages are already in local state, so a
+        // history read here would either race the append below or duplicate the
+        // reply, which the server has already stored.
+        await refreshConversationList();
       }
 
       const assistantMsg = {
@@ -140,7 +214,27 @@ export default function App() {
       };
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
+      if (isStale()) return;
       console.error('Lỗi gửi tin nhắn:', err);
+      // C2 (ADR 0023), frontend half: a first-turn generation failure returns
+      // 500 with the conversation_id the backend already committed, preserved
+      // by the API interceptor on `err.data`. Bind to it before rendering the
+      // error, so the user's retry continues this conversation instead of
+      // auto-creating a phantom second one — the exact defect the backend half
+      // of ADR 0023 exists to fix. Only the unbound first turn needs this: a
+      // turn sent into an already-bound conversation already retries into it.
+      const failedConvId = targetConvId || err?.data?.conversation_id || null;
+      if (!targetConvId && failedConvId) {
+        // Synchronous, for the same reason `handleNewChat` moves these: the
+        // maintainer effect has not run in this tick, so an in-flight send
+        // comparing against the ref would read the old (null) conversation.
+        activeConversationIdRef.current = failedConvId;
+        setActiveConversationId(failedConvId);
+        // The failed conversation exists server-side, so the sidebar should
+        // show it — without a history read, which would race the error message
+        // below and, on success, duplicate what the server stored.
+        refreshConversationList();
+      }
       const errorMsg = {
         message_id: `err_${Date.now()}`,
         role: 'assistant',
@@ -149,7 +243,10 @@ export default function App() {
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
-      setIsChatLoading(false);
+      // Clear loading when no newer send has started. Keying on the sequence
+      // (not on isStale) matters: a discarded response must still release the
+      // input, or the composer stays disabled forever after a switch.
+      if (sendSeq === sendSeqRef.current) setIsChatLoading(false);
     }
   };
 
@@ -163,7 +260,11 @@ export default function App() {
     try {
       await deleteConversation(convId);
     } catch (err) {
+      // Do NOT drop it from the list. The server refused, so the conversation
+      // still exists: removing it here would tell the user it is gone and then
+      // show it again on the next load, which is worse than doing nothing.
       console.error('Lỗi xóa conversation:', err);
+      return;
     }
     const remaining = conversations.filter((c) => c.conversation_id !== convId);
     setConversations(remaining);
@@ -214,7 +315,6 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         <Header
           onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
-          onLoginClick={() => setIsAuth(false)}
           onLogout={handleLogout}
         />
 

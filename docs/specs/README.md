@@ -302,4 +302,15 @@ must be compared; a cosmetic variant is not a distinct alternative.
 | 2026-09-07 | Risk-based Memory Control Amendment | Level 3 | 0.1 | Approved | [Design](./2026-09-07-risk-based-memory-control-amendment.md) |
 | 2026-09-08 | Memory Read Pipeline V1.5 Design | Level 3 | 0.1 | Draft | [Design](./2026-09-08-memory-read-pipeline-v1-5-design.md) |
 | 2026-09-09 | AI Memory Core Engineering Design | Level 3 | 0.1 | Draft | [Design](./2026-09-09-ai-memory-core-engineering-design.md) |
-| 2026-09-10 | Unified Multi-Conversation Agent Memory Architecture | Level 3 | 0.1 | In Review | [Design](./2026-09-10-unified-multi-conversation-agent-memory-architecture.md) |
+| 2026-09-10 | Unified Multi-Conversation Agent Memory Architecture | Level 3 | 0.2 Draft | In Review | [Design](./2026-09-10-unified-multi-conversation-agent-memory-architecture.md) |
+| 2026-09-10 | Authenticated Chat-Only PostgreSQL Clean Break | Level 3 | 0.1 | Approved | [Design](./2026-09-10-authenticated-chat-postgresql-clean-break-design.md) |
+| 2026-09-11 | Runtime Integrity, Observability, Evaluation and Test Remediation | Level 2 | 0.1 | Approved | [Design](./2026-09-11-runtime-integrity-remediation-design.md) |
+| 2026-09-11 | Atomic Chat Turn and Memory Write Pipeline Correctness | Level 3 | 0.1 | Approved | [Design](./2026-09-11-atomic-chat-turn-and-memory-correctness-design.md) |
+| 2026-09-11 | Message Status/Content Invariant: Enforcement and Repair | Level 3 | 0.1 | Approved | [Design](./2026-09-11-message-status-content-invariant-design.md) |
+| 2026-09-11 | Authentication Enforcement Ordering: Enforce Before the Body Is Parsed | Level 3 | 0.1 | Approved | [Design](./2026-09-11-authentication-enforcement-ordering-design.md) |
+| 2026-09-11 | Test Suite Truthfulness: Sentinel Coverage, Assertion Strength, and Artifact Dependence | Level 2 | 0.1 | Approved | [Design](./2026-09-11-test-suite-truthfulness-design.md) |
+| 2026-09-11 | Configurable Model Provider Endpoint | Level 2 | 0.2 | Approved | [Design](./2026-09-11-configurable-model-provider-endpoint-design.md) |
+| 2026-09-11 | Outbox Turn-Readiness Barrier: Release an Extraction Event Only After Its Turn Is Terminal | Level 3 | 0.1 | Approved | [Design](./2026-09-11-outbox-turn-readiness-barrier-design.md) |
+| 2026-09-11 | Worker Role and Tenant-Bound Outbox Claim | Level 3 | 0.1 | Approved | [Design](./2026-09-11-worker-role-tenant-bound-outbox-claim-design.md) |
+| 2026-09-12 | Memory Worker Runtime | Level 3 | 0.1 | Approved | [Design](./2026-09-12-memory-worker-runtime-design.md) |
+| 2026-09-12 | Worker Authority: Credential, Lease Time, and Fence Semantics | Level 3 | 0.1 | Approved | [Design](./2026-09-12-worker-authority-credential-lease-fence-design.md) |

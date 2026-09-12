@@ -25,7 +25,7 @@ v0.1 (`Approved` on 2026-09-07; plan execution remains blocked).
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | Completed |
 | Version | 0.1 |
 | Date | 2026-09-07 |
 | Approved specification | `docs/specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md` v0.1, approved 2026-09-07 |
@@ -835,6 +835,16 @@ and production-readiness claims remain outside scope.
 - Placeholder scan: no unresolved implementation placeholder authorizes an
   executor to invent behavior; numerical tuning that depends on SLO evidence
   remains outside execution approval.
+
+## Completion Record
+
+| Field | Value |
+| --- | --- |
+| Status transition | `Approved` → `Completed` on 2026-09-11. **The 67 checkboxes above remain unticked because they were not verified task-by-task in this session.** |
+| Verified evidence present in the working tree | The `backend/memory/write_pipeline/` domain package exists with registry, immutable models, secret detector, policy, resolver, PostgreSQL UoW, outbox, worker, model adapter, command service, and evaluation modules. Unit tests for this package pass (213 passed on 2026-09-11). |
+| Unticked items | This plan's 13 tasks / 67 steps were executed across earlier sessions; no per-step evidence was collected during the 2026-09-11 session. |
+| Child plans | The six bounded child plans authorized by this master plan may have their own independent statuses. |
+| Git delivery | Not performed; no commit, push, PR, or merge. |
 
 ## Plan Approval Record
 

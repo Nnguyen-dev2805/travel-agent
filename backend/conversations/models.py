@@ -23,6 +23,10 @@ Three rules are load-bearing:
 3. **A message carries no retention state of its own.** It follows its parent
    conversation, so a future deletion milestone has exactly one place to express
    intent and cannot leave orphaned message state behind.
+4. **Turn status is server-owned.** `MessageStatus` records whether a turn has
+   been filled in yet (ADR 0023). It is never accepted from caller input, and it
+   is what makes a half-written turn visible rather than indistinguishable from
+   a complete one.
 
 Message `content` is user content under the security policy. It is stored here,
 never logged, and never deleted by R4.
@@ -65,6 +69,22 @@ class MessageSource(str, Enum):
     MODEL = "model"
     SYSTEM = "system"
     IMPORT = "import"
+
+
+class MessageStatus(str, Enum):
+    """Server-owned turn status for a persisted message (ADR 0023).
+
+    A chat turn is written in two phases: the user message and a placeholder
+    assistant row commit together, and the assistant row is filled in after
+    generation. The status is what makes a half-written turn visible instead of
+    indistinguishable from a complete one.
+
+    `status` is server-owned and never accepted from caller input.
+    """
+
+    PENDING = "pending"
+    COMPLETE = "complete"
+    FAILED = "failed"
 
 
 class TraceVisibility(str, Enum):
@@ -251,7 +271,23 @@ def _normalize_message_fields(instance: Any) -> None:
     object.__setattr__(
         instance, "role", _coerce_enum(instance.role, "role", MessageRole, None)
     )
-    object.__setattr__(instance, "content", require_text(instance.content, "content"))
+    status = _coerce_enum(
+        instance.status, "status", MessageStatus, MessageStatus.COMPLETE
+    )
+    object.__setattr__(instance, "status", status)
+    # `content` is required only for a COMPLETE message. A PENDING or FAILED row
+    # carries no generated content by construction (ADR 0023), so it may be
+    # empty — but it must still be a string, and a FAILED row must never hold a
+    # partial reply or a provider error string.
+    if status is MessageStatus.COMPLETE:
+        content = require_text(instance.content, "content")
+    elif isinstance(instance.content, str):
+        content = instance.content
+    else:
+        raise ConversationValidationError(
+            "Conversation field 'content' must be a string."
+        )
+    object.__setattr__(instance, "content", content)
     object.__setattr__(
         instance,
         "source",
@@ -284,7 +320,9 @@ class ConversationCreate:
 
     owner_user_id: str
     title: str | None = None
-    retention_state: Literal["active", "tombstoned"] | ConversationRetentionState = ConversationRetentionState.ACTIVE
+    retention_state: Literal["active", "tombstoned"] | ConversationRetentionState = (
+        ConversationRetentionState.ACTIVE
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -320,7 +358,10 @@ class Conversation:
     title: str | None
     created_at: datetime
     updated_at: datetime
-    retention_state: ConversationRetentionState | Literal["active", "tombstoned"] = field(default=DEFAULT_RETENTION_STATE)
+    retention_state: ConversationRetentionState | Literal["active", "tombstoned"] = (
+        field(default=DEFAULT_RETENTION_STATE)
+    )
+    deletion_epoch: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -354,6 +395,11 @@ class Conversation:
                 DEFAULT_RETENTION_STATE,
             ),
         )
+        object.__setattr__(
+            self,
+            "deletion_epoch",
+            _require_bounded_int(self.deletion_epoch, "deletion_epoch", 0),
+        )
 
 
 @dataclass(frozen=True)
@@ -370,6 +416,7 @@ class MessageDraft:
     source: MessageSource | str | None = None
     trace_visibility: TraceVisibility | str | None = None
     created_at: datetime | None = None
+    status: MessageStatus | str | None = None
 
     def __post_init__(self) -> None:
         _normalize_message_fields(self)
@@ -391,6 +438,7 @@ class Message:
     source: MessageSource | str | None = None
     trace_visibility: TraceVisibility | str | None = None
     created_at: datetime | None = None
+    status: MessageStatus | str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -404,6 +452,31 @@ class Message:
             _require_bounded_int(self.sequence, "sequence", MIN_MESSAGE_SEQUENCE),
         )
         _normalize_message_fields(self)
+
+
+@dataclass(frozen=True)
+class TransitionResult:
+    """The outcome of a guarded turn transition.
+
+    Carries **whether this call is the one that moved the row**, separately from the
+    row it ended up with.
+
+    The repository is deliberately idempotent: a row that is no longer `pending` is
+    returned unchanged, so `message` alone cannot tell a caller whether it wrote the
+    reply or merely observed someone else's. A caller that reports success on
+    `message` alone will, when a second writer got there first, hand its client a
+    reply the database does not contain.
+
+    Comparing `message.content` against the reply the caller generated is not the
+    fix: that infers ownership from a value, and it breaks the moment two turns
+    legitimately produce the same text. `applied` is the fact itself, and it is what
+    a recovery actor, a resume actor, or an agent state machine will need to branch
+    on.
+    """
+
+    message: Message
+    #: `True` only when this call performed the `pending -> terminal` transition.
+    applied: bool
 
 
 @dataclass(frozen=True)
@@ -437,6 +510,23 @@ class MessageHistoryQuery:
             "limit",
             _require_bounded_int(resolved, "limit", 1, MAX_HISTORY_LIMIT),
         )
+
+
+#: The one outbox event family the Memory worker is allowed to process.
+#:
+#: `conversation_outbox` is a single queue with a single `event_type` column, and
+#: the Memory worker's claim path filtered only on release, status, lease expiry,
+#: retry time, debounce and the conversation lock — never on the family. That is
+#: harmless while exactly one family exists and stops being harmless the moment a
+#: second one does: an agent or tool event (`agent.resume`, `summary.generate`,
+#: `memory.reprocess`) would be claimed by the Memory worker and extracted as if it
+#: were a conversation range.
+#:
+#: The constant lives here, beside `OutboxIntent`, because this is the module both
+#: sides already import: the orchestrator produces the intent and the write
+#: pipeline consumes it. Putting it in either one would make the other depend on a
+#: layer it does not otherwise need.
+MEMORY_EXTRACT_EVENT_TYPE = "memory.extract.conversation_range"
 
 
 @dataclass(frozen=True)
@@ -481,4 +571,3 @@ def coerce_outbox_intent(value: Any) -> OutboxIntent | None:
     raise ConversationValidationError(
         "Outbox event must be an OutboxIntent, dict, or None."
     )
-

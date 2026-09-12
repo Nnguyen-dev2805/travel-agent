@@ -9,15 +9,22 @@ staleness, concurrency, and per-stage failure atomicity are proven
 against live rows.
 """
 
-import os
 import threading
 from datetime import datetime, timezone
 
 import pytest
 import sqlalchemy as sa
 
+from backend.tests.integration.pg_dsn import migration_dsn, require
+
 MOMENT = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
 NEWER = datetime(2026, 9, 7, 13, 0, 0, tzinfo=timezone.utc)
+
+requires_pg = pytest.mark.skipif(
+    not migration_dsn(),
+    reason="isolated PG unavailable: set PG_TEST_DSN to a disposable database",
+)
+pytestmark = requires_pg
 
 CANONICAL_TABLES = (
     "memory_assertions",
@@ -31,10 +38,8 @@ CANONICAL_TABLES = (
 
 
 def _test_dsn() -> str:
-    dsn = os.environ.get("PG_TEST_DSN")
-    if not dsn:
-        pytest.skip("isolated PG unavailable: set PG_TEST_DSN to a disposable database")
-    return dsn
+    """The DDL-capable DSN: this module drops and rebuilds the schema."""
+    return require(migration_dsn(), "PG_TEST_DSN")
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +52,10 @@ def pg_engine():
             connection.execute(sa.text("SELECT 1"))
     except Exception as error:
         engine.dispose()
-        pytest.skip(f"isolated PG unreachable: {type(error).__name__}")
+        raise RuntimeError(
+            f"isolated PG unreachable: {type(error).__name__}; "
+            "a configured PG_TEST_DSN must be reachable, not skipped."
+        ) from error
     yield engine
     engine.dispose()
 
@@ -171,7 +179,15 @@ def _decided(candidate, context=None):
     return decide_candidate(candidate, _context() if context is None else context)
 
 
-def _apply(uow, change, candidate, owner="owner_a", key="key-default", expected=None):
+def _apply(
+    uow,
+    change,
+    candidate,
+    owner="owner_a",
+    key="key-default",
+    expected=None,
+    fence=None,
+):
     return uow.apply_memory_change(
         change,
         _principal(owner),
@@ -179,6 +195,7 @@ def _apply(uow, change, candidate, owner="owner_a", key="key-default", expected=
         decision=_decided(candidate),
         idempotency_key=key,
         expected_version_id=expected,
+        fence=fence,
     )
 
 
@@ -634,7 +651,11 @@ def test_concurrent_first_touch_yields_one_winner(uow, clean):
         "_mark_versions_superseded",
         "_insert_event_row",
         "_insert_outbox_row",
-        "_record_idempotency",
+        # ADR 0031: the key is reserved before the effect and filled after it.
+        # A failure at either stage must leave zero rows, which is exactly what
+        # sharing one transaction buys.
+        "_reserve_idempotency",
+        "_fill_idempotency",
     ],
 )
 def test_injected_stage_failure_leaves_zero_rows(uow, clean, monkeypatch, stage):
@@ -675,3 +696,272 @@ def test_injected_stage_failure_leaves_zero_rows(uow, clean, monkeypatch, stage)
         _apply(uow, change, candidate, key=f"key-fault-{stage}", **extra)
 
     assert _counts(clean) == before
+
+
+# 5. Fencing: a delete landing between extraction and commit writes nothing.
+
+
+def test_fenced_write_rejected_after_conversation_delete(uow, clean):
+    """End-to-end proof that delete propagation fences a stale worker write.
+
+    A worker extracts against epoch 0 and a live lease, the conversation is
+    then deleted (tombstone + outbox cancel + evidence invalidate + epoch
+    bump in one transaction), and the subsequent memory commit with the
+    stale fence raises instead of writing.
+    """
+    import pytest as _pytest
+
+    from backend.conversations.models import MessageRole, MessageSource
+    from backend.conversations.postgres_repository import (
+        PostgresConversationRepository,
+    )
+    from backend.conversations.service import ConversationService
+    from backend.memory.write_pipeline.models import MemoryRelation
+    from backend.memory.write_pipeline.resolver import resolve_change
+    from backend.memory.write_pipeline.uow import FenceContext, FencedWriteError
+
+    repo = PostgresConversationRepository(clean)
+    service = ConversationService(conversation_repository=repo)
+    conv = service.create_conversation(owner_user_id="owner_a", title="Fence proof")
+    service.append_message(
+        conv.conversation_id,
+        MessageRole.USER,
+        "quiet please",
+        "owner_a",
+        source=MessageSource.UI,
+        outbox_event={
+            "event_type": "memory.extract.conversation_range",
+            "payload": {"conversation_id": conv.conversation_id},
+        },
+    )
+    with clean.connect() as connection:
+        outbox_id = connection.execute(
+            sa.text(
+                "SELECT outbox_id FROM conversation_outbox WHERE conversation_id = :c"
+            ),
+            {"c": conv.conversation_id},
+        ).scalar()
+        assert outbox_id is not None
+        # Simulate the worker's lease claim.
+        connection.execute(
+            sa.text(
+                "UPDATE conversation_outbox SET status = 'leased', "
+                "lease_owner = 'worker_1' WHERE outbox_id = :o"
+            ),
+            {"o": outbox_id},
+        )
+        connection.commit()
+
+    fence = FenceContext(
+        conversation_id=conv.conversation_id,
+        expected_epoch=0,
+        outbox_id=outbox_id,
+        lease_owner="worker_1",
+    )
+    candidate = _candidate()
+    change = resolve_change(candidate, current=(), relation=MemoryRelation.UNRELATED)
+    result = uow.apply_memory_change(
+        change,
+        _principal("owner_a"),
+        evidence=(_evidence(conversation_id=conv.conversation_id),),
+        decision=_decided(candidate),
+        idempotency_key="key-fence-first",
+        fence=fence,
+    )
+    assert result.version_id is not None
+
+    # The delete lands after extraction.
+    service.delete_conversation(conv.conversation_id, "owner_a")
+
+    with clean.connect() as connection:
+        status = connection.execute(
+            sa.text("SELECT status FROM conversation_outbox WHERE outbox_id = :o"),
+            {"o": outbox_id},
+        ).scalar()
+        assert status == "cancelled"
+        invalidated = connection.execute(
+            sa.text(
+                "SELECT COUNT(*) FROM memory_evidence "
+                "WHERE conversation_id = :c AND invalidated_at IS NOT NULL"
+            ),
+            {"c": conv.conversation_id},
+        ).scalar()
+        assert invalidated == 1
+        epoch = connection.execute(
+            sa.text(
+                "SELECT deletion_epoch FROM conversations WHERE conversation_id = :c"
+            ),
+            {"c": conv.conversation_id},
+        ).scalar()
+        assert int(epoch) == 1
+
+    # The stale fenced commit writes nothing.
+    rival = _candidate(normalized_value="lively", observed_at=NEWER)
+    current = _versions(clean, change.identity)
+    rival_change = resolve_change(
+        rival, current=current, relation=MemoryRelation.CONTRADICTION
+    )
+    before = _counts(clean)
+    with _pytest.raises(FencedWriteError):
+        uow.apply_memory_change(
+            rival_change,
+            _principal("owner_a"),
+            evidence=(_evidence(conversation_id=conv.conversation_id),),
+            decision=_decided(rival),
+            idempotency_key="key-fence-stale",
+            fence=fence,
+        )
+    assert _counts(clean) == before
+
+
+def test_fenced_redelivery_raises_instead_of_cached_success(uow, clean):
+    """Fence is verified before the idempotency lookup in the same txn.
+
+    A redelivered write whose fence moved must raise FencedWriteError even
+    when its idempotency key already has a stored outcome — returning the
+    cached success would report an obsolete event as recorded.
+    """
+    import pytest as _pytest
+
+    from backend.memory.write_pipeline.models import MemoryRelation
+    from backend.memory.write_pipeline.resolver import resolve_change
+    from backend.memory.write_pipeline.uow import FenceContext, FencedWriteError
+
+    with clean.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO conversations (conversation_id, owner_user_id, "
+                "title, retention_state, deletion_epoch, created_at, "
+                "updated_at) VALUES ('cv_fence_2', 'owner_a', NULL, 'active', "
+                "0, :at, :at)"
+            ),
+            {"at": MOMENT},
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO conversation_outbox (outbox_id, conversation_id, "
+                "message_id, owner_user_id, event_type, payload, status, "
+                "attempt_count, lease_owner, created_at) VALUES ('cout_f2', "
+                "'cv_fence_2', 'ms_f2', 'owner_a', "
+                "'memory.extract.conversation_range', '{}', 'leased', 1, "
+                "'worker_1', :at)"
+            ),
+            {"at": MOMENT},
+        )
+
+    fence = FenceContext(
+        conversation_id="cv_fence_2",
+        expected_epoch=0,
+        outbox_id="cout_f2",
+        lease_owner="worker_1",
+    )
+    candidate = _candidate()
+    change = resolve_change(candidate, current=(), relation=MemoryRelation.UNRELATED)
+    first = _apply(uow, change, candidate, key="key-fence-order", fence=fence)
+    assert first.version_id is not None
+
+    # The source moves: tombstone the conversation (epoch 0 -> 1).
+    with clean.begin() as connection:
+        connection.execute(
+            sa.text(
+                "UPDATE conversations SET retention_state = 'tombstoned', "
+                "deletion_epoch = 1 WHERE conversation_id = 'cv_fence_2'"
+            )
+        )
+
+    # Same idempotency key, stale fence: must raise, not replay success.
+    rival = _candidate(normalized_value="lively", observed_at=NEWER)
+    current = _versions(clean, change.identity)
+    rival_change = resolve_change(
+        rival, current=current, relation=MemoryRelation.CONTRADICTION
+    )
+    before = _counts(clean)
+    with _pytest.raises(FencedWriteError):
+        _apply(uow, rival_change, rival, key="key-fence-order", fence=fence)
+    assert _counts(clean) == before
+
+
+# 12. ADR 0031: the idempotency key enforces its effect.
+#
+# The key used to be recorded *after* the semantic rows, with the conflict
+# swallowed inside a savepoint. The loser of a duplicate-key race therefore
+# committed its evidence, decision, version and event rows anyway: one key, two
+# semantic effects. Proved with two concurrent transactions before the fix.
+
+
+def test_a_second_reservation_of_a_held_key_conflicts(clean, uow, pg_engine):
+    """The reservation propagates the conflict; it does not swallow it."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from sqlalchemy.exc import IntegrityError
+
+    from backend.memory.write_pipeline.models import MemoryRelation
+    from backend.memory.write_pipeline.postgres import PostgresMemoryUnitOfWork
+    from backend.memory.write_pipeline.resolver import resolve_change
+    from backend.storage.postgres import set_tenant
+
+    candidate = _candidate()
+    change = resolve_change(candidate, current=(), relation=MemoryRelation.UNRELATED)
+    key = "key-reservation-conflict"
+    unit = PostgresMemoryUnitOfWork(pg_engine)
+
+    first = pg_engine.connect()
+    transaction = first.begin()
+    set_tenant(first, "owner_a")
+    unit._reserve_idempotency(first, key, "owner_a", change)
+
+    outcome: dict = {}
+
+    def contend() -> None:
+        second = pg_engine.connect()
+        competing = second.begin()
+        set_tenant(second, "owner_a")
+        try:
+            unit._reserve_idempotency(second, key, "owner_a", change)
+            outcome["result"] = "reserved"
+        except IntegrityError as error:
+            outcome["result"] = "conflict"
+            outcome["pgcode"] = getattr(error.orig, "sqlstate", None)
+        finally:
+            competing.rollback()
+            second.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(contend)
+        time.sleep(1.0)  # let the contender block on the uncommitted key
+        transaction.commit()  # release it; the contender must now fail
+        future.result()
+    first.close()
+
+    assert outcome["result"] == "conflict", (
+        "a second reservation of a held key must raise, not be swallowed"
+    )
+    assert outcome["pgcode"] == "23505"
+
+
+def test_replaying_one_key_commits_one_effect(clean, uow):
+    """A replay returns the recorded result and writes nothing new."""
+    from backend.memory.write_pipeline.models import MemoryRelation
+    from backend.memory.write_pipeline.resolver import resolve_change
+
+    candidate = _candidate()
+    change = resolve_change(candidate, current=(), relation=MemoryRelation.UNRELATED)
+    key = "key-replay-one-effect"
+
+    first = _apply(uow, change, candidate, key=key)
+    before = _counts(clean)
+    second = _apply(uow, change, candidate, key=key)
+    after = _counts(clean)
+
+    assert second.version_id == first.version_id, "the recorded result is replayed"
+    assert after == before, "a replay writes nothing"
+    assert after["memory_evidence"] == 1
+
+
+# The threaded same-key test was removed rather than kept. The mutation proof
+# showed it passed whether or not the reservation swallowed its conflict: two
+# threads on this fixture usually run one after the other, and the second then
+# finds the completed row and replays it. An assertion that cannot fail is
+# decoration. `test_a_second_reservation_of_a_held_key_conflicts` is the
+# deterministic proof, and it does fail under that mutation.

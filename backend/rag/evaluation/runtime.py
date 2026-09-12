@@ -47,9 +47,11 @@ class RecordingVectorStoreProxy:
         return getattr(self._real_store, name)
 
 
-ALLOWED_CURRENT_RUNTIME_PROMPTS = frozenset({
-    "legacy-rag-service-inline-prompt-v1",
-})
+ALLOWED_CURRENT_RUNTIME_PROMPTS = frozenset(
+    {
+        "legacy-rag-service-inline-prompt-v1",
+    }
+)
 
 # The structured candidate executes the versioned prompt owned by the
 # generation module; the allowlist derives from that single source of truth.
@@ -57,7 +59,17 @@ ALLOWED_STRUCTURED_RUNTIME_PROMPTS = frozenset({PROMPT_ID})
 
 
 class CurrentRuntimeAdapter:
-    """Connects the evaluation runner to the current RAG baseline runtime."""
+    """Connects the evaluation runner to the current RAG baseline runtime.
+
+    The "current runtime" baseline is identified by the frozen prompt id
+    `legacy-rag-service-inline-prompt-v1`. That inline prompt's wording was
+    characterized verbatim into the versioned `rag-structured-prompt-v1`
+    template owned by `backend.rag.generation.llm`, so this adapter
+    deliberately executes the shared `LLMGenerator`: the baseline pins the
+    frozen behavior contract (prompt wording, temperature, tokens, top_k),
+    not a divergent code path. A config declaring any other prompt id is
+    rejected so the baseline cannot silently drift.
+    """
 
     def __init__(
         self,
@@ -68,7 +80,7 @@ class CurrentRuntimeAdapter:
         self.config = config
         self.embedder = embedder or VectorEmbedder(model_name=config.embedding_model)
         self.vector_store = vector_store or ChromaVectorStore(
-            collection_name=config.collection_name
+            collection_name=config.collection_name, read_only=True
         )
 
         if self.config.runtime_adapter == "current_runtime":
@@ -77,7 +89,10 @@ class CurrentRuntimeAdapter:
                     f"Current runtime adapter executes frozen prompt {sorted(ALLOWED_CURRENT_RUNTIME_PROMPTS)}, "
                     f"but config requested '{self.config.prompt_id}'."
                 )
-            if abs(self.config.temperature - 0.7) > 1e-4 or self.config.max_tokens != 800:
+            if (
+                abs(self.config.temperature - 0.7) > 1e-4
+                or self.config.max_tokens != 800
+            ):
                 raise ValueError(
                     f"Current runtime adapter executes temperature=0.7, max_tokens=800, "
                     f"but config declared temperature={self.config.temperature}, max_tokens={self.config.max_tokens}."
@@ -87,14 +102,15 @@ class CurrentRuntimeAdapter:
                     f"Current runtime adapter executes generation_context_top_k=4, "
                     f"but config declared generation_context_top_k={self.config.generation_context_top_k}."
                 )
-            if self.config.generation_model and self.config.generation_model != settings.LLM_MODEL:
+            if (
+                self.config.generation_model
+                and self.config.generation_model != settings.LLM_MODEL
+            ):
                 raise ValueError(
                     f"Current runtime adapter executes settings.LLM_MODEL ('{settings.LLM_MODEL}'), "
                     f"but config declared generation_model '{self.config.generation_model}'. "
                     f"Align environment or configuration to guarantee executed identity."
                 )
-
-
 
     def retrieve(self, question: str, top_k: int) -> list[RetrievalResult]:
         """Embed question, query Chroma, and map raw results to RetrievalResult."""
@@ -145,7 +161,7 @@ class StructuredRuntimeAdapter:
         self.config = config
         self.embedder = embedder or VectorEmbedder(model_name=config.embedding_model)
         self.vector_store = vector_store or ChromaVectorStore(
-            collection_name=config.collection_name
+            collection_name=config.collection_name, read_only=True
         )
 
         if self.config.prompt_id not in ALLOWED_STRUCTURED_RUNTIME_PROMPTS:
@@ -163,7 +179,10 @@ class StructuredRuntimeAdapter:
                 f"Structured runtime adapter executes generation_context_top_k=4, "
                 f"but config declared generation_context_top_k={self.config.generation_context_top_k}."
             )
-        if self.config.generation_model and self.config.generation_model != settings.LLM_MODEL:
+        if (
+            self.config.generation_model
+            and self.config.generation_model != settings.LLM_MODEL
+        ):
             raise ValueError(
                 f"Structured runtime adapter executes settings.LLM_MODEL ('{settings.LLM_MODEL}'), "
                 f"but config declared generation_model '{self.config.generation_model}'. "
@@ -212,6 +231,7 @@ def preflight(
     # 1. Dataset validation
     if isinstance(dataset, (str, bytes)):
         from pathlib import Path
+
         dataset_obj = load_dataset(Path(dataset))
     elif isinstance(dataset, EvaluationDataset):
         dataset_obj = dataset
@@ -226,6 +246,7 @@ def preflight(
     if isinstance(config, (str, bytes)):
         from pathlib import Path
         import json
+
         config_dict = json.loads(Path(config).read_text(encoding="utf-8"))
         config_obj = validate_run_config(config_dict)
     elif isinstance(config, Mapping):
@@ -252,7 +273,10 @@ def preflight(
                 f"but config declared generation_context_top_k={config_obj.generation_context_top_k}."
             )
         if mode_normalized == "full":
-            if config_obj.generation_model and config_obj.generation_model != settings.LLM_MODEL:
+            if (
+                config_obj.generation_model
+                and config_obj.generation_model != settings.LLM_MODEL
+            ):
                 raise ValueError(
                     f"preflight failed: Current runtime adapter executes settings.LLM_MODEL ('{settings.LLM_MODEL}'), "
                     f"but config declared generation_model '{config_obj.generation_model}'. "
@@ -276,7 +300,10 @@ def preflight(
                 f"but config declared generation_context_top_k={config_obj.generation_context_top_k}."
             )
         if mode_normalized == "full":
-            if config_obj.generation_model and config_obj.generation_model != settings.LLM_MODEL:
+            if (
+                config_obj.generation_model
+                and config_obj.generation_model != settings.LLM_MODEL
+            ):
                 raise ValueError(
                     f"preflight failed: Structured runtime adapter executes settings.LLM_MODEL ('{settings.LLM_MODEL}'), "
                     f"but config declared generation_model '{config_obj.generation_model}'. "
@@ -293,7 +320,9 @@ def preflight(
         )
 
     # 4. Chroma index count check
-    store = ChromaVectorStore(collection_name=config_obj.collection_name)
+    store = ChromaVectorStore(
+        collection_name=config_obj.collection_name, read_only=True
+    )
     count = store.count()
     if count <= 0:
         raise ValueError(

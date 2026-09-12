@@ -115,12 +115,12 @@ Bearer token authentication for all `/api/v1` routes. Historical compatibility b
 mode (`AUTH_REQUIRED=false`) has been completely removed.
 
 Key security controls:
-1. **Mandatory Bearer Authentication**: Every request to a product endpoint must supply a valid `Authorization: Bearer <token>`. Unauthenticated requests immediately return a content-free `401 Unauthorized`.
+1. **Mandatory Bearer Authentication**: Every request to a product endpoint must supply a valid `Authorization: Bearer <token>`. Unauthenticated requests immediately return a content-free `401 Unauthorized`. Enforcement happens in the request pipeline ahead of routing, so a request whose body cannot be parsed is still rejected with `401` rather than `422` (ADR 0026). The public surface is an explicit allowlist — `GET /health` and the FastAPI documentation paths — and every other path is guarded by default.
 2. **Strict Cross-Owner Isolation**: Accessing a resource owned by another principal returns a generic `404 Not Found` without disclosing resource existence.
 3. **Prohibited Wildcard CORS**: When authentication is enforced, wildcard `*` origins are strictly prohibited. The origin resolution mechanism fails closed at startup if wildcard origins are configured.
 4. **No Credentials in Logs**: Tokens, API keys, passwords, and authorization headers are never logged, echoed, or included in error envelopes.
 5. **Content-Free Error Responses**: Validation failures (`422`), not-found states (`404`), unauthenticated requests (`401`), and unhandled exceptions (`500`) return content-free error envelopes carrying only safe descriptions and a correlated `X-Request-ID` (`rq_...`). User message content, prompt text, and stack traces are never echoed.
-6. **Request Size Limiting**: Request bodies are strictly bounded by `MAX_REQUEST_BODY_BYTES` (64 KB default). Requests exceeding this limit return `413 Request rejected.` with a correlated request ID.
+6. **Request Size Limiting**: Request bodies are strictly bounded by `MAX_REQUEST_BODY_BYTES` (1,048,576 bytes default). Requests exceeding this limit return `413 Request body too large.` with a correlated request ID.
 7. **Retired Legacy Surfaces**: Legacy Workspace, Planner, legacy shadow Memory, and SQLite storage adapters have been cleanly retired, eliminating historical unauthenticated attack surfaces.
 
 These controls represent local prototype security and tenant isolation, not production identity or TLS hosting architecture. Public production deployment fails closed under [Deployment Readiness](docs/runbooks/deployment.md).
@@ -144,9 +144,12 @@ production provider or vendor architecture.
 Per ADR 0021 and ADR 0022, standalone conversations support soft deletion via `DELETE /api/v1/conversations/{conversation_id}`:
 the record transitions to `retention_state = 'tombstoned'`, which immediately hides it from conversation listings and normal access while preserving audit rows in PostgreSQL 16. Messages follow the parent conversation lifecycle. Legacy workspace and planner deletion cascades have been retired with their respective modules.
 
-The current chat request has no approved durable conversation, workspace, user,
-or memory store beyond these local lifecycle states. New documentation or operational tooling must not imply that
-the prototype already persists those records.
+The current chat request persists conversations and messages in the local
+development PostgreSQL only. That store is durable for local development and
+audit, but it is not a production-approved hosting or retention posture: no
+managed backups, no retention policy, and no production identity boundary have
+been established. New documentation or operational tooling must not imply that
+the prototype already persists those records in production.
 
 Before any new durable user-data store is used in production, its approved
 design must define:

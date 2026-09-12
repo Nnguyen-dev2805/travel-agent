@@ -8,6 +8,7 @@ Covers:
 - Retry classification, backoff calculation, and dead-lettering after max attempts
 """
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import pytest
 
@@ -20,11 +21,13 @@ from backend.memory.write_pipeline.outbox import (
     OutboxEvent,
     OutboxStatus,
     InMemoryOutboxRepository,
+    PermissiveInMemoryOutboxRepository,
     calculate_backoff,
 )
 
 MOMENT = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
 LATER = datetime(2026, 9, 7, 12, 10, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def _sample_event(
@@ -36,7 +39,15 @@ def _sample_event(
     payload=None,
     status=OutboxStatus.PENDING,
     created_at=MOMENT,
+    released_at=LATER,
 ):
+    """A claimable event by default.
+
+    Released, because that is what production hands a worker: `released_at` is the
+    ADR 0027 gate and the double now applies it, so a sample that left it `None`
+    would be an event no repository would ever claim. Tests that need a *blocked*
+    event pass `released_at=None` explicitly.
+    """
     return OutboxEvent(
         outbox_id=outbox_id,
         conversation_id=conversation_id,
@@ -46,6 +57,7 @@ def _sample_event(
         payload=payload or {"conversation_id": conversation_id, "message_id": message_id},
         status=status,
         created_at=created_at,
+        released_at=released_at,
     )
 
 
@@ -282,3 +294,287 @@ def test_outbox_intent_dataclass_and_coercion():
     with pytest.raises(ConversationValidationError):
         coerce_outbox_intent("not-a-dict-or-intent")
 
+
+
+# --- ADR 0027: the release gate is a fact the model must carry ----------------
+
+
+def test_released_at_defaults_to_blocked():
+    """The gate defaults to `None`, which is the fail-closed direction.
+
+    An event constructed without an explicit release is blocked, so a caller that
+    forgets to release gets no extraction rather than premature extraction.
+
+    Built directly rather than through `_sample_event`: the helper now returns a
+    claimable event, because that is what almost every test wants, and this test is
+    about the model's own default.
+    """
+    bare = OutboxEvent(
+        outbox_id="cout_1",
+        conversation_id="conv_1",
+        message_id="msg_1",
+        owner_user_id="owner_1",
+        event_type="memory.extract.conversation_range",
+    )
+    assert bare.released_at is None
+
+
+def test_released_at_is_carried_on_the_event():
+    released = OutboxEvent(
+        outbox_id="cout_1",
+        conversation_id="conv_1",
+        message_id="msg_1",
+        owner_user_id="owner_1",
+        event_type="memory.extract.conversation_range",
+        released_at=LATER,
+    )
+    assert released.released_at == LATER
+
+
+def test_the_in_memory_double_models_the_release_gate():
+    """The double mirrors production's claim predicate, so a unit test means something.
+
+    It used to omit the gate, which let a worker unit test claim an event
+    PostgreSQL would treat as blocked — passing on input production refuses. Its own
+    characterisation test said: "If this test fails, the double has started modelling
+    the gate: delete it and assert the gate here instead."
+    """
+    repo = InMemoryOutboxRepository()
+    blocked = _sample_event(released_at=None)
+    assert blocked.released_at is None
+    repo.save_event(blocked)
+
+    assert (
+        repo.claim_event(
+            outbox_id="cout_1",
+            lease_owner="worker_1",
+            lease_duration_seconds=30.0,
+            now=LATER,
+        )
+        is None
+    ), "an event whose turn is not terminal is not claimable"
+    assert repo.get_event("cout_1").status is OutboxStatus.PENDING, "and is untouched"
+
+
+def test_the_in_memory_double_refuses_a_live_lease_even_for_its_own_holder():
+    """A `LEASED` row is reclaimable only when its window has closed.
+
+    The PostgreSQL claim predicate reads `lease_until < now()` and does not
+    consult the holder at all: a live lease belongs to whoever holds it, and
+    identity does not turn a closed window into an open one or vice versa. The
+    double's LEASED branch matched on `lease_owner != lease_owner` instead, so
+    the *same* owner could reclaim a lease with hours of its window left —
+    input production would never hand over, from a double whose docstring
+    claims faithfulness. This test pins the corrected predicate.
+    """
+    repo = InMemoryOutboxRepository()
+    leased = replace(
+        _sample_event(),
+        status=OutboxStatus.LEASED,
+        lease_owner="worker_1",
+        lease_until=NOW + timedelta(seconds=3600),
+    )
+    repo.save_event(leased)
+
+    assert (
+        repo.claim_event(
+            outbox_id="cout_1",
+            lease_owner="worker_1",  # the current holder itself
+            lease_duration_seconds=30.0,
+            now=NOW,
+        )
+        is None
+    ), "a live lease is not claimable, not even by its own holder"
+    assert repo.get_event("cout_1").lease_owner == "worker_1", "and is untouched"
+
+
+def test_the_in_memory_double_reclaims_an_expired_lease_for_any_worker():
+    """The expiry branch the previous predicate accidentally preserved.
+
+    An expired window makes the row claimable for *any* worker, including the
+    previous holder: identity is not the criterion, the closed window is.
+    """
+    repo = InMemoryOutboxRepository()
+    expired = replace(
+        _sample_event(),
+        status=OutboxStatus.LEASED,
+        lease_owner="worker_1",
+        lease_until=NOW - timedelta(seconds=1),
+    )
+    repo.save_event(expired)
+
+    claimed = repo.claim_event(
+        outbox_id="cout_1",
+        lease_owner="worker_2",  # a different worker takes over
+        lease_duration_seconds=30.0,
+        now=NOW,
+    )
+    assert claimed is not None
+    assert claimed.status is OutboxStatus.LEASED
+    assert claimed.lease_owner == "worker_2"
+
+
+def test_the_in_memory_double_models_the_event_family_boundary():
+    """The second predicate production applies, and the one the Agent layer needs.
+
+    A shared queue plus a worker that does not filter by family is how a Memory
+    worker ends up extracting a conversation range out of an `agent.resume` event.
+    """
+    repo = InMemoryOutboxRepository()
+    repo.save_event(_sample_event(event_type="agent.resume"))
+
+    assert (
+        repo.claim_event(
+            outbox_id="cout_1",
+            lease_owner="worker_1",
+            lease_duration_seconds=30.0,
+            now=LATER,
+        )
+        is None
+    )
+    assert (
+        list(
+            repo.claim_batch(
+                lease_owner="worker_1", lease_duration_seconds=30.0, now=LATER
+            )
+        )
+        == []
+    )
+
+
+def test_the_permissive_double_hands_over_what_production_refuses():
+    """Its whole purpose: the worker's defence-in-depth layers need this input.
+
+    A faithful double cannot produce an event production would never claim, so the
+    layer that exists to catch one would be untestable through the batch path. That
+    is the only thing this double is for.
+    """
+    repo = PermissiveInMemoryOutboxRepository()
+    repo.save_event(_sample_event(released_at=None))  # blocked on purpose
+
+    claimed = repo.claim_event(
+        outbox_id="cout_1",
+        lease_owner="worker_1",
+        lease_duration_seconds=30.0,
+        now=LATER,
+    )
+
+    assert claimed is not None, "the permissive double claims a blocked event on purpose"
+    assert claimed.status is OutboxStatus.LEASED
+
+
+def test_mark_failed_refuses_a_caller_that_lost_the_lease():
+    repo = InMemoryOutboxRepository()
+    leased = replace(
+        _sample_event(),
+        status=OutboxStatus.LEASED,
+        lease_owner="new_worker",
+        lease_until=LATER,
+    )
+    repo.save_event(leased)
+
+    returned = repo.mark_failed(
+        outbox_id=leased.outbox_id,
+        lease_owner="old_worker",
+        error_message="boom",
+        retryable=True,
+        now=MOMENT,
+    )
+
+    assert returned is OutboxStatus.LEASED, "the event is reported unchanged"
+    stored = repo.get_event(leased.outbox_id)
+    assert stored.status is OutboxStatus.LEASED
+    assert stored.lease_owner == "new_worker", (
+        "an old worker must not clear a new worker's lease"
+    )
+
+
+def test_mark_failed_refuses_a_caller_whose_lease_expired():
+    repo = InMemoryOutboxRepository()
+    expired = replace(
+        _sample_event(),
+        status=OutboxStatus.LEASED,
+        lease_owner="worker_1",
+        lease_until=MOMENT - timedelta(minutes=5),
+    )
+    repo.save_event(expired)
+
+    returned = repo.mark_failed(
+        outbox_id=expired.outbox_id,
+        lease_owner="worker_1",
+        error_message="boom",
+        retryable=True,
+        now=MOMENT,
+    )
+
+    assert returned is OutboxStatus.LEASED, "an expired lease is not authority"
+
+
+def test_mark_failed_applies_for_the_holder():
+    repo = InMemoryOutboxRepository()
+    leased = replace(
+        _sample_event(),
+        status=OutboxStatus.LEASED,
+        lease_owner="worker_1",
+        lease_until=LATER,
+    )
+    repo.save_event(leased)
+
+    returned = repo.mark_failed(
+        outbox_id=leased.outbox_id,
+        lease_owner="worker_1",
+        error_message="boom",
+        retryable=True,
+        now=MOMENT,
+    )
+
+    assert returned is OutboxStatus.PENDING
+    stored = repo.get_event(leased.outbox_id)
+    assert stored.lease_owner is None
+    assert stored.last_error == "boom"
+
+
+def test_cancel_events_scoped_to_a_lease_owner_spares_other_workers():
+    """A worker cleaning up its own lost lease must not destroy a peer's claim."""
+    repo = InMemoryOutboxRepository()
+    mine = replace(
+        _sample_event(outbox_id="cout_mine"),
+        status=OutboxStatus.LEASED,
+        lease_owner="me",
+        lease_until=LATER,
+    )
+    theirs = replace(
+        _sample_event(outbox_id="cout_theirs"),
+        status=OutboxStatus.LEASED,
+        lease_owner="them",
+        lease_until=LATER,
+    )
+    unheld = replace(_sample_event(outbox_id="cout_pending"))
+    for event in (mine, theirs, unheld):
+        repo.save_event(event)
+
+    cancelled = repo.cancel_events(
+        mine.conversation_id, reason="fenced_by_source_move", now=MOMENT, lease_owner="me"
+    )
+
+    assert cancelled == 2, "my own lease and the unheld pending row"
+    assert repo.get_event("cout_theirs").status is OutboxStatus.LEASED, (
+        "another worker's claim is untouched"
+    )
+    assert repo.get_event("cout_theirs").lease_owner == "them"
+
+
+def test_cancel_events_without_a_lease_owner_still_cancels_everything():
+    """Deletion passes no holder and must still clear the whole conversation."""
+    repo = InMemoryOutboxRepository()
+    for owner, oid in (("a", "cout_a"), ("b", "cout_b")):
+        repo.save_event(
+            replace(
+                _sample_event(outbox_id=oid),
+                status=OutboxStatus.LEASED,
+                lease_owner=owner,
+                lease_until=LATER,
+            )
+        )
+
+    assert repo.cancel_events("conv_1", reason="conversation_deleted", now=MOMENT) == 2

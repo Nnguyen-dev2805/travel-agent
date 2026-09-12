@@ -20,9 +20,18 @@ logger = logging.getLogger("travel_agent_postgres")
 
 TENANT_SETTING = "app.tenant"
 
+#: Single source of truth for the expected Alembic head revision. The
+#: runtime readiness probe and the migration chain both derive from this
+#: instead of carrying their own literal, so they cannot drift apart.
+ALEMBIC_HEAD = "20260912_02"
+
 
 class TenantContextError(Exception):
     """No tenant identity is bound to the current transaction."""
+
+
+class PrivilegedRoleError(RuntimeError):
+    """The connected role is a superuser or bypasses row-level security."""
 
 
 def create_engine(dsn: str, *, pool_size: int = 5, pool_timeout: int = 30) -> Engine:
@@ -83,6 +92,88 @@ def require_tenant_context(connection: Connection) -> str:
             "No tenant identity is bound to the current transaction."
         )
     return value.strip()
+
+
+def assert_least_privilege_role(
+    engine: Engine,
+    *,
+    allowed: bool,
+    context: str = "RuntimeContainer",
+) -> None:
+    """Reject a superuser or ``BYPASSRLS`` role unless explicitly allowed.
+
+    ``FORCE ROW LEVEL SECURITY`` is decorative for a superuser and for a role
+    carrying ``BYPASSRLS``, so a connection that lands on either silently
+    disables every tenant policy. Every process that must enforce tenant
+    isolation calls this at startup: the API runtime today, and the background
+    worker when it is mounted. ``allowed`` comes from
+    ``ALLOW_PRIVILEGED_DB_ROLE``, which exists only for throwaway local
+    development against a superuser-owned database.
+
+    Raises:
+        PrivilegedRoleError: The connected role is a superuser or bypasses RLS.
+    """
+    if allowed:
+        logger.warning(
+            "%s starting with a privileged database role "
+            "(ALLOW_PRIVILEGED_DB_ROLE=true); tenant RLS is not enforced.",
+            context,
+        )
+        return
+    with engine.connect() as connection:
+        elevated = connection.execute(
+            text(
+                "SELECT rolsuper OR rolbypassrls FROM pg_roles "
+                "WHERE rolname = CURRENT_USER"
+            )
+        ).scalar()
+    if elevated is True:
+        raise PrivilegedRoleError(
+            "Refusing to start: the database role is a superuser or "
+            "bypasses row-level security. Connect as the least-privilege "
+            "application role, or set ALLOW_PRIVILEGED_DB_ROLE=true only "
+            "for throwaway local development."
+        )
+
+
+def resolve_migration_dsn(
+    pg_dsn: str | None,
+    configured_url: str | None,
+    database_url: str | None,
+) -> str:
+    """Resolve the migration DSN from explicit inputs (pure, unit-testable).
+
+    Precedence: `PG_DSN` (bootstrap superuser) first so schema work never
+    runs with the least-privilege runtime role by accident, then an
+    explicitly configured `sqlalchemy.url` (tests, one-off runs), then
+    `DATABASE_URL` as a convenience for privileged local setups.
+    """
+    for candidate in (pg_dsn, configured_url, database_url):
+        if candidate is not None and candidate.strip():
+            return candidate.strip()
+    raise RuntimeError(
+        "Set PG_DSN (superuser, preferred) or DATABASE_URL to a PostgreSQL "
+        "address before running migrations."
+    )
+
+
+def require_migration_privilege(connection: Connection) -> None:
+    """Fail fast unless the connection runs as a database superuser.
+
+    Schema work (CREATE ROLE, GRANT, FORCE ROW LEVEL SECURITY) requires
+    the bootstrap superuser. The least-privilege runtime role must never
+    reach migrations — callers run them with PG_DSN instead. Raises
+    `RuntimeError` with guidance; propagates connection errors unchanged.
+    """
+    is_superuser = connection.execute(
+        text("SELECT rolsuper FROM pg_roles WHERE rolname = CURRENT_USER")
+    ).scalar()
+    if is_superuser is not True:
+        raise RuntimeError(
+            "Refusing to migrate as a non-superuser role. Run Alembic "
+            "with PG_DSN pointing at the bootstrap superuser, never "
+            "with the least-privilege runtime DATABASE_URL."
+        )
 
 
 def alembic_config(script_location: str, dsn: str):

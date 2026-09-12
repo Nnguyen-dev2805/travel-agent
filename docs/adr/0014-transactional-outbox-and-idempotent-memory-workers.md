@@ -77,3 +77,6 @@ dead-letter, cancellation, deletion-epoch rejection, and chat non-blocking.
 
 1. Governing focused specification.
 2. [Debezium outbox pattern](https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html).
+3. Extended by: [ADR 0027](./0027-outbox-event-released-only-when-turn-terminal.md) — an outbox event is released only when its turn is terminal. This record's lease, retry and back-off semantics are unchanged.
+4. Extended by: [ADR 0028](./0028-worker-role-and-outbox-claim-boundary.md) — the worker role and the outbox claim boundary. This record established the outbox and its worker; that record decides which role claims and what it may see.
+5. Extended by: [ADR 0031](./0031-the-idempotency-key-is-reserved-before-the-effect.md) — the idempotency key is reserved before the semantic effect it guards. This record required an idempotent worker; that record makes the key enforce its effect instead of racing.

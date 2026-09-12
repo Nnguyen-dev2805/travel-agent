@@ -47,11 +47,11 @@ describe("Authentication Service", () => {
 
   it("stores and retrieves bearer token", () => {
     expect(getToken()).toBe("");
-    setToken("token_alice_secret", "Alice");
-    expect(getToken()).toBe("token_alice_secret");
+    setToken("dev-token-alice", "Alice");
+    expect(getToken()).toBe("dev-token-alice");
     const profile = getUserProfile();
     expect(profile.name).toBe("Alice");
-    expect(getOwnerUserId()).toBe("user_alice");
+    expect(getOwnerUserId()).toBe("alice");
   });
 
   it("clears token on logout", () => {
@@ -62,8 +62,8 @@ describe("Authentication Service", () => {
 
   it("contains Alice and Bob presets", () => {
     expect(PRESET_USERS.length).toBeGreaterThanOrEqual(2);
-    expect(PRESET_USERS[0].id).toBe("user_alice");
-    expect(PRESET_USERS[1].id).toBe("user_bob");
+    expect(PRESET_USERS[0].id).toBe("alice");
+    expect(PRESET_USERS[1].id).toBe("bob");
   });
 });
 
@@ -89,17 +89,17 @@ describe("API Service & Interceptors", () => {
   });
 
   it("attaches Authorization header when token exists", () => {
-    setToken("token_alice_secret");
+    setToken("dev-token-alice");
     const reqInterceptorSuccess = apiClient.interceptors.request.use.mock.calls[0]?.[0];
     if (reqInterceptorSuccess) {
       const config = { headers: {} };
       const modified = reqInterceptorSuccess(config);
-      expect(modified.headers.Authorization).toBe("Bearer token_alice_secret");
+      expect(modified.headers.Authorization).toBe("Bearer dev-token-alice");
     }
   });
 
   it("handles 401 error by clearing token and dispatching auth:unauthorized", async () => {
-    setToken("token_alice_secret");
+    setToken("dev-token-alice");
     const dispatchSpy = vi.spyOn(window, "dispatchEvent");
     const resInterceptorError = apiClient.interceptors.response.use.mock.calls[0]?.[1];
 
@@ -146,11 +146,64 @@ describe("Chat Service", () => {
 
   it("listMessages calls GET /conversations/:id/messages", async () => {
     apiClient.get.mockResolvedValueOnce({
-      data: { messages: [{ message_id: "msg_1", content: "Hello", role: "user" }] },
+      data: { messages: [{ message_id: "msg_1", content: "Hello", role: "user" }], next_cursor: null },
     });
     const res = await listMessages("conv_1");
     expect(apiClient.get).toHaveBeenCalledWith("/conversations/conv_1/messages");
     expect(res).toHaveLength(1);
+  });
+
+  // P2: the backend pages history at 50 messages and returns `next_cursor`
+  // when more exist. A conversation with 100 messages must still be shown in
+  // full, so `listMessages` follows the cursor until it is exhausted — a
+  // bounded fetch-all, not a raise of the page size.
+  it("listMessages follows next_cursor until the transcript is exhausted", async () => {
+    apiClient.get
+      .mockResolvedValueOnce({
+        data: {
+          messages: [{ message_id: "msg_1" }, { message_id: "msg_2" }],
+          next_cursor: "msg_2",
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          messages: [{ message_id: "msg_3" }],
+          next_cursor: null,
+        },
+      });
+
+    const res = await listMessages("conv_1");
+
+    expect(apiClient.get).toHaveBeenNthCalledWith(
+      1,
+      "/conversations/conv_1/messages"
+    );
+    expect(apiClient.get).toHaveBeenNthCalledWith(
+      2,
+      "/conversations/conv_1/messages",
+      { params: { after_message_id: "msg_2" } }
+    );
+    expect(res).toHaveLength(3);
+    expect(res.map((m) => m.message_id)).toEqual(["msg_1", "msg_2", "msg_3"]);
+  });
+
+  it("listMessages stops at the page bound even if the cursor keeps advancing", async () => {
+    // A misbehaving backend (or a rewrite loop) must not turn the client into
+    // an unbounded fetch. The bound is generous — 10 pages at the default
+    // limit is 500 messages — but it is a bound.
+    apiClient.get.mockImplementation(() =>
+      Promise.resolve({
+        data: {
+          messages: [{ message_id: `msg_${apiClient.get.mock.calls.length}` }],
+          next_cursor: `cursor_${apiClient.get.mock.calls.length}`,
+        },
+      })
+    );
+
+    const res = await listMessages("conv_1");
+
+    expect(apiClient.get.mock.calls.length).toBe(10);
+    expect(res).toHaveLength(10);
   });
 
   it("postChatMessage sends message without conversation_id for new conversation", async () => {

@@ -1,6 +1,13 @@
 /**
  * Authentication and Token Management Service for Travel Agent.
  * Manages Bearer Tokens and User Profiles in localStorage.
+ *
+ * The preset tokens match the documented local development registry in
+ * `.env.example` (`LOCAL_AUTH_TOKENS_JSON` with `dev-token-alice` /
+ * `dev-token-bob`). A mismatch made the quick-login presets authenticate
+ * against nothing: the UI treated the user as logged in, and the first real
+ * request came back 401. The presets are a development convenience for the
+ * documented registry, not a second source of truth.
  */
 
 const TOKEN_STORAGE_KEY = 'travel_agent_auth_token';
@@ -8,16 +15,16 @@ const USER_STORAGE_KEY = 'travel_agent_auth_user';
 
 export const PRESET_USERS = [
   {
-    id: 'user_alice',
+    id: 'alice',
     name: 'Alice',
-    token: 'token_alice_secret',
+    token: 'dev-token-alice',
     badge: 'Alice',
     color: 'bg-sidebar-mist text-graphite-ink border-hairline',
   },
   {
-    id: 'user_bob',
+    id: 'bob',
     name: 'Bob',
-    token: 'token_bob_secret',
+    token: 'dev-token-bob',
     badge: 'Bob',
     color: 'bg-sidebar-mist text-graphite-ink border-hairline',
   },

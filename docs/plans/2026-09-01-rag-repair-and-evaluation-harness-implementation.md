@@ -30,7 +30,7 @@ version 0.1 (Approved).
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | Completed |
 | Date | 2026-09-01 |
 | Approved specification | [RAG Repair and Evaluation Harness Design](../specs/2026-09-01-rag-repair-and-evaluation-harness-design.md), version 0.1 |
 | Execution owner | Coding agent under repository-owner review |

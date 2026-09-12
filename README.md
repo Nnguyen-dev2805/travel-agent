@@ -23,7 +23,7 @@ SQLite stores are retired.
 - Authenticated standalone Chat (`POST /api/v1/chat`) with automatic conversation
   creation and sequential continuation.
 - PostgreSQL 16 persistence for conversations, messages, and transactional outbox
-  under Alembic migration head `20260910_01`.
+  under Alembic migration head `20260912_02`.
 - Standalone conversation CRUD and history API (`/api/v1/conversations`).
 - Mandatory Bearer token authentication and tenant row-level security (RLS).
 - Decoupled basic semantic memory write pipeline capturing turn candidates asynchronously.

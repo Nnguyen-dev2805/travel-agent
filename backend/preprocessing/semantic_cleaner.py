@@ -48,6 +48,11 @@ SITE_SUFFIX_RE = re.compile(r"\s*\|\s*Vietnam Tourism\s*$", re.I)
 NOISE_RE = re.compile("|".join(NOISE_PATTERNS), re.I)
 WHITESPACE_RE = re.compile(r"\s+")
 SENTENCE_END_RE = re.compile(r"[.!?]")
+MARKDOWN_HEADING_RE = re.compile(r"(?m)^#{1,6}\s")
+
+
+class CleaningError(RuntimeError):
+    """The cleaning stage could not produce a usable artifact."""
 
 
 def normalize_space(value):
@@ -224,6 +229,62 @@ def rebuild_document_text(title, sections):
     return "\n\n".join(part for part in parts if part)
 
 
+def _sections_from_text(text, title=""):
+    """Derive sections from a raw `text` blob when the record carries none.
+
+    The raw corpus has no section structure: measured over the shipped
+    corpus, 0 of 281 records contain a markdown heading and none carry a
+    `sections` key. Markdown headings are honoured when a future corpus has
+    them; otherwise the document becomes one document-level section, which is
+    the honest shape. Inventing headings here would both misrepresent the
+    source and drop body text, which is exactly what the downstream
+    parent/child chunker already does (248 of 281 documents).
+    """
+    body = (text or "").strip()
+    if not body:
+        return []
+
+    if MARKDOWN_HEADING_RE.search(body):
+        sections = []
+        heading = title
+        buffer = []
+        for block in re.split(r"\n\s*\n", body):
+            block = block.strip()
+            if not block:
+                continue
+            if MARKDOWN_HEADING_RE.match(block):
+                if buffer:
+                    sections.append(
+                        _document_section(heading, "\n\n".join(buffer), len(sections))
+                    )
+                    buffer = []
+                lines = block.split("\n", 1)
+                heading = lines[0].lstrip("# ").strip()
+                # The block holds the heading AND its body; dropping the tail
+                # here is how body text disappears.
+                if len(lines) > 1 and lines[1].strip():
+                    buffer.append(lines[1].strip())
+            else:
+                buffer.append(block)
+        if buffer:
+            sections.append(_document_section(heading, "\n\n".join(buffer), len(sections)))
+        return sections
+
+    return [_document_section(title, body, 0)]
+
+
+def _document_section(heading, text, section_index):
+    """Build one section in the shape `clean_section` expects."""
+    return {
+        "heading": heading or "",
+        "heading_path": [heading] if heading else [],
+        "heading_source": "document",
+        "section_index": section_index,
+        "text": text,
+        "word_count": word_count(text),
+    }
+
+
 def clean_document(document):
     """Clean all sections in one document and attach document-level metadata."""
     cleaned_doc = copy.deepcopy(document)
@@ -231,7 +292,10 @@ def clean_document(document):
     cleaned_sections = []
     stats = Counter()
 
-    for section in cleaned_doc.get("sections") or []:
+    sections = cleaned_doc.get("sections") or _sections_from_text(
+        cleaned_doc.get("text"), title
+    )
+    for section in sections:
         cleaned_section, section_stats = clean_section(section, title)
         cleaned_sections.append(cleaned_section)
         stats.update(section_stats)
@@ -279,6 +343,11 @@ def clean_file(input_path, output_path):
         cleaned_document, document_stats = clean_document(document)
         cleaned_documents.append(cleaned_document)
         total_stats.update(document_stats)
+
+    if not any(document.get("sections") for document in cleaned_documents):
+        raise CleaningError(
+            "no_sections_produced: the cleaning stage would emit empty sections"
+        )
 
     write_clean_documents(cleaned_documents, output_path)
     return {

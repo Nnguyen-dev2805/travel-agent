@@ -1,4 +1,11 @@
-"""Crawler orchestration module for Vietnam Travel data scraping."""
+"""Crawler orchestration module for Vietnam Travel data scraping.
+
+STUB STATUS: the helper `crawler.*` submodules are not vendored in this
+repository, so `VietnamTravelCrawler` currently runs discovery/fetch as a
+no-op reporting scaffold (empty URL lists, zeroed counters). The HTML and
+semantic cleaners downstream of it are live. Do not present crawling as an
+operational capability until the fetcher submodules land.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +24,11 @@ try:
     from crawler.sitemap import collect_sitemap_urls  # type: ignore # noqa: F401
     from crawler.storage import Storage, sha256_bytes, sha256_text  # type: ignore # noqa: F401
     from crawler.url_utils import filter_url, normalize_url  # type: ignore # noqa: F401
+
+    _HAVE_FETCHER = True
 except ImportError:
+    _HAVE_FETCHER = False
+
     # Dummy fallbacks for IDE static analysis
     class CrawlerState:
         queued_urls: list[str] = []
@@ -26,19 +37,37 @@ except ImportError:
         failed_urls: set[str] = set()
 
     class CheckpointStore:
-        def __init__(self, project_dir: Any) -> None: pass
-        def load() -> CrawlerState: return CrawlerState()
-        def save(self, state: Any) -> None: pass
+        def __init__(self, project_dir: Any) -> None:
+            pass
+
+        def load() -> CrawlerState:
+            return CrawlerState()
+
+        def save(self, state: Any) -> None:
+            pass
 
     class Storage:
-        def __init__(self, project_dir: Any) -> None: pass
-        def save_raw_html(self, doc_id: str, content: bytes) -> Path: return Path("data/raw.html")
-        def save_metadata(self, doc_id: str, metadata: dict) -> None: pass
-        def save_report(self, report: dict) -> None: pass
+        def __init__(self, project_dir: Any) -> None:
+            pass
 
-    def utc_now_iso() -> str: return "2026-07-24T00:00:00Z"
-    def sha256_text(text: str) -> str: return "hash"
-    def sha256_bytes(b: bytes) -> str: return "hash"
+        def save_raw_html(self, doc_id: str, content: bytes) -> Path:
+            return Path("data/raw.html")
+
+        def save_metadata(self, doc_id: str, metadata: dict) -> None:
+            pass
+
+        def save_report(self, report: dict) -> None:
+            pass
+
+    def utc_now_iso() -> str:
+        return "2026-07-24T00:00:00Z"
+
+    def sha256_text(text: str) -> str:
+        return "hash"
+
+    def sha256_bytes(b: bytes) -> str:
+        return "hash"
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -70,13 +99,28 @@ class VietnamTravelCrawler:
 
     def discover_urls(self) -> list[str]:
         """Discover candidate URLs from sitemap candidates."""
+        if not _HAVE_FETCHER:
+            raise RuntimeError(
+                "Crawling is unavailable: the fetcher submodules are not "
+                "vendored in this repository."
+            )
         return []
 
     def dry_run(self) -> dict[str, Any]:
         """Run discovery without fetching pages."""
+        if not _HAVE_FETCHER:
+            raise RuntimeError(
+                "Crawling is unavailable: the fetcher submodules are not "
+                "vendored in this repository."
+            )
         return self.report
 
     def run(self, max_pages: int | None = None, resume: bool = False) -> dict[str, Any]:
         """Run the crawler."""
+        if not _HAVE_FETCHER:
+            raise RuntimeError(
+                "Crawling is unavailable: the fetcher submodules are not "
+                "vendored in this repository."
+            )
         self.report["finished_at"] = utc_now_iso()
         return self.report

@@ -1,11 +1,18 @@
-"""FastAPI security dependencies for authenticated chat.
+"""FastAPI security policy for authenticated chat.
 
-`require_principal` resolves the caller to a server-side principal from the
-bearer-token registry unconditionally. Missing, malformed, or invalid
-credentials become controlled 401 responses without disclosing tokens.
+`enforce_authentication` is the enforcement point (ADR 0026). It runs in the
+middleware, ahead of routing and therefore ahead of request-body parsing, so an
+unauthenticated request is refused with a controlled `401` whether or not its
+body parses. It resolves the caller to a server-side principal from the
+bearer-token registry, and missing, malformed, or invalid credentials become
+controlled responses that never disclose tokens.
 
-Request-size enforcement and CORS origin resolution also live here so
-both the middleware and tests share one controlled policy.
+`require_principal` is the route-side accessor of the principal that middleware
+resolved. It fails closed when none was stashed, because that means the
+middleware did not run.
+
+Request-size enforcement, the public-path allowlist, and CORS origin resolution
+also live here so the middleware and the tests share one controlled policy.
 """
 
 from __future__ import annotations
@@ -37,6 +44,20 @@ _REQUEST_REJECTED_DETAIL = "Request rejected."
 
 _BODY_METHODS = frozenset({"POST", "PUT", "PATCH"})
 _FALLBACK_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+# The complete public surface (ADR 0026). A path is reachable without
+# credentials only if it is listed here; nothing is public by omission.
+#
+# `GET /health` must stay open: a liveness probe that requires a token cannot
+# report an authentication outage. The documentation paths are served without
+# credentials today and are listed so the exemption is deliberate and
+# reviewable rather than an accident of the framework's defaults. Closing them
+# is a separate decision.
+#
+# This is a constant, not a setting: widening the public surface requires a
+# code change and a review.
+_PUBLIC_PATHS = frozenset({"/health"})
+_PUBLIC_PATH_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 
 
 def _bearer_token(request: Request) -> Optional[str]:
@@ -71,9 +92,53 @@ def _resolve_authenticated(token: Optional[str]) -> AuthenticatedPrincipal:
         raise HTTPException(status_code=401, detail=_INVALID_CREDENTIAL_DETAIL)
 
 
+def is_public_path(path: str) -> bool:
+    """Return whether `path` is reachable without credentials.
+
+    Matching is exact for the listed paths and anchored for the prefixes, so
+    `/docsomething` does not inherit `/docs` and `/healthz` does not inherit
+    `/health`. A loose prefix rule would widen the public surface without
+    anyone editing the allowlist.
+    """
+    if path in _PUBLIC_PATHS:
+        return True
+    return any(
+        path == prefix or path.startswith(f"{prefix}/")
+        for prefix in _PUBLIC_PATH_PREFIXES
+    )
+
+
+def enforce_authentication(request: Request) -> Optional[JSONResponse]:
+    """Authenticate ahead of routing, or return the rejection to send.
+
+    Returns `None` to continue. Reads the `Authorization` header and the URL
+    path only, never the body, which is what makes the rejection cheaper than
+    the request it refuses. On success the principal is stashed for the
+    route-side accessor.
+    """
+    if is_public_path(request.url.path):
+        return None
+    try:
+        principal = _resolve_authenticated(_bearer_token(request))
+    except HTTPException as error:
+        return JSONResponse(
+            status_code=error.status_code, content={"detail": error.detail}
+        )
+    request.state.principal = principal
+    return None
+
+
 def require_principal(request: Request) -> AuthenticatedPrincipal:
-    """Resolve the caller principal unconditionally from bearer credentials."""
-    return _resolve_authenticated(_bearer_token(request))
+    """Return the principal `enforce_authentication` resolved.
+
+    Fails closed when none was stashed: that means the middleware did not run,
+    which is a wiring defect. Resolving credentials here instead would restore
+    a second source of truth and let a mis-wired stack authenticate silently.
+    """
+    principal = getattr(request.state, "principal", None)
+    if principal is None:
+        raise HTTPException(status_code=500, detail=_CONFIG_FAILED_DETAIL)
+    return principal
 
 
 def body_limit_bytes() -> int:

@@ -147,10 +147,10 @@ class FakeVectorStore:
         self.results = results
         self.search_calls: list[dict] = []
 
-    def search_similar(self, query_embedding: list[float], top_k: int = 4) -> list[dict]:
-        self.search_calls.append(
-            {"query_embedding": query_embedding, "top_k": top_k}
-        )
+    def search_similar(
+        self, query_embedding: list[float], top_k: int = 4
+    ) -> list[dict]:
+        self.search_calls.append({"query_embedding": query_embedding, "top_k": top_k})
         return [dict(item) for item in self.results]
 
 
@@ -275,7 +275,9 @@ def test_knowledge_retriever_default_construction_uses_module_defaults(monkeypat
     assert retriever.embedder is embedder
     assert retriever.vector_store is store
     assert embedder_kwargs == [{"model_name": "BAAI/bge-m3"}]
-    assert store_kwargs == [{"collection_name": "vietnam_travel_parent_child"}]
+    assert store_kwargs == [
+        {"collection_name": "vietnam_travel_parent_child", "read_only": True}
+    ]
 
     retriever.retrieve("Thủ đô Việt Nam là gì?")
     assert store.search_calls == [

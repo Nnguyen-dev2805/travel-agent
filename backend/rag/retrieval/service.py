@@ -32,11 +32,13 @@ class KnowledgeRetriever:
     ) -> None:
         self.embedder = embedder or VectorEmbedder(model_name=DEFAULT_EMBEDDING_MODEL)
         self.vector_store = vector_store or ChromaVectorStore(
-            collection_name=collection_name
+            collection_name=collection_name, read_only=True
         )
         self.top_k = top_k
 
-    def retrieve(self, query: str, top_k: Optional[int] = None) -> list[RetrievalResult]:
+    def retrieve(
+        self, query: str, top_k: Optional[int] = None
+    ) -> list[RetrievalResult]:
         """Embed the query and return mapped evidence in retrieval order.
 
         Args:

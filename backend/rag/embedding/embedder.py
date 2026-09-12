@@ -7,6 +7,7 @@ logger = logging.getLogger("travel_agent_embedder")
 
 try:
     from sentence_transformers import SentenceTransformer
+
     HAS_SENTENCE_TRANSFORMERS = True
 except ImportError:
     HAS_SENTENCE_TRANSFORMERS = False
@@ -24,12 +25,24 @@ class VectorEmbedder:
         self.model_name = model_name
         self._model = None
 
+    def warm(self) -> None:
+        """Load the model now, so the first real query does not pay for it.
+
+        `model` is a lazy property, so constructing a `VectorEmbedder` loads
+        nothing. Startup used to claim the embedding model was pre-warmed while
+        only the object graph existed, which made the first user query carry the
+        whole load of a multi-gigabyte checkpoint.
+        """
+        _ = self.model
+
     @property
     def model(self):
         """Lazy load the embedding model on first use."""
         if self._model is None:
             if not HAS_SENTENCE_TRANSFORMERS:
-                logger.warning("sentence-transformers not installed. Using dummy deterministic embeddings for testing.")
+                logger.warning(
+                    "sentence-transformers not installed; embedding calls will fail closed."
+                )
                 return None
 
             logger.info(f"Loading embedding model: '{self.model_name}'...")
@@ -50,11 +63,19 @@ class VectorEmbedder:
             return []
 
         if self.model is not None:
-            embeddings = self.model.encode(texts, show_progress_bar=False, normalize_embeddings=True)
+            embeddings = self.model.encode(
+                texts, show_progress_bar=False, normalize_embeddings=True
+            )
             return embeddings.tolist()
 
-        # Dummy fallback vector generator for offline testing environment
-        return [[float((hash(t) + i) % 1000) / 1000.0 for i in range(1024)] for t in texts]
+        # Fail closed: deterministic dummy vectors would silently corrupt
+        # retrieval ranking on the online chat path. Evaluation preflight
+        # already rejects unevaluated dummy embeddings; the runtime must not
+        # produce them either.
+        raise RuntimeError(
+            "sentence-transformers is not installed; refusing to embed with "
+            "dummy vectors. Install the dependency or provide an embedder."
+        )
 
     def embed_query(self, query: str) -> List[float]:
         """Encode a single search query string into an embedding vector.

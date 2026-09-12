@@ -43,24 +43,37 @@ def run_pipeline(
         logger.info("STEP 1/2: Running Vietnam Travel Crawler...")
         try:
             from backend.preprocessing.run_crawler import main as run_crawler_main
+
             # Run crawler CLI
-            run_crawler_main()
+            exit_code = run_crawler_main()
+            if exit_code != 0:
+                raise RuntimeError(f"Crawler step failed with exit code {exit_code}.")
             logger.info("Step 1 Complete: Raw dataset updated.")
         except Exception as err:
-            logger.warning(f"Step 1 Warning: Crawler run encountered note ({err}). Proceeding with available dataset.")
+            if run_crawler_step:
+                # An explicitly requested crawl must fail loudly, never
+                # masquerade as success with a zeroed report.
+                raise
+            logger.warning(
+                f"Step 1 Warning: Crawler run encountered note ({err}). Proceeding with available dataset."
+            )
 
     else:
-        logger.info(f"STEP 1/2: Raw dataset exists at '{raw_input_path}'. Skipping crawl.")
+        logger.info(
+            f"STEP 1/2: Raw dataset exists at '{raw_input_path}'. Skipping crawl."
+        )
 
     # Step 2: Semantic Structure Cleaning
     logger.info(f"STEP 2/2: Cleaning document structure & removing CTA noise...")
     clean_report = clean_file(raw_input_path, clean_output_path)
-    
+
     logger.info("==================================================")
     logger.info("✅ PREPROCESSING ETL PIPELINE COMPLETE!")
     logger.info(f"   • Input Raw File : {clean_report['input']}")
     logger.info(f"   • Output Clean File: {clean_report['output']}")
-    logger.info(f"   • Clean Documents : {clean_report['documents']} articles processed")
+    logger.info(
+        f"   • Clean Documents : {clean_report['documents']} articles processed"
+    )
     logger.info("==================================================")
 
     return clean_report
@@ -68,7 +81,9 @@ def run_pipeline(
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="End-to-End Data Preprocessing & ETL Pipeline.")
+    parser = argparse.ArgumentParser(
+        description="End-to-End Data Preprocessing & ETL Pipeline."
+    )
     parser.add_argument(
         "--raw-input",
         default=str(ROOT_DIR / "data" / "processed" / "vietnam_travel_raw.jsonl"),

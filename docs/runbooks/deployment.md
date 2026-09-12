@@ -99,11 +99,11 @@ For environments transitioning to the clean-break architecture:
    ```bash
    pg_isready -h localhost -p 5433 -U travel_agent -d travel_agent
    ```
-2. **Execute Alembic Migration**: Apply all migrations up to the clean-break head (`20260910_01`):
+2. **Execute Alembic Migration**: Apply all migrations up to the current head (`20260912_02`)) with the bootstrap superuser DSN (never the runtime `DATABASE_URL`):
    ```bash
-   DATABASE_URL="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" alembic upgrade head
+   PG_DSN="postgresql+psycopg://travel_agent:password@localhost:5433/travel_agent" alembic upgrade head
    ```
-3. **Verify Migration Head**: Confirm current database revision matches `20260910_01`:
+3. **Verify Migration Head**: Confirm current database revision matches (`20260912_02`):
    ```bash
    alembic current
    ```
@@ -210,6 +210,80 @@ compromise, prompt-injection boundary crossing, or supply-chain compromise.
 Record the release identity, affected component, gate/result state, redacted
 evidence, and containment action without copying secrets or unnecessary user
 content.
+
+## Background Memory Worker (ADR 0029)
+
+The worker is a separate Compose service running
+`python -m backend.memory.write_pipeline.runtime`. It holds only the
+`travel_worker` credential and polls the outbox on `WORKER_POLL_INTERVAL_SECONDS`.
+
+**Start.** `docker compose up -d worker`. The service refuses to start on a
+superuser or `BYPASSRLS` role and exits non-zero, so a start failure is visible as
+a restart loop rather than a silently degraded worker.
+
+**Stop and drain.** `docker compose stop worker` sends `SIGTERM`. The loop stops
+between batches, never mid-event, so every claimed event is either finished or
+left leased and reclaimable on expiry. Nothing is lost by stopping.
+
+**Read the health.** Each poll logs the counters:
+`claimed, processed, succeeded, retried, dead_lettered, cancelled, lease_lost,
+refused_foreign_event, sustained_empty_polls, polls`, plus
+`last_successful_poll_at_epoch` — the heartbeat.
+
+**The heartbeat is what separates a dead worker from an idle one.**
+`last_successful_poll_at_epoch` advances on every completed poll, *including an
+empty one*. A value that stops advancing while the process is up means the loop is
+stuck, and no queue measurement can tell you that: an empty queue looks identical
+either way. Readiness cannot make the distinction, because the API shares no state
+with a separate process — so this counter, plus the container's own health, is the
+worker's liveness signal.
+
+**`lease_lost` and `refused_foreign_event`.** `lease_lost` counts attempts where the
+worker did not hold the lease it acted on. It is derived from a typed reason rather
+than a matched string, so it actually fires; before that it was dead code. A
+non-zero `refused_foreign_event` means something is publishing to the shared outbox
+in a family this worker does not process — worth understanding before it grows,
+because the alternative is that it was being extracted as if it were a conversation
+range.
+
+**The signal that matters is `sustained_empty_polls`.** An empty claim looks
+identical to a healthy quiet system, and that is the failure ADR 0028 fixed at the
+database level. At the process level it returns as "the worker is running, the
+queue is empty". If `sustained_empty_polls` keeps climbing while
+`ready_outbox_event_count()` is non-zero, the worker cannot claim: check the
+worker role's grants and the `conversation_outbox` policies before assuming the
+queue is empty.
+
+**Lease economics.** The worker renews an event's lease before an expensive model
+call when too little of the window is left, and abandons rather than spend when the
+renewal fails. The headroom is half the configured lease, which is a ratio and not a
+measurement: calibrate it against observed extraction latency when tuning
+`WORKER_LEASE_SECONDS` and `WORKER_BATCH_SIZE`. A batch is claimed up front and
+processed serially, so a large batch plus a slow provider is what makes this matter.
+
+**Dead letters.** `dead_lettered` rising means extraction exhausted
+`WORKER_MAX_ATTEMPTS`. Inspect the rows in `conversation_outbox` with
+`status = 'dead_letter'` and their `last_error`. Re-queueing is a deliberate
+operator action, never automatic.
+
+**Both feature gates stay `false`** until shadow observation is reviewed. With
+them off the worker polls an empty queue and forms no memory. Enabling
+`MEMORY_SHADOW_EXTRACT_ENABLED` is the next stage; enabling
+`MEMORY_WRITE_PIPELINE_ENABLED` is a separate owner decision after that.
+
+**Stuck conversation.** If one conversation stops being claimed while others
+proceed, an advisory lock may be held. Advisory locks are transaction-scoped, so a
+held one implies a long-running transaction; find it in `pg_locks` by
+`locktype = 'advisory'` rather than restarting the worker.
+
+**Credential isolation.** Each service declares the variables it needs, and the
+process refuses to start when the *other* role's database credential is present
+(ADR 0034). A worker that exits immediately citing `DATABASE_URL` is running in an
+environment assembled by hand or by an older Compose file: fix that service's
+allow-list rather than unsetting the check. There is no bypass flag by design. The
+same applies in reverse — the API refuses to start if `WORKER_DATABASE_URL` is
+present, which would mean the worker credential is being handed to the request
+path.
 
 ## Unsupported Actions and Stop Conditions
 
