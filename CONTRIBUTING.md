@@ -3,9 +3,11 @@
 ## Project Stage
 
 Travel Agent is an early-stage open-source project evolving from a RAG prototype
-toward an evaluated travel assistant with trip workspaces and layered memory.
-Interfaces, data models, and workflows may change, but changes still require
-explicit scope, evidence, review, and rollback.
+toward an evaluated authenticated travel assistant with governed Agent Memory.
+The current product boundary is standalone Chat; historical Workspace/Planner
+prototypes are not the target architecture. Interfaces, data models, and
+workflows may change, but changes still require explicit scope, evidence, review,
+and rollback.
 
 ## Contribution Principles
 

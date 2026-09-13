@@ -1,8 +1,11 @@
 # Risk-based Memory Control Amendment Implementation Plan
 
-> **For agentic workers:** Execute affected tasks only with their approved
-> child plan and this approved amendment delta. It replaces confirmation behavior in the existing approved master and
-> user-control plans without widening unrelated runtime scope.
+> **Historical plan — do not execute as current authority.** The governing
+> Risk-based Memory Control Amendment is superseded by the authenticated
+> Chat/PostgreSQL clean break and removal of the public Memory-control surface.
+> Its risk rules remain historical input to the later Chat-native Agent Memory
+> design, which is governed by the approved 2026-09-12 target specification,
+> ADR 0036–0040, and implementation plan v0.5.
 
 **Goal:** Align approved implementation artifacts with risk-based confirmation,
 application-owned save events, sensitive no-store, pending conflicts, and exact
@@ -18,10 +21,11 @@ low-risk actions; retain them for bulk delete and scope expansion.
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | Superseded |
 | Version | 0.1 |
 | Date | 2026-09-07 |
 | Scope | Documentation and later implementation deltas for master Tasks 5, 8-9, 11-12 only |
+| Superseded by | [Authenticated Chat-Only PostgreSQL Clean Break](../specs/2026-09-10-authenticated-chat-postgresql-clean-break-design.md) for the public control surface; [Agent Memory Target Architecture Implementation Plan](./2026-09-12-agent-memory-target-architecture-implementation.md) v0.5 for current Chat-native Memory work |
 
 ## Task Table
 

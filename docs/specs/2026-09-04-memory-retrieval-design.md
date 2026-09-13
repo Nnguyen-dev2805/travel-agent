@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | Superseded |
 | Version | 0.3 |
 | Date | 2026-09-04 |
 | Change class | Level 3 - Architecture Design |
@@ -14,6 +14,7 @@
 | Implementation plan | [Memory Retrieval Implementation Plan](../plans/2026-09-04-memory-retrieval-implementation.md), version 0.1 (Approved 2026-09-05) |
 | Related issue | None - R6 specification drafting was authorized by the repository owner in conversation on 2026-09-04 |
 | Superseded document | None |
+| Superseded by | [Authenticated Chat-Only PostgreSQL Clean Break](./2026-09-10-authenticated-chat-postgresql-clean-break-design.md) v0.1 retired the legacy retrieval surface; [Agent Memory Target Architecture](./2026-09-12-agent-memory-target-architecture-design.md) v0.2 plus ADR 0039 govern future Memory Read/Use |
 
 ## Summary
 

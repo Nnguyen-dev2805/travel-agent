@@ -8,7 +8,7 @@
 | Scope | R9 local authentication, authorization, data deletion, error hardening, and privacy verification boundary |
 | Governing spec | [Security and Privacy Hardening Design](../specs/2026-09-06-security-and-privacy-hardening-design.md), version 0.2 |
 | Superseded ADR | None |
-| Superseded by | None |
+| Superseded by | Partial: [ADR 0018](./0018-authenticated-chat-only-product-container.md) supersedes only the historical `AUTH_REQUIRED=false` compatibility-mode portion; remaining security/deletion decisions continue where not replaced |
 
 ## Context
 

@@ -2,13 +2,13 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted |
+| Status | Superseded |
 | Date | 2026-09-07 |
 | Decision owners | Repository owner |
 | Scope | Conversation ownership, first-turn creation, and optional workspace association |
 | Governing spec | [Basic Semantic Memory Write Pipeline Design](../specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md), version 0.1 (Approved) |
 | Superseded ADR | [ADR 0002](./0002-trip-workspace-as-primary-product-container.md) and [ADR 0005](./0005-conversation-orchestration-seam-and-optional-chat-binding.md) for mandatory-workspace and unbound-chat behavior; retained orchestration and persistence-order rules carry forward |
-| Superseded by | None |
+| Superseded by | [ADR 0021](./0021-standalone-conversation-ownership-and-auto-create.md) removes optional Workspace association and defines the current standalone conversation contract |
 
 ## Context
 

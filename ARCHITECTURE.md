@@ -11,8 +11,25 @@ It describes the mounted components, runtime flows, and storage boundaries imple
 Use these architecture documents for deeper review:
 
 1. [Current-state Architecture](docs/architecture/current-state.md) records the evidence-backed implemented baseline.
-2. [Target-state Architecture](docs/architecture/target-state.md) outlines future capability directions.
-3. [Data Model](docs/architecture/data-model.md) defines conceptual entities.
+2. [Target-state Architecture](docs/architecture/target-state.md) records the approved future Agent Memory boundaries and staged migration direction.
+3. [Data Model](docs/architecture/data-model.md) defines the approved conceptual entities, lifecycle dimensions, and isolation relationships.
+
+## Approved Target Direction
+
+The mounted runtime remains the clean-break baseline described below. The
+approved future direction is the Chat-first Agent Memory architecture in
+[`docs/specs/2026-09-12-agent-memory-target-architecture-design.md`](docs/specs/2026-09-12-agent-memory-target-architecture-design.md) v0.2, governed by accepted ADRs 0036–0040 and the approved implementation plan v0.5.
+
+That target keeps authenticated standalone Chat and PostgreSQL as the baseline;
+it does **not** restore Workspace, Planner, SQLite, or a separate public Memory
+Manager. It adds a bounded single-turn agent flow, Chat-native explicit Memory
+actions, governed Memory Read/Use, shadow-first background inference, later
+Episodic/Working slices, optional rebuildable retrieval projections, and a
+separate system-owned procedural publication boundary.
+
+Do not read the target sections as implemented behavior. Runtime truth remains
+in `docs/architecture/current-state.md` until each stage is implemented and
+verified.
 
 ## Active Runtime Components
 
@@ -24,12 +41,12 @@ The application is structured around a single composition root (`RuntimeContaine
 | **FastAPI application** | Lifespan management, security middleware, content-free error handling, and router mounting | `backend/app/main.py` |
 | **RuntimeContainer** | Composition root managing application dependencies, engine disposal, repository lifecycle, and observability probes | `backend/app/runtime_container.py` |
 | **Health route** | Public service health check (`/health`) | `backend/app/api/health.py` |
-| **Ops readiness route** | Authenticated readiness probe checking PostgreSQL, Alembic head, Chroma, and model provider (`/api/v1/ops/readiness`) | `backend/app/api/ops.py`, `backend/observability/readiness.py` |
-| **Chat route** | Authenticated endpoint (`/api/v1/chat`) auto-creating or continuing conversations, orchestrating RAG generation, and asynchronously capturing outbox events | `backend/app/api/chat.py`, `backend/orchestration/conversation_orchestrator.py` |
+| **Ops readiness route** | Authenticated readiness probe returning six components — application, model provider, RAG Chroma, PostgreSQL, Alembic head, and memory write pipeline (`/api/v1/ops/readiness`) | `backend/app/api/ops.py`, `backend/observability/readiness.py` |
+| **Chat route** | Authenticated endpoint (`/api/v1/chat`) auto-creating or continuing conversations, opening a durable turn with its extraction outbox intent, then orchestrating RAG generation and terminal turn transition | `backend/app/api/chat.py`, `backend/orchestration/conversation_orchestrator.py` |
 | **Conversation routes** | Standalone conversation CRUD and history API (`/api/v1/conversations`) owned directly by authenticated users | `backend/app/api/conversations.py`, `backend/conversations/service.py` |
 | **PostgreSQL conversation store** | Persists standalone conversations, sequential messages, and conversation outbox entries atomically under PostgreSQL | `backend/conversations/postgres_repository.py` |
 | **Security boundary** | Mandatory local bearer token authentication enforced ahead of routing, principal extraction, tenant isolation, body size limiting, and restricted CORS | `backend/security/` |
-| **BackgroundMemoryRecorder** | Decoupled post-turn background recorder seam capturing memory extraction candidates into the transactional outbox | `backend/orchestration/conversation_orchestrator.py` |
+| **Conversation turn/outbox boundary** | Persists the user message, pending assistant message, and extraction outbox event atomically; terminal completion releases the event and terminal failure cancels it | `backend/conversations/service.py`, `backend/conversations/postgres_repository.py` |
 | **Basic Semantic Memory Write Pipeline** | Versioned assertions, authority ranking, row-level locking, idempotent commits, and background shadow worker | `backend/memory/write_pipeline/` |
 | **RAG generation service** | Embeds user queries (`BAAI/bge-m3`), searches Chroma vector store, formats prompts, and calls the configured model endpoint | `backend/rag/generation/rag_service.py` |
 | **Observability & redaction** | Correlated request IDs (`X-Request-ID`, `rq_...`), structured redaction of tokens/paths/content, and audit logging | `backend/observability/` |
@@ -53,26 +70,33 @@ sequenceDiagram
     participant Orch as ConversationOrchestrator
     participant PG as PostgreSQL 16
     participant RAG as RAGService
-    participant Recorder as BackgroundMemoryRecorder
 
     Browser->>Main: POST /api/v1/chat (Bearer Token, message, [conversation_id])
     Main->>Main: Verify Bearer Token in middleware, ahead of routing -> Principal(owner_user_id)
     Main->>API: Validated Request + Principal
     alt First turn (no conversation_id)
         API->>Orch: handle_turn(message, conversation_id=None, owner_user_id)
-        Orch->>PG: Auto-create Conversation(cv_..., owner_user_id)
+        Orch->>PG: create_conversation_with_initial_turn(..., OutboxIntent)
+        Note over PG: One transaction: Conversation + USER COMPLETE + ASSISTANT PENDING + conversation_outbox
     else Subsequent turn (with conversation_id)
         API->>Orch: handle_turn(message, conversation_id=cv_..., owner_user_id)
         Orch->>PG: Verify ownership of conversation (404 if cross-owner)
+        Orch->>PG: append_turn(..., OutboxIntent)
+        Note over PG: One transaction: USER COMPLETE + ASSISTANT PENDING + conversation_outbox
     end
-    Orch->>PG: Append User Message(ms_..., sequence=N)
+    Note over Orch,PG: Phase 1 committed; extraction event is not claimable until the turn becomes terminal
     Orch->>RAG: generate_answer(message, top_k=4)
     RAG-->>Orch: Answer, citations, model metadata
-    Orch->>PG: Append Assistant Message(ms_..., sequence=N+1)
-    Orch->>Recorder: record_turn_async(conversation_id, message_ids)
-    Recorder->>PG: Write conversation_outbox event (atomic with turn)
-    Orch-->>API: TurnOutcome (reply, conversation metadata, citations)
-    API-->>Browser: 200 OK ChatResponse
+    alt Generation succeeds
+        Orch->>PG: complete_turn(assistant_message_id, reply)
+        Note over PG: Same transaction: ASSISTANT -> COMPLETE + release this turn's outbox event
+        Orch-->>API: TurnOutcome (reply, conversation metadata, citations)
+        API-->>Browser: 200 OK ChatResponse
+    else Generation fails
+        Orch->>PG: fail_turn(assistant_message_id)
+        Note over PG: Same transaction: ASSISTANT -> FAILED + cancel this turn's outbox event
+        Orch-->>API: Raise failure
+    end
 ```
 
 ## Storage Architecture
@@ -108,7 +132,11 @@ PostgreSQL 16 is the sole relational storage engine, managed via Alembic migrati
 1. **8 Mounted Routes Only**: Health (`/health`), Ops readiness (`/api/v1/ops/readiness`), Chat (`/api/v1/chat`), and Conversation CRUD (`/api/v1/conversations`).
 2. **Conversation Auto-Creation & Continuation**: Omitting `conversation_id` on the first turn auto-creates an owned conversation; providing it on subsequent turns continues the transcript.
 3. **Sequential Message Ordering**: Messages within a conversation are assigned unique contiguous `sequence` integers starting at 1.
-4. **Decoupled Outbox Processing**: Memory extraction runs asynchronously via outbox events and never blocks the chat response.
+4. **Transactional Outbox, Asynchronous Extraction**: The extraction event is
+   created synchronously in the same transaction that opens the turn, then is
+   released only when `complete_turn` makes the assistant message terminal.
+   Model-backed Memory extraction happens asynchronously after release and does
+   not extend chat-generation latency.
 5. **Alembic Migration Head**: Relational schema matches head `20260912_02`.
 
 ## Known Gaps

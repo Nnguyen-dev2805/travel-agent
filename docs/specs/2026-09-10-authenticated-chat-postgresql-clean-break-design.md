@@ -9,7 +9,7 @@
 | Decision owner | Repository owner |
 | Scope | Destructive removal of application-owned SQLite, Workspace, Planner, anonymous compatibility Chat, legacy Memory, and user-facing Memory management; replacement with authenticated standalone Chat on PostgreSQL |
 | Related issue | Repository-owner approved exception: interactive clean-break redesign on 2026-09-10 |
-| Superseded document | None until approval; Section 20 lists proposed supersession |
+| Superseded document | See the Supersession section for the historical Workspace/Planner/SQLite/legacy-Memory documents replaced by this approved clean break |
 
 ## Summary
 
@@ -686,9 +686,10 @@ blocks completion.
 14. No Git delivery occurs before repository-owner review of the verified change
     set.
 
-## Proposed Supersession
+## Supersession
 
-After approval and verified implementation, this clean-break design supersedes
+Following approval and verified implementation, this clean-break design
+superseded
 the mounted-target portions of:
 
 1. `2026-09-03-trip-workspace-foundation-design.md`.
@@ -702,8 +703,9 @@ the mounted-target portions of:
    user-control surface; its risk rules remain historical input to any future
    Chat command design.
 
-The documents remain in the repository as historical evidence. Supersession
-does not occur merely because this specification is in review.
+The documents remain in the repository as historical evidence. This
+supersession became effective with the approved, verified clean-break
+implementation; it is not inferred merely from document existence.
 
 ## Required ADRs
 
@@ -720,6 +722,8 @@ surface until this spec and its superseding ADR are approved and implemented.
 
 ## Approval Record
 
-Version 0.1 is in review. Approval authorizes preparation of the required ADRs
-and an implementation plan. It does not authorize source deletion, database
-migration, data disposal, staging, commit, push, merge, release, or deployment.
+Version 0.1 is approved. Its implementation plan transitioned to `Completed` on
+2026-09-11 after the clean-break runtime and boundary verification were
+delivered. This specification remains the baseline authority for the mounted
+Chat/PostgreSQL clean break; the later approved Agent Memory target governs
+future Memory architecture without restoring the retired surfaces.

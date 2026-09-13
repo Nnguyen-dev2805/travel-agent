@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | Superseded |
 | Version | 0.1 |
 | Date | 2026-09-03 |
 | Change class | Level 3 - Architecture Design |
@@ -14,6 +14,7 @@
 | Implementation plan | [Trip Workspace Foundation Implementation Plan](../plans/2026-09-03-trip-workspace-foundation-implementation.md), version 0.1 (Approved) |
 | Related issue | None - R3 specification drafting was authorized by the repository owner in conversation on 2026-09-03 |
 | Superseded document | None |
+| Superseded by | [Authenticated Chat-Only PostgreSQL Clean Break](./2026-09-10-authenticated-chat-postgresql-clean-break-design.md) v0.1 removed Workspace from the mounted product |
 
 ## Summary
 

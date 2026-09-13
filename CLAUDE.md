@@ -102,6 +102,12 @@ For development requests that may create or modify repository files, invoke
 `development-workflow` first to determine the current workflow state and route
 to the required process skill or approval gate.
 
+For any coding task, invoke `ponytail` after `development-workflow` and before
+implementation. Use `full` intensity by default. `ponytail` governs
+implementation simplicity only; it must not weaken the approved specification,
+implementation plan, ADRs, security controls, validation, required
+tests/evaluation, or explicit repository-owner requirements.
+
 ## Codebase Discovery
 
 Use the repository's currently available code-intelligence tooling for

@@ -185,6 +185,14 @@ commit, push, open a PR, merge, and release.
 
 ## Plan Index
 
+The status column records the historical approval/execution state of each plan;
+it does not override the lifecycle of its governing specification. If a
+governing specification is `Superseded`, its plan is historical execution
+evidence and must not be selected as current implementation authority. For the
+active Agent Memory program, use the approved
+[Agent Memory Target Architecture Implementation Plan](./2026-09-12-agent-memory-target-architecture-implementation.md)
+v0.5 together with its approved specification and ADR 0036–0040.
+
 | Date | Title | Governing spec | Status | Path |
 | --- | --- | --- | --- | --- |
 | 2026-08-30 | Agent Operating System Implementation Plan | [Agent Operating System Design](../specs/2026-08-30-agent-operating-system-design.md) v0.1 | Completed | [Plan](./2026-08-30-agent-operating-system-implementation.md) |
@@ -203,14 +211,15 @@ commit, push, open a PR, merge, and release.
 | 2026-09-05 | Trip Planner State Implementation Plan | [Trip Planner State Design](../specs/2026-09-05-trip-planner-state-design.md) v0.2 | Completed | [Plan](./2026-09-05-trip-planner-state-implementation.md) |
 | 2026-09-05 | Observability and Operations Implementation Plan | [Observability and Operations Design](../specs/2026-09-05-observability-and-operations-design.md) v0.2 | Completed | [Plan](./2026-09-05-observability-and-operations-implementation.md) |
 | 2026-09-06 | Security and Privacy Hardening Implementation Plan | [Security and Privacy Hardening Design](../specs/2026-09-06-security-and-privacy-hardening-design.md) v0.2 | Completed | [Plan](./2026-09-06-security-and-privacy-hardening-implementation.md) |
+| 2026-09-06 | Frontend Workspace Rebuild Implementation Plan | [Frontend Workspace Rebuild Design](../specs/2026-09-06-frontend-workspace-rebuild-design.md) v0.1 | Completed (historical; governing spec superseded) | [Plan](./2026-09-06-frontend-workspace-rebuild-implementation.md) |
 | 2026-09-07 | Basic Semantic Memory Write Pipeline Implementation Plan | [Basic Semantic Memory Write Pipeline Design](../specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md) v0.1 | Completed | [Plan](./2026-09-07-basic-semantic-memory-write-pipeline-implementation.md) |
 | 2026-09-07 | Standalone Conversation Foundation Implementation Plan | [Basic Semantic Memory Write Pipeline Design](../specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md) v0.1 | Approved | [Plan](./2026-09-07-standalone-conversation-foundation-implementation.md) |
 | 2026-09-07 | Semantic Memory Domain Implementation Plan | [Basic Semantic Memory Write Pipeline Design](../specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md) v0.1 | Approved | [Plan](./2026-09-07-semantic-memory-domain-implementation.md) |
 | 2026-09-07 | Memory PostgreSQL and Unit of Work Implementation Plan | [Basic Semantic Memory Write Pipeline Design](../specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md) v0.1 | Approved | [Plan](./2026-09-07-memory-postgresql-uow-implementation.md) |
-| 2026-09-07 | Memory User Controls Implementation Plan | [Basic Semantic Memory Write Pipeline Design](../specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md) v0.1 | Approved | [Plan](./2026-09-07-memory-user-controls-implementation.md) |
+| 2026-09-07 | Memory User Controls Implementation Plan | [Basic Semantic Memory Write Pipeline Design](../specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md) v0.1 | Superseded (public Memory controls removed) | [Plan](./2026-09-07-memory-user-controls-implementation.md) |
 | 2026-09-07 | Memory Background Shadow Implementation Plan | [Basic Semantic Memory Write Pipeline Design](../specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md) v0.1 | Approved | [Plan](./2026-09-07-memory-background-shadow-implementation.md) |
 | 2026-09-07 | Memory Write Evaluation and Rollout Implementation Plan | [Basic Semantic Memory Write Pipeline Design](../specs/2026-09-07-basic-semantic-memory-write-pipeline-design.md) v0.1 | Approved | [Plan](./2026-09-07-memory-write-evaluation-rollout-implementation.md) |
-| 2026-09-07 | Risk-based Memory Control Amendment Implementation Plan | [Risk-based Memory Control Amendment](../specs/2026-09-07-risk-based-memory-control-amendment.md) v0.1 | Approved | [Plan](./2026-09-07-risk-based-memory-control-amendment-implementation.md) |
+| 2026-09-07 | Risk-based Memory Control Amendment Implementation Plan | [Risk-based Memory Control Amendment](../specs/2026-09-07-risk-based-memory-control-amendment.md) v0.1 | Superseded (historical) | [Plan](./2026-09-07-risk-based-memory-control-amendment-implementation.md) |
 | 2026-09-10 | Authenticated Chat-Only PostgreSQL Clean Break Implementation Plan | [Authenticated Chat-Only PostgreSQL Clean Break](../specs/2026-09-10-authenticated-chat-postgresql-clean-break-design.md) v0.1 | Completed | [Plan](./2026-09-10-authenticated-chat-postgresql-clean-break-implementation.md) |
 | 2026-09-11 | Runtime Integrity, Observability, Evaluation and Test Remediation Implementation Plan | [Runtime Integrity Remediation](../specs/2026-09-11-runtime-integrity-remediation-design.md) v0.1 | Completed | [Plan](./2026-09-11-runtime-integrity-remediation-implementation.md) |
 | 2026-09-11 | Atomic Chat Turn and Memory Write Pipeline Correctness Implementation Plan | [Atomic Chat Turn and Memory Correctness](../specs/2026-09-11-atomic-chat-turn-and-memory-correctness-design.md) v0.1 | Completed | [Plan](./2026-09-11-atomic-chat-turn-and-memory-correctness-implementation.md) |
@@ -222,3 +231,4 @@ commit, push, open a PR, merge, and release.
 | 2026-09-11 | Worker Role and Tenant-Bound Outbox Claim Implementation Plan | [Worker Role and Tenant-Bound Outbox Claim](../specs/2026-09-11-worker-role-tenant-bound-outbox-claim-design.md) v0.1 (Approved) | Completed | [Plan](./2026-09-11-worker-role-tenant-bound-outbox-claim-implementation.md) |
 | 2026-09-12 | Memory Worker Runtime Implementation Plan | [Memory Worker Runtime](../specs/2026-09-12-memory-worker-runtime-design.md) v0.1 (Approved) | Completed | [Plan](./2026-09-12-memory-worker-runtime-implementation.md) |
 | 2026-09-12 | Worker Authority: Credential, Lease Time, and Fence Semantics Implementation Plan | [Worker Authority: Credential, Lease Time, and Fence Semantics](../specs/2026-09-12-worker-authority-credential-lease-fence-design.md) v0.1 (Approved) | Completed | [Plan](./2026-09-12-worker-authority-credential-lease-fence-implementation.md) |
+| 2026-09-12 | Agent Memory Target Architecture Implementation Plan | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.2 (Approved) | Approved (v0.5; 2026-09-13) | [Plan](./2026-09-12-agent-memory-target-architecture-implementation.md) |

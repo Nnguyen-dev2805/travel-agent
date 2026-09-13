@@ -2,14 +2,14 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted |
+| Status | Superseded |
 | Date | 2026-09-07 |
 | Accepted | 2026-09-08 |
 | Decision owners | Repository owner |
 | Scope | User-memory confirmation, application save feedback, sensitive no-store, conflict prompting, and Shadow meaning |
 | Governing spec | [Risk-based Memory Control Amendment](../specs/2026-09-07-risk-based-memory-control-amendment.md), version 0.1 (Approved) |
 | Superseded ADR | [ADR 0015](./0015-memory-sensitivity-and-confirmed-user-control.md) |
-| Superseded by | None |
+| Superseded by | [ADR 0020](./0020-removal-of-public-memory-management-surface.md); risk rules remain historical input for later Chat-native Memory design |
 
 ## Context
 

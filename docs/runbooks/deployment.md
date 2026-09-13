@@ -4,8 +4,10 @@
 
 Travel Agent has no approved production deployment topology. The current
 Dockerfiles and Docker Compose configuration are local-development contracts,
-including a Vite development server, bind mounts, published ports, no implemented
-user authentication, and permissive CORS that includes `*`.
+including a Vite development server, bind mounts, published ports, mandatory
+local Bearer authentication for product routes, and a local-development CORS
+allowlist. These controls are not a production identity, ingress, or origin
+trust architecture.
 
 This document is therefore a provider-neutral readiness and promotion gate. It
 does not contain a cloud deployment procedure and does not authorize public
@@ -41,7 +43,7 @@ There is no partial score and no average across rows.
 | --- | --- | --- |
 | 1. Approved deployment architecture and ADRs | Approved production topology, trust boundaries, runtime ownership, and all required ADRs | **BLOCKED** - no production topology is approved |
 | 2. Authentication and authorization | Implemented and tested identity, authentication, authorization, and failure behavior for user-scoped capabilities | **BLOCKED** - local bearer-token boundary with owner authorization is implemented and tested (`r9-security-privacy-v0.1` PASS), but local tokens are not production identity and no production topology is approved |
-| 3. Tenant/workspace isolation | Tests and design evidence that persisted/retrieved user data cannot cross user/workspace scope | **BLOCKED** - user/workspace runtime is not implemented |
+| 3. Owner/conversation/Memory isolation | Tests and design evidence that persisted/retrieved user data cannot cross owner, conversation, or applicable Memory scope | **BLOCKED** - local owner/conversation isolation is implemented, but no production tenant model is approved and the Agent Memory target has not yet supplied final cross-scope evaluation evidence |
 | 4. Restrictive environment-specific CORS | Reviewed allowlist for trusted production origins; no wildcard credentialed public API | **BLOCKED** - wildcard is rejected when auth is enabled, but the allowlist is local development configuration, not reviewed production origins |
 | 5. TLS and trusted public origins | Approved TLS termination, trusted origins, and public endpoint boundary | **BLOCKED** - no production ingress/TLS topology is approved |
 | 6. Production secret storage and rotation | Approved secret storage, access, injection, rotation, and incident procedure | **BLOCKED** - current local `.env`/`GITHUB_TOKEN` handling is not a production secret-management contract |
@@ -52,7 +54,7 @@ There is no partial score and no average across rows.
 | 11. Versioned reproducible artifacts | Versioned deployable artifact and reproducible dependency installation/build evidence | **BLOCKED** - current development images are not an approved release artifact contract |
 | 12. Rollback and state compatibility | Tested rollback path plus explicit data/schema/state compatibility boundary | **BLOCKED** - no production rollback/state contract exists |
 | 13. Incident ownership | Reachable operator path, incident owner, evidence path, containment and recovery handoff | **BLOCKED** - this runbook defines readiness expectations, not a deployed operator organization |
-| 14. Package 5 RAG/memory quality and safety | Passing governed RAG gates and, for memory claims, all applicable memory quality gates plus zero hard-safety failures | **BLOCKED** - no release candidate has supplied complete Package 5 production-promotion evidence |
+| 14. Governed RAG/Agent Memory quality and safety | Passing governed RAG gates and, for every Memory capability claimed by the release, the applicable Agent Memory stage/cross-stage gates with zero hard-safety failures | **BLOCKED** - no release candidate has supplied complete production-promotion evidence for the approved Agent Memory target |
 
 Because multiple mandatory rows are blocked, the current prototype must not be
 represented as public-production ready.
@@ -67,7 +69,7 @@ Before any environment promotion is authorized:
 4. confirm secret values are absent from review artifacts;
 5. confirm data stores and migrations have reviewed retention/deletion/backup/
    restore ownership;
-6. confirm Package 5 evaluation evidence matches the behavior being claimed;
+6. confirm governed RAG and applicable Agent Memory evaluation evidence matches the behavior being claimed;
 7. confirm rollback and incident ownership are available before exposure.
 
 If any applicable item is missing or uncertain, stop. The outcome is
@@ -144,7 +146,7 @@ process liveness:
 
 - process health and dependency readiness;
 - authentication/authorization denial and success paths;
-- workspace/user isolation where applicable;
+- owner/conversation/Memory-scope isolation where applicable;
 - trusted origin/CORS and TLS boundary;
 - secret non-disclosure in logs/errors;
 - required data-store read/write/delete behavior;
@@ -159,7 +161,7 @@ immediately to [Incident Response](./incident-response.md).
 ## Degraded Dependency Handling
 
 Health and readiness must distinguish a running process from degraded model,
-retrieval, memory, planner, storage, or external-provider behavior. A dependency
+retrieval, Memory write/worker, storage, or external-provider behavior. A dependency
 failure must not silently convert unsupported behavior into a successful answer
 or production-ready state.
 
@@ -192,7 +194,7 @@ is unknown.
 ## State Compatibility
 
 Rollback must account for durable state. Before a release can modify schemas,
-indexes, workspace/conversation/memory data, planner state, or evaluation traces,
+indexes, conversation/Memory data, retrieval projections, or evaluation traces,
 its approved design must state whether old and new application versions can read
 the same state and how incompatible changes are reversed or migrated.
 
@@ -293,9 +295,10 @@ This runbook does not authorize:
   vendor, backup technology, or authentication model;
 - inventing a production URL, DNS record, credential, SLO, retention period, or
   capacity budget;
-- exposing the current unauthenticated/wildcard-CORS API publicly;
+- exposing the current local API publicly before production identity, TLS,
+  trusted-origin, storage-lifecycle, and other mandatory gates pass;
 - treating documentation as evidence that a runtime control exists;
-- overriding Package 5 hard safety gates with aggregate metrics;
+- overriding governed RAG or Agent Memory hard safety gates with aggregate metrics;
 - applying provider/hosting changes without the approved architecture and
   execution authority;
 - staging, committing, pushing, opening/merging a PR, or releasing without the

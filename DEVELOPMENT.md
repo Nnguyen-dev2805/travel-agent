@@ -227,11 +227,20 @@ The `POST /api/v1/chat` endpoint handles conversation turns with automatic lifec
      --header 'Content-Type: application/json' \
      --data '{"message":"Prefer quiet boutique options", "conversation_id":"cv_example"}'
    ```
-3. **Decoupled Outbox Capture**: After each turn, the orchestrator captures memory extraction candidates to `conversation_outbox` asynchronously via `BackgroundMemoryRecorder`, keeping the chat turn fast and non-blocking.
+3. **Transactional Outbox + Async Extraction**: Opening a turn persists the user
+   message, a pending assistant row, and the extraction `conversation_outbox`
+   event atomically. RAG/model generation runs outside that transaction. A
+   successful `complete_turn` releases the event in the same transaction as the
+   assistant `COMPLETE` transition; `fail_turn` cancels it. The worker performs
+   Memory extraction asynchronously only after release, so extraction does not
+   extend chat-generation latency.
 
 ### Basic Semantic Memory Write Pipeline
 
-The basic semantic memory write pipeline (ADR 0020) manages versioned assertions, authority ranking, row locking, and idempotent commits against PostgreSQL:
+The retained basic semantic Memory write foundation (ADRs 0012–0014 and 0016)
+manages versioned assertions, authority ranking, row locking, idempotent commits,
+and focused evaluation against PostgreSQL. ADR 0020 instead governs removal of
+the public Memory-management surface; it is not the write-pipeline ADR.
 
 ```bash
 python3 -m backend.memory.write_pipeline.evaluation.cli run \
@@ -243,12 +252,14 @@ python3 -m backend.memory.write_pipeline.evaluation.cli run \
 ### Local Ops Readiness
 
 `/health` answers liveness only: it stays `{status, service}` and never
-proves model, RAG, storage, memory, or planner readiness. Ops readiness is
+proves model, RAG, storage, or Agent Memory readiness. Ops readiness is
 the diagnostic surface:
 
 ```bash
 curl --fail --silent --show-error http://localhost:8000/health
-curl --fail --silent --show-error http://localhost:8000/api/v1/ops/readiness
+curl --fail --silent --show-error \
+  --header 'Authorization: Bearer dev-token-alpha' \
+  http://localhost:8000/api/v1/ops/readiness
 ```
 
 Rules:
@@ -298,11 +309,11 @@ Rules:
 | Stage A smoke | repository root | `docker compose up --build` plus `curl --fail --silent --show-error http://localhost:8000/health` | Dev stack starts and health responds | Docker state, mounted app/data paths, possible Chroma state | Possible during image build or dependency install | blocked by missing Docker daemon/socket in current environment |
 | Stage B chat readiness | repository root | opt-in chat request to `/api/v1/chat` | Chat path can reach retrieval and model provider | Possible logs/cache/data state | Yes | Opt-in, not default CI |
 | PostgreSQL tests | repository root | `PG_TEST_DSN=... PG_RUNTIME_TEST_DSN=... pytest backend/tests/integration -m integration -v` | All integration tests pass with zero skips | Test caches | Isolated PostgreSQL with migrated schema, plus both a DDL-capable and a least-privilege role | Verified-pass when a live database is available |
-| Boundary checks | repository root | `pytest backend/tests/boundaries/ -v` | Clean-break architectural sentinels pass | Test caches | No expected external call | Verified-pass (5 passed) |
+| Boundary checks | repository root | `pytest backend/tests/boundaries/ -v` | Clean-break architectural sentinels pass | Test caches | No expected external call | 16 test cases are currently defined; run the suite for current pass/fail evidence |
 | Authenticated conversation routes | repository root | `curl` requests to `/api/v1/conversations` with `Authorization: Bearer` | Conversations and messages created and read under PostgreSQL | PostgreSQL database | No expected external call | Requires Bearer token |
 | Authenticated chat turn | repository root | `POST /api/v1/chat` with `Authorization: Bearer` | Auto-creates or continues conversation, persists turn to PG | PostgreSQL database | Calls model provider | Verified-pass |
 | Semantic memory write evaluation | repository root | `python3 -m backend.memory.write_pipeline.evaluation.cli run --dataset <fixtures> --suite all --output-dir <reports>` | Full write pipeline evaluation report | Markdown and JSON reports | No expected external call | Deterministic; writes reports only |
-| Local ops readiness | repository root | `curl` requests to `/health` and `/api/v1/ops/readiness` | Liveness plus component diagnostics (PostgreSQL, Alembic head, Chroma, Model) | No expected source writes | No expected external call | Requires Bearer token for readiness |
+| Local ops readiness | repository root | `curl` requests to `/health` and `/api/v1/ops/readiness` | Liveness plus six readiness components (App, Model Provider, RAG Chroma, PostgreSQL, Alembic, Memory Write Pipeline) | No expected source writes | No expected external call | Requires Bearer token for readiness |
 | Local security evaluation | repository root | Security and privacy unit/boundary tests plus the live PostgreSQL tenant-isolation integration tests (`backend/tests/integration/test_tenant_isolation.py`, run with `PG_RUNTIME_TEST_DSN` against the non-superuser `travel_app` role; schema setup uses the DDL-capable `PG_TEST_DSN`) | Mandatory Bearer auth, enforced tenant RLS, content-free errors | PostgreSQL for the RLS proof | Deterministic; PG proof requires a live database |
 | RAG and memory evaluation | repository root | later approved evaluation command | Approved metric-specific quality claim | Evaluation outputs | Depends on later plan | Future milestone |
 
@@ -314,9 +325,10 @@ mutate local data, populate Chroma, write cache files, use network access, call
 external services, or incur provider-side usage.
 
 Note: the web crawler itself (`backend/preprocessing/crawler.py`) is currently
-a stub — its helper fetch submodules are not vendored, so discovery/fetch
-return empty scaffolds. The HTML and semantic cleaners downstream of it are
-live. Treat crawling as planned, not operational, until the fetcher lands.
+a stub — its helper fetch submodules are not vendored, so crawler entrypoints
+fail fast when crawling is requested. The HTML and semantic cleaner modules are
+implemented and can run against existing input artifacts, but they do not make
+crawling operational. Treat crawling as planned until the fetcher lands.
 
 Do not run these operations inside R0 default verification. Run them only under
 the approved task that owns their inputs, side effects, and evidence.
@@ -365,8 +377,22 @@ and Operations track in
 - Stage B chat readiness is intentionally not part of default CI because it can
   require secrets, network access, local model/cache state, and populated
   Chroma data.
+- The current `.github/workflows/ci.yml` backend job does not provision a
+  PostgreSQL test service or export `PG_TEST_DSN`, `PG_RUNTIME_TEST_DSN`, and
+  `PG_WORKER_TEST_DSN`. A green default CI run therefore does not satisfy the
+  Agent Memory requirement that mandatory PostgreSQL integration scenarios
+  execute with zero required skips. Before PostgreSQL-dependent stage gates or
+  final Task 16 verification become release evidence, either add a disposable
+  PostgreSQL CI job with those governed DSNs or run the exact integration suite
+  in another approved environment and attach that evidence.
 - RAG and memory quality are not established by R0 checks. They require the
   approved evaluation protocols and later runtime milestones.
+
+Current test inventory (source count, not pass evidence): the clean-break
+boundary file defines 16 test cases, and the frontend defines 32 Vitest cases
+across three test files. The dated Verification Ledger below remains historical
+evidence for the exact runs recorded at that time and is intentionally not
+rewritten to claim today's counts passed.
 
 ## Verification Ledger
 

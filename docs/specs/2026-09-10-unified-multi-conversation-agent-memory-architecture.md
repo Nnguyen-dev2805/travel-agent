@@ -2,22 +2,27 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In Review |
-| Version | 0.2 Draft |
-| Date | 2026-09-11 |
+| Status | Superseded |
+| Version | 0.3 Draft |
+| Date | 2026-09-12 |
 | Change class | Level 3 - Architecture Design |
 | Decision owner | Repository owner |
 | Scope | Chat-first, PostgreSQL-backed, multi-conversation agent Memory with typed turn understanding, explicit chat commands, background formation, consolidation, activation, read, use, and evaluation |
 | Related issue | Repository-owner approved exception: interactive architecture redesign on 2026-09-10 |
-| Superseded document | None until approval; Section 18 defines the proposed staged supersession |
+| Superseded document | Superseded by [Agent Memory Target Architecture](./2026-09-12-agent-memory-target-architecture-design.md) v0.2 (Approved 2026-09-12) |
+
+> **Superseded on 2026-09-12.** Architecture authority moved to
+> [Agent Memory Target Architecture](./2026-09-12-agent-memory-target-architecture-design.md),
+> version 0.2 (Approved). This file is retained only as historical proposal
+> context and must not be used as implementation authority.
 
 ## Summary
 
-This specification replaces the current collection of disconnected legacy and
-V2 Memory capabilities with one chat-first architecture. Users interact through
-normal conversations. The same chat surface supports normal tasks and explicit
-remember, correct, forget, and inspect commands. Background workers form
-inferred memories without blocking chat.
+This specification defines the target chat-first Memory architecture that grows
+from the current PostgreSQL conversation and background-write foundation.
+Users interact through normal conversations. The same chat surface supports
+normal tasks and explicit remember, correct, forget, and inspect actions.
+Background workers form inferred memories without blocking chat.
 
 The architecture supports multiple conversations and four governed Memory
 families: semantic, episodic, working, and procedural. The families share an
@@ -29,22 +34,25 @@ never lifecycle authority.
 Implementation is staged by complete vertical behavior, not by creating all
 tables or extractors first. Each stage must demonstrate write, storage, read,
 use, failure behavior, and evaluation for its governed family before the next
-family enters the mounted runtime.
+family enters the mounted runtime. Durable explicit mutation, background
+formation, activation, and read share lifecycle rules, but none may infer
+authorization from model output or from the absence of an audit record.
 
 ## Context
 
-The existing repository contains two Memory generations:
+The repository has already completed the PostgreSQL chat clean break and removed
+the former public Memory Manager/API surface. The mounted API now composes
+standalone owner-scoped conversations through `PostgresConversationRepository`.
+The chat orchestrator can atomically capture extraction work in the conversation
+outbox, and a separately deployed worker runtime can process released events.
 
-1. Legacy SQLite extraction, promotion, records, and Chat retrieval.
-2. V2 PostgreSQL semantic write contracts, policy, resolver, unit of work,
-   explicit controls, outbox worker, model adapter, and focused evaluation.
-
-The V2 domain package is substantial, but the mounted Chat still uses SQLite
-conversation and Memory repositories. The PostgreSQL conversation adapter and
-worker are capabilities rather than a composed runtime. V2 writes are not read
-by Chat. Explicit commands live in a separate Memory Manager instead of the
-primary conversation. Consequently the repository cannot demonstrate one
-complete `chat -> form -> consolidate -> recall -> use` behavior.
+The remaining gap is architectural rather than merely wiring. The current
+write domain still represents the first semantic slice, has no product-level
+`REVOKE` lifecycle, has no retention contract independent of provenance
+authority, and is not composed into a synchronous explicit-Memory Chat action
+or a governed Memory Read/Use path. Consequently the repository still cannot
+demonstrate the complete target behavior `chat -> understand -> write/form ->
+consolidate -> activate -> recall -> use` across multiple Memory families.
 
 Modern agent-memory systems commonly distinguish thread-scoped state from
 cross-thread long-term storage, semantic/episodic/procedural families, and
@@ -56,18 +64,15 @@ framework's storage model verbatim.
 
 | Evidence | Verified behavior | Architectural consequence |
 | --- | --- | --- |
-| `backend/app/main.py:214-221` | Chat, workspace, conversation, legacy Memory, Memory Controls, operations, and planner routers are all mounted | The public product surface is wider than the new chat-first objective |
-| `backend/app/api/chat.py:66-121` | Chat resolves SQLite legacy Memory and SQLite-backed conversation dependencies; all three Memory gates default false | Mounted Chat does not consume V2 PostgreSQL Memory |
-| `backend/app/api/conversations.py:66-92` | Conversation service constructs SQLite adapters | PostgreSQL message/outbox capability is disconnected |
-| `backend/app/api/memory_controls.py:67-115` | Explicit V2 controls are mounted behind a false-by-default gate and create a PostgreSQL UoW lazily | Explicit V2 write exists but is a separate, gated surface |
-| `backend/conversations/postgres_repository.py` | PostgreSQL message append supports a conversation outbox intent | Atomic capture capability exists |
-| `backend/memory/write_pipeline/` | Registry, immutable models, secret detector, policy, resolver, PostgreSQL UoW, outbox, worker, model adapter, command service, and evaluation exist | Preserve and generalize the proven domain seams |
-| `backend/memory/write_pipeline/worker.py:430-492` | Candidate commit precedes separate source-event completion; retry key includes random candidate ID | Exactly-once semantic effect is not guaranteed |
-| `frontend/src/components/memory/MemoryManager.jsx:89-108` | Explicit commands are submitted through a separate drawer and omit conversation provenance by default | Move explicit commands into Chat and require source-message provenance |
-| Fresh unit verification on 2026-09-10 | `202 passed` in `backend/tests/unit/memory_write_pipeline` | Pure V2 modules have strong focused coverage |
-| Fresh PostgreSQL-focused verification on 2026-09-10 | `3 passed, 35 skipped` without the required PostgreSQL environment | Runtime database claims remain unproven locally |
-| Fresh bound-Chat verification on 2026-09-10 | Fails because `ConversationCreate` requires an omitted `owner_user_id` | Conversation ownership migration must precede Memory integration |
-| ADR 0027 outbox turn-readiness barrier (2026-09-11) | `released_at` gate added to `conversation_outbox`; `complete_turn` / `fail_turn` atomically release or cancel; claim predicates require the gate; worker transcript excludes non-terminal rows | Prevents extraction over an incomplete turn when the worker is mounted |
+| `backend/app/main.py:259-262` | Mounted product exposes only health, operations, Chat, and conversation routers; the former public Memory management routers are absent | Explicit Memory must return through the normal Chat flow, not by restoring the removed Memory Manager/API |
+| `backend/app/runtime_container.py` | `RuntimeContainer` owns one PostgreSQL engine and constructs `PostgresConversationRepository` for mounted conversations | PostgreSQL is already the conversation source of truth and can host later cross-domain transaction seams |
+| `backend/orchestration/conversation_orchestrator.py` | Chat creates a Memory extraction outbox intent only when shadow extraction is enabled | Background formation remains independently gated and does not block Chat |
+| `backend/conversations/postgres_repository.py` | Turn completion/failure releases or cancels the associated outbox work; conversation deletion carries a deletion epoch fence | Source validity and turn readiness are existing correctness primitives to preserve |
+| `backend/memory/write_pipeline/models.py` | `MemoryOperation` has `ADD`, `REINFORCE`, `SUPERSEDE`, `ADD_EXCEPTION`, `PENDING_CONFLICT`, `REJECT`, `NOOP`; `VersionStatus` has only `ACTIVE` and `SUPERSEDED` | Product-level forget/revocation and suppression generation are not yet represented |
+| `backend/memory/write_pipeline/postgres.py` | `PostgresMemoryUnitOfWork` commits Memory changes atomically inside its own transaction and exposes active-version reads | Existing UoW is reusable, but explicit Memory acknowledgement needs a higher application transaction seam spanning conversation and Memory state |
+| `backend/memory/write_pipeline/registry.py` | The governed semantic registry still begins with `travel.preference.hotel_atmosphere` and four normalized values | The first slice proves the contract shape; target generality requires registry expansion by evaluated vertical slices rather than free-form keys |
+| ADR 0020 | Public Memory Manager/API and command parser were intentionally removed; a future approved Chat command design is explicitly allowed | This design may add Chat-native explicit actions without reintroducing the removed public management surface |
+| ADR 0027 and current outbox implementation | An unreleased outbox event is not claimable | Missing source-handling state can safely fail closed instead of being inferred as permission |
 
 ## Users and Actors
 
@@ -113,6 +118,14 @@ answers. The architecture needs explicit, typed authority seams.
    authority.
 10. Demonstrate quality, abstention, privacy, conflict handling, retry safety,
     latency, and cost through executable evaluation.
+11. Separate provenance authority from retention dependency so deleting a source
+    does not accidentally erase a deliberately durable save, and a plain user
+    statement does not accidentally become permanent account state.
+12. Give explicit forget a first-class lifecycle with suppression semantics that
+    prevents old evidence, shadow candidates, and delayed workers from
+    resurrecting forgotten Memory.
+13. Make successful explicit mutation and its user-visible acknowledgement one
+    idempotent application commit boundary.
 
 ## Non-Goals
 
@@ -125,16 +138,19 @@ answers. The architecture needs explicit, typed authority seams.
    PostgreSQL-outbox saturation.
 6. Multi-region consistency or active-active deployment.
 7. A graph database as canonical storage.
-8. Automatic import of legacy SQLite Memory into active V2 state.
+8. Reintroducing SQLite runtime/storage or a legacy Memory import path.
 
 ## Alternatives Considered
 
 ### Alternative A: Expand the Current One-Key Pipeline in Place
 
-Add more keys and conditionals to the existing command service, worker, and
-legacy retrieval path. This reuses code quickly but preserves two stores, two
-lifecycles, route-level dependency construction, and disconnected read/write
-semantics. Rejected because every new type multiplies the existing ambiguity.
+Add more keys and conditionals directly to the current background recorder,
+worker, resolver, and first semantic registry without introducing the explicit
+Chat, retention, lifecycle, and Read/Use boundaries in this design. This reuses
+code quickly but makes each new family depend on one semantic policy shape and
+leaves durable user intent, source handling, forget suppression, and read/use
+authority implicit. Rejected because every new type would multiply those hidden
+contracts rather than prove a reusable architecture.
 
 ### Alternative B: One Memory LLM Owns Understanding and Mutation
 
@@ -167,6 +183,46 @@ Procedural Memory uses a separate publication pipeline with evaluation and
 rollback. User chat may provide feedback evidence, but never a directly
 executable instruction or procedural version.
 
+## Authority, Scope, Retention, and Source Dependency
+
+`Authority`, `scope`, and retention answer different questions and must not be
+derived from one another:
+
+1. **Authority** answers how strong the provenance is. The existing semantic
+   vocabulary remains `EXPLICIT_SAVE`, `EXPLICIT_STATEMENT`, and
+   `REPEATED_INFERENCE`.
+2. **Scope** answers where the Memory may influence behavior: conversation,
+   user, or the separately governed agent/procedural namespace.
+3. **Retention mode** answers what the Memory's continued existence depends on.
+
+User-derived Memory uses the following retention vocabulary:
+
+```text
+CONVERSATION_BOUND
+SOURCE_BOUND
+USER_DURABLE
+```
+
+The mapping is deliberate rather than inferred from `Authority`:
+
+| Origin | Typical scope | Retention mode | Consequence |
+| --- | --- | --- | --- |
+| Corroborated `remember` / `correct` command | User | `USER_DURABLE` | Survives conversation deletion, while evidence from the deleted conversation is invalidated |
+| Plain explicit statement without a durable-save speech act | User or conversation | `SOURCE_BOUND` or `CONVERSATION_BOUND` | Does not gain account-durable retention merely because the statement is explicit |
+| Background inferred user Memory | User | `SOURCE_BOUND` | Remains eligible only while enough independent valid evidence survives |
+| Conversation-specific state or override | Conversation | `CONVERSATION_BOUND` | Becomes ineligible when that conversation is deleted or expires |
+
+Procedural Memory is not assigned one of these user-retention modes; its
+publication and retirement lifecycle is governed separately.
+
+Conversation deletion has two effects that must remain distinct. It always
+invalidates evidence sourced from that conversation. It also revokes
+`CONVERSATION_BOUND` state. A `SOURCE_BOUND` user Memory is re-evaluated against
+its remaining valid evidence and becomes ineligible if its family/type-specific
+activation requirements are no longer satisfied. `USER_DURABLE` state survives
+conversation deletion, but it may no longer expose or cite evidence from the
+deleted conversation.
+
 ## Scope and Precedence
 
 Every Memory carries an owner namespace and one governed scope:
@@ -190,6 +246,11 @@ Current-turn information may suppress an older Memory for the response without
 immediately superseding the durable version. Durable correction requires the
 relevant consolidation and activation policy.
 
+Retention is not response-time precedence. A `USER_DURABLE` preference can
+survive for months and still lose to the current user's request for one turn.
+Likewise, a high-authority explicit statement can remain `SOURCE_BOUND` if the
+user never asked the system to retain it beyond its source.
+
 ## Precedence Resolution
 
 The precedence chain in the previous section is a starting point, not a
@@ -206,8 +267,9 @@ performed **per assertion** across six dimensions:
    the inference carries high model confidence.
 5. **Sensitivity** — a higher-sensitivity classification is never demoted by a
    lower-sensitivity item.
-6. **Lifecycle** — only `active` versions are eligible; `pending`, `shadow`,
-   `rejected`, `superseded`, or `expired` rows are excluded before ranking.
+6. **Lifecycle** — only `active` versions may continue to lifecycle eligibility;
+   `pending`, `shadow`, `rejected`, `revoked`, `superseded`, `expired`,
+   suppressed, or stale-generation state is excluded before ranking.
 
 The rule "current request wins" applies **only to soft preferences**. It never
 overrides a verified hard constraint, a deterministic policy, or a prohibited
@@ -256,9 +318,86 @@ The model may propose a mode, topic, entity, scope hint, or assertion. It cannot
 authenticate, authorize, lower sensitivity, choose a database operation,
 activate Memory, or generate SQL.
 
+For durable explicit mutation, model classification is not sufficient. A
+high-precision deterministic `ExplicitIntentGate` must corroborate an explicit
+speech act such as remember, correct, or forget. The gate authorizes the class
+of action, not the semantic payload. A bounded model may still parse or
+normalize a complex payload behind that gate, but closed-schema validation and
+deterministic policy remain authoritative. If the speech act is absent or the
+payload remains ambiguous, the system asks for clarification or performs no
+durable mutation.
+
+This asymmetric policy is intentional. Missing a legitimate explicit save is a
+recoverable false negative; inventing a durable personal Memory from an ordinary
+question or statement is a higher-blast-radius false positive that can affect
+later conversations.
+
+A plain statement may still influence the current turn and may later become
+background evidence if the completed source receives a positive
+`BACKGROUND_ELIGIBLE` record. It does not synchronously create `USER_DURABLE`
+state merely because Turn Understanding can extract a preference from it.
+
 Turn Understanding is not background Memory extraction. It supports routing
 and current-turn behavior. Background formation may inspect a bounded transcript
 range and existing Memory state without delaying the current response.
+
+### Action Routing
+
+`ActionRouter` is a pure application decision seam. It consumes validated
+`TurnSemantics` plus deterministic policy results and emits one governed action
+class, for example `NORMAL_QUERY`, `EXPLICIT_MEMORY_ACTION`, or
+`NEEDS_CLARIFICATION`. It does not call tools and cannot mutate state.
+
+Normal queries proceed to `ContextPlanner`. Explicit Memory actions proceed to
+the `ExplicitIntentGate` and Memory action path. This separation prevents the
+same probabilistic classification from both interpreting the utterance and
+authorizing a durable write.
+
+## Source Handling Contract
+
+Every source message that may be consumed by background Memory formation uses a
+typed `SourceHandlingRecord`. The record is per Memory family, never a mixed set
+of families and operations:
+
+```text
+SourceHandlingRecord(
+  source_outbox_id,
+  source_message_id,
+  family,
+  outcome,
+  reason_code,
+  recorded_at,
+)
+
+outcome =
+  BACKGROUND_ELIGIBLE |
+  EXPLICIT_APPLIED |
+  EXPLICIT_REFUSED |
+  EXPLICIT_NOOP |
+  FORGET_APPLIED |
+  FORGET_REFUSED
+```
+
+The absence of a record means `UNHANDLED`. It is never interpreted as
+background permission. A worker may extract a family only after reading an
+explicit positive `BACKGROUND_ELIGIBLE` outcome for that family. An explicit
+action records its terminal outcome so the worker cannot form a duplicate
+inferred candidate from the same source.
+
+There is at most one terminal handling record for the same
+`(source_message_id, family)`. Replaying terminal handling is idempotent: an
+identical outcome observes the existing record, while a conflicting terminal
+outcome fails closed and requires reconciliation. `source_outbox_id` is retained
+for queue correlation but is not the semantic identity of the handling
+decision, because retries or future queue migrations must not create a second
+decision for the same source and family.
+
+For a normal completed turn, the application records the governed positive
+background outcome before the related outbox event becomes claimable. For an
+explicit Memory turn, source handling is committed with the explicit action and
+acknowledgement. A crash between initial turn allocation and either terminal
+commit leaves the record absent and the outbox event unreleased, which is the
+fail-closed state.
 
 ## Bounded Context Workflow
 
@@ -308,19 +447,53 @@ adapters.
 ### ConversationStore
 
 Its critical interface is
-`append_user_message_with_outbox(...) -> PersistedMessage`. PostgreSQL hides
-message sequence allocation, transaction boundaries, and outbox insertion.
+`append_turn(...) -> TurnAllocation`, followed by terminal completion or failure.
+PostgreSQL hides message sequence allocation, transaction boundaries, outbox
+insertion, release/cancellation, and deletion fencing.
 
 ### TurnUnderstanding
 
 Produces typed semantics without side effects. It may use internal deterministic
 and model-classifier adapters hidden behind its interface.
 
-### MemoryCommandHandler
+### ActionRouter
+
+Consumes validated `TurnSemantics` and chooses the bounded application branch.
+It has no model or persistence authority and never invokes a tool itself.
+
+### ExplicitIntentGate
+
+Corroborates the explicit remember/correct/forget speech act with high-precision
+deterministic rules. It may reject or request clarification. A model may help
+parse the semantic payload only after this authority gate; classifier output
+alone can never authorize durable mutation.
+
+### ExplicitMemoryActionHandler
 
 Consumes explicit actions plus the persisted source message. It validates the
 registry, applies sensitivity and risk policy, resolves conflicts, and asks the
-Memory UoW to commit. Success is reported only after commit.
+explicit-turn commit seam to persist. It produces typed mutation data and a
+deterministic acknowledgement; it does not own the database transaction.
+
+### ExplicitMemoryTurnCommit
+
+Application-level unit of work for a successful explicit mutation. In one
+PostgreSQL transaction it commits the Memory mutation, evidence/decision rows,
+idempotency effect, family-specific `SourceHandlingRecord`, deterministic
+assistant acknowledgement, and terminal outbox release/cancellation. It then
+returns the committed result. No durable Memory mutation may become visible if
+the acknowledgement row did not commit.
+
+The explicit action's idempotency identity is derived from stable semantic
+inputs: owner, source message, Memory family, canonical action, and assertion
+identity (plus normalized target value when the action changes a value). It must
+not depend on a random candidate/decision identifier, acknowledgement wording,
+request retry count, or model-generated text. The acknowledgement is rendered
+from the committed typed result so a retry cannot describe a different effect.
+
+The existing conversation repository and Memory UoW may be adapted behind this
+seam to accept one shared transaction/connection. They must not open independent
+nested application transactions for this path.
 
 ### MemoryFormationEngine
 
@@ -339,6 +512,14 @@ model classifier may return a closed relation enum only for unresolved cases.
 Consumes evidence history, candidate authority, sensitivity, type, scope,
 conflicts, and time. It returns an activation decision without persistence.
 
+### MemoryLifecyclePolicy
+
+Owns canonical lifecycle predicates shared by formation, activation, and read:
+retention/source validity, suppression state and generation, expiry, lifecycle
+status, and scope validity. It exposes operation-specific decisions such as
+`can_form`, `can_activate`, and `is_read_eligible`; callers do not reconstruct
+these rules themselves.
+
 ### MemoryStore
 
 PostgreSQL is canonical for evidence, candidates, decisions, assertions,
@@ -350,6 +531,19 @@ owner-scoped, version-checked, and append-auditable.
 Consumes principal, conversation, TurnSemantics, and budget. It performs owner,
 lifecycle, sensitivity, scope, temporal, conflict, relevance, ranking, and
 budget filtering. It returns a typed selection or abstention.
+
+`ACTIVE` is necessary but not sufficient for read eligibility. The engine first
+applies `MemoryLifecyclePolicy`; only then does it evaluate relevance,
+precedence, ranking, and budget. Lifecycle implementation details do not leak to
+the caller through a shallow provenance-policy object.
+
+### ContextPlanner
+
+Consumes the current turn semantics and dialogue state and proposes one bounded
+retrieval plan: `none`, `rag_only`, `memory_only`, or `both`. It may use a
+bounded classifier for ambiguous relevance, but the deterministic Context
+Arbiter retains authority over policy, sensitivity, hard constraints, and
+budget.
 
 ### MemoryContextComposer
 
@@ -381,13 +575,18 @@ code.
 ### Normal Chat Turn
 
 1. Authenticate and resolve or create an owner-scoped standalone conversation.
-2. Commit the user message and one extraction outbox event atomically.
+2. Allocate the turn atomically: persist the user message, pending assistant
+   row, and one unreleased extraction outbox event.
 3. Interpret the persisted turn into `TurnSemantics`.
-4. Read eligible Memory using the typed semantics.
-5. Compose bounded Memory and travel context.
-6. Generate the response.
-7. Persist the assistant message.
-8. Return response text, citations, conversation persistence state, and
+4. `ActionRouter` selects the normal-query branch.
+5. `ContextPlanner` proposes Memory/RAG retrieval; the Context Arbiter applies
+   deterministic policy.
+6. Read eligible Memory and/or RAG evidence according to the governed plan.
+7. Compose bounded context and generate the response.
+8. In the terminal turn transaction, persist the assistant response, record the
+   family-specific `BACKGROUND_ELIGIBLE` outcomes that apply, and release the
+   corresponding outbox event.
+9. Return response text, citations, conversation persistence state, and
    controlled Memory selection metadata.
 
 Chat never waits for background formation. Turn Understanding or Memory Read
@@ -395,25 +594,39 @@ failure degrades to a normal no-Memory answer and emits a controlled reason.
 
 ### Explicit Command in Chat
 
-1. Persist the source message and outbox intent.
-2. Turn Understanding identifies an explicit action.
-3. The command handler validates one typed proposal against registry, risk,
-   sensitivity, ownership, and current versions.
-4. Low-risk single ordinary remember/correct/forget commits synchronously.
-5. Bulk deletion or scope expansion produces a preview and one-time
-   confirmation challenge in Chat.
-6. Restricted or prohibited content is refused without semantic persistence or
-   a Memory-model call.
-7. The assistant communicates the committed result; controlled UI metadata may
-   render a compact saved/removed state separately.
-8. The background worker checks source-message handling state and does not form
-   a duplicate inferred candidate from a completed explicit action.
+1. Allocate the turn exactly as for normal Chat; the outbox event remains
+   unreleased.
+2. Turn Understanding proposes an explicit action and `ActionRouter` selects the
+   explicit branch.
+3. `ExplicitIntentGate` deterministically corroborates the remember/correct/
+   forget speech act. Absence or ambiguity produces clarification/no-write.
+4. A bounded parser or model may interpret the payload, but registry,
+   sensitivity, ownership, scope, retention, current versions, and resolver
+   policy deterministically validate the proposal.
+5. Low-risk single ordinary remember/correct/forget produces a typed change and
+   deterministic acknowledgement.
+6. `ExplicitMemoryTurnCommit` atomically commits the Memory effect, evidence and
+   decision, idempotency record, family-specific `SourceHandlingRecord`,
+   acknowledgement assistant row, and terminal outbox release/cancellation.
+7. Bulk deletion or scope expansion remains a separately governed confirmation
+   flow if reintroduced; it is not silently treated as a low-risk single-item
+   action.
+8. Restricted or prohibited content is refused without durable semantic
+   persistence. Prohibited secret handling occurs before any Memory-model call.
+9. The worker sees the explicit source-handling outcome and cannot form a
+   duplicate inferred candidate from the same source and family.
+
+If the process fails after turn allocation but before step 6, the Memory
+mutation has not committed, the acknowledgement is not complete, source
+handling is absent, and the outbox remains unreleased. If step 6 commits, both
+the mutation and acknowledgement are durable. The architecture therefore
+forbids the state "Memory saved but the user was told the turn failed."
 
 ### Background Formation
 
 1. Claim one pending event with a bounded lease.
 2. Revalidate owner, conversation retention, deletion epoch, source message,
-   and prior explicit handling.
+   suppression state, and the positive family-specific source-handling outcome.
 3. Load only the governed transcript window.
 4. Reject prohibited content before the Memory model.
 5. Extract closed-schema candidates.
@@ -426,14 +639,60 @@ The idempotency identity is derived from source event, canonical assertion
 identity, normalized value, and governed operation. It never includes a random
 candidate identifier.
 
+## Explicit Forget and Suppression Lifecycle
+
+Product-level `forget` is a Memory lifecycle operation. It is not privacy
+erasure, account deletion, or a reuse of `memory_deletion_ledger`.
+
+The target lifecycle adds:
+
+```text
+MemoryOperation.REVOKE
+
+VersionStatus:
+  ACTIVE
+  SUPERSEDED
+  REVOKED
+```
+
+Each canonical assertion identity also carries a monotonically controlled
+generation and suppression state. The exact physical schema is selected by the
+implementation plan, but the semantics are fixed:
+
+1. Explicit forget resolves the target assertion, changes its current active
+   version to `REVOKED`, advances the assertion generation, and marks the
+   identity suppressed.
+2. Evidence and candidates created under an older generation can never create
+   or reactivate a version in a later generation.
+3. While the identity is suppressed, background formation and activation cannot
+   silently relearn it. A suppressed observation may be counted only as a
+   controlled policy outcome; it is not activation evidence.
+4. Read excludes `REVOKED` versions and every version/candidate whose generation
+   is stale or whose assertion remains suppressed.
+5. A new corroborated explicit `remember` may intentionally clear suppression
+   for the current generation and create a new active version from the new
+   source. Old evidence remains stale and does not contribute to the new
+   generation.
+6. Explicit correction supersedes the current active version but does not imply
+   privacy deletion of its historical evidence.
+
+The suppression rule is enforced at all three eligibility-changing boundaries:
+formation/write, activation, and read. Enforcing it only at read is insufficient
+because a delayed shadow candidate could otherwise become active after a forget.
+
+`memory_deletion_ledger` remains reserved for privacy/retention deletion
+evidence and propagation. Product forget history is represented by Memory
+lifecycle events and generation state, so re-remember does not require deleting
+or rewriting privacy audit evidence.
+
 ## Type-Specific Activation Policy
 
 | Type | Explicit ordinary input | Inferred input |
 | --- | --- | --- |
-| Preference/profile fact, conversation scope | Direct active write after validation | Active after two independent user turns agree, no unresolved conflict |
-| Preference/profile fact, user scope | Direct active write after validation | Active after three independent evidence items across at least two conversations, no unresolved conflict |
-| Constraint | Direct active write when ordinary and unambiguous | Remains shadow unless two independent items agree and policy classifies it non-sensitive and non-high-impact |
-| Relationship | Direct active write when ordinary | Requires two grounded evidence items; uncertain entity resolution remains pending |
+| Preference/profile fact, conversation scope | Corroborated explicit command may write active after validation; retention remains conversation-bound | Active after two independent user turns agree, no unresolved conflict |
+| Preference/profile fact, user scope | Corroborated explicit durable command may write active after validation with `USER_DURABLE` retention | Active after three independent evidence items across at least two conversations, no unresolved conflict; retention is source-bound |
+| Constraint | Corroborated explicit command may write active when ordinary and unambiguous | Remains shadow unless two independent items agree and policy classifies it non-sensitive and non-high-impact |
+| Relationship | Corroborated explicit command may write active when ordinary | Requires two grounded evidence items; uncertain entity resolution remains pending |
 | Episode | Grounded event may be accepted from one explicit source | One grounded source is sufficient only when actor, event, time, and provenance validate; otherwise shadow |
 | Working state | Updated by deterministic conversation transitions | Summary/open-state projection may replace the previous projection after source-consistency checks |
 | Procedural | Not user-writable | Never activated from Chat; requires offline evaluation and governed publication |
@@ -455,6 +714,8 @@ Deterministic identity, authority, timestamp, scope, and value comparisons run
 first. A model classifier may only select a relation from the closed vocabulary
 when rules cannot decide. The resolver alone creates `ADD`, `REINFORCE`,
 `SUPERSEDE`, `ADD_EXCEPTION`, `PENDING_CONFLICT`, `REJECT`, or `NOOP`.
+Explicit forget uses the separately authorized `REVOKE` lifecycle operation; a
+relation classifier can never invent it.
 
 Uncertain or equally authoritative contradiction is pending and excluded from
 read selection. Destructive supersession requires stronger/newer authority or
@@ -467,8 +728,9 @@ Read order is:
 ```text
 owner
 -> active lifecycle
+-> suppression generation
+-> retention/source validity
 -> allowed sensitivity
--> current source validity
 -> scope
 -> type and namespace relevance
 -> temporal validity
@@ -503,6 +765,12 @@ The composer emits typed context, for example:
 Raw source messages, model explanations, hidden confidence, SQL data, and
 untrusted instruction text are excluded. Memory is not a citation. The current
 request wins over soft Memory.
+
+An `ACTIVE` row is therefore not synonymous with a selected or even readable
+Memory. `ACTIVE` identifies the current version for an assertion. Lifecycle
+eligibility must still validate suppression, retention/source dependency,
+expiry, owner, sensitivity, and scope before relevance and arbitration can
+select it.
 
 ## Retrieval Planning and Context Engineering
 
@@ -569,18 +837,81 @@ summary mentions it.
 2. All persisted times are timezone-aware UTC.
 3. Evidence, decisions, and versions are immutable.
 4. Exactly one active version exists per canonical assertion identity.
-5. Every active user-derived version resolves to at least one valid evidence
-   item; type-specific activation may require more.
+5. Every active source-bound user-derived version resolves to enough currently
+   valid evidence for its family/type-specific activation rule; a deliberately
+   `USER_DURABLE` explicit save may survive source deletion without exposing the
+   deleted evidence.
 6. Every user-derived record carries `owner_user_id`, scope, type, sensitivity,
-   authority, lifecycle, and provenance.
+   authority, retention mode, lifecycle, generation, and provenance where those
+   concepts apply.
 7. Conversation-scope rows carry the owning conversation ID.
 8. User-scope inference records cross-conversation evidence without exposing one
    conversation to another user.
 9. Summary and vector indexes are rebuildable projections.
 10. Message and extraction intent commit atomically.
 11. Reprocessing the same source and canonical effect is idempotent.
-12. Deleted, superseded, pending, rejected, expired, or shadow state is not
-    answer-eligible.
+12. Deleted, revoked, superseded, pending, rejected, expired, suppressed, stale-
+    generation, or shadow state is not answer-eligible.
+13. Absence of a `SourceHandlingRecord` is `UNHANDLED`, never background
+    permission.
+14. A durable explicit mutation requires deterministic speech-act corroboration;
+    model output alone cannot authorize it.
+15. A successful explicit Memory mutation and its deterministic acknowledgement
+    commit atomically and share one idempotent semantic effect.
+16. Product-level forget never rewrites or deletes privacy-erasure audit history.
+
+## System Invariants
+
+The following invariants are architecture-level requirements. Each must have at
+least one executable test capable of failing when the invariant is violated.
+
+1. **Authenticated ownership:** every user-derived Chat and Memory operation is
+   bound to the authenticated principal; request payloads cannot choose the
+   owner.
+2. **Tenant isolation:** application predicates and PostgreSQL RLS both enforce
+   owner isolation. Shared, staging, and production environments with real user
+   data use a least-privilege role without superuser or `BYPASSRLS` authority.
+3. **No model authorization:** models may interpret or propose semantics, but
+   they cannot authenticate, authorize a durable write, lower sensitivity,
+   select SQL, or mint a lifecycle operation.
+4. **Positive background permission:** background formation requires an explicit
+   positive `BACKGROUND_ELIGIBLE` record for the relevant family. Missing state
+   fails closed.
+5. **Explicit-write precision over recall:** ambiguous or weakly corroborated
+   explicit intent degrades to clarification/no-write. Durable false positives
+   are never accepted as the cost of higher recall.
+6. **Atomic explicit acknowledgement:** no explicit Memory mutation may commit
+   without the acknowledgement row and terminal source-handling outcome that
+   tell the user what happened.
+7. **Retention is independent of authority:** provenance strength never implies
+   account-durable retention.
+8. **Forget is lifecycle, not erasure:** `REVOKE` and assertion suppression
+   prevent use and relearning without repurposing the privacy deletion ledger.
+9. **No resurrection:** stale evidence, shadow candidates, delayed workers, or
+   retries from an older assertion generation cannot make forgotten Memory
+   eligible again.
+10. **One lifecycle policy:** formation, activation, and read use the same
+    canonical retention/source-validity and suppression semantics, exposed via
+    operation-specific policy entry points.
+11. **Active is not enough:** read selection requires lifecycle eligibility,
+    relevance, precedence, and budget after the version is known to be active.
+12. **Current intent wins over soft Memory:** Memory may personalize; it cannot
+    silently override the current user's request, deterministic safety policy,
+    or verified hard constraint.
+13. **Memory is data, not instruction:** retrieved user Memory enters generation
+    through controlled typed context and never gains system/developer authority.
+14. **Idempotent semantic effects:** retry or redelivery of the same source and
+    governed effect cannot create duplicate versions or duplicate acknowledgements.
+15. **Deletion propagation:** conversation/account retention deletion invalidates
+    dependent evidence, pending work, summaries/episodes, and search projections
+    according to retention mode and source validity.
+16. **Privacy-safe observability:** default logs/traces contain typed IDs, reason
+    codes, controlled counters, model/version metadata, latency, and cost — not
+    raw messages, prompts, Memory values, evidence, secrets, or hidden chain of
+    thought.
+17. **Evaluation before inferred activation:** background-inferred Memory may be
+    observed in shadow mode before promotion, but active inferred rollout is
+    blocked until the governed evaluation gate is conclusive and passes.
 
 ## Errors and Edge Cases
 
@@ -590,21 +921,31 @@ summary mentions it.
 | Message/outbox transaction failure | Roll back both; no Chat model call |
 | Turn Understanding timeout/invalid output | Fall back to normal query semantics; emit controlled reason |
 | Explicit command ambiguity | Ask one focused clarification; no mutation |
+| Classifier proposes explicit mutation but deterministic speech-act gate does not corroborate it | No durable mutation; treat as normal/ambiguous according to governed rules |
+| Explicit mutation transaction fails | Roll back Memory effect, source-handling record, acknowledgement, and terminal outbox transition together; return failure |
+| Crash after turn allocation but before explicit commit | Pending turn remains; no Memory mutation; no source permission; outbox stays unreleased |
 | Memory read unavailable | Generate without Memory; return `skipped` metadata |
-| Chat generation failure | User message/outbox remain durable; no assistant message is claimed persisted |
-| Assistant persistence failure | Return generated answer with explicit persistence gap |
+| Chat generation failure | Transition the pending assistant row to `FAILED`, cancel the turn's unreleased extraction work, and return a controlled failure; never claim a completed assistant reply |
+| Assistant completion persistence failure | Do not return the generated answer as a successfully persisted turn; leave the pending row observable/recoverable and return a controlled incomplete/failure result |
 | Memory provider transient failure | Retry with bounded backoff; Chat remains unaffected |
 | Permanent invalid model output | Dead-letter or invalid decision; no active version |
 | Lease lost before commit | Do not commit semantic effect |
 | Completion fails after semantic commit | Stable idempotency makes redelivery a no-op |
 | Unresolved contradiction | Persist pending decision; abstain on the affected identity |
 | Source deleted before processing | Cancel event and prevent activation |
+| `SourceHandlingRecord` absent | Treat source/family as `UNHANDLED`; do not extract |
+| Forget races delayed shadow activation | Suppression generation wins; stale candidate cannot activate |
+| Conversation containing source evidence is deleted | Invalidate that evidence; re-evaluate source-bound Memory; preserve user-durable value without exposing deleted evidence |
 | Secret/prohibited content | No Memory model call and no semantic evidence/candidate persistence |
 
 ## Security and Privacy
 
 1. Authenticated owner identity comes from the principal, never request payload.
-2. Application checks and PostgreSQL RLS both enforce owner scope.
+2. Application checks and PostgreSQL RLS both enforce owner scope. Any shared,
+   staging, or production deployment containing real user data uses a
+   least-privilege runtime role without superuser or `BYPASSRLS`; the concrete
+   deployment guard is an implementation/operations choice, not a Memory-domain
+   concept.
 3. Model output may raise sensitivity but never lower deterministic or registry
    classification.
 4. Prohibited authentication/payment secrets are rejected before Memory-model
@@ -617,8 +958,12 @@ summary mentions it.
    message, evidence, prompt, token, and secret content.
 9. Explicit inspect returns governed Memory summaries, not raw evidence from
    other conversations.
-10. Explicit forget and retention deletion propagate to answer eligibility,
-    pending work, derived summaries, and vector projections.
+10. Explicit forget and privacy/retention deletion are distinct operations.
+    Forget revokes/suppresses Memory identity; privacy/retention deletion
+    propagates to source evidence, pending work, derived summaries, and vector
+    projections.
+11. A user-durable Memory that survives source deletion must never expose the
+    deleted source text through inspect, trace, context, or citation.
 
 ## Observability and Operations
 
@@ -634,6 +979,13 @@ Required metrics include:
 6. Memory context token count and generation-use outcomes.
 7. PostgreSQL pool saturation, transaction retries, and RLS/owner denials.
 8. Summary coverage and unsummarized tail size.
+9. Explicit-intent deterministic-gate pass/refuse/clarify counts, plus durable
+   explicit-write false-positive findings from evaluation.
+10. `SourceHandlingRecord` outcomes by family, including `UNHANDLED` backlog and
+    background-eligibility rate.
+11. Suppression/revocation counts, stale-generation rejects, and attempted
+    post-forget resurrection blocks.
+12. Explicit Memory commit latency, rollback count, and idempotent replay count.
 
 API and worker readiness are separate. Worker shutdown stops new claims,
 finishes or safely releases leased work, and preserves pending events.
@@ -663,11 +1015,21 @@ database design cannot satisfy.
 ### Module Tests
 
 1. Closed TurnSemantics schema, rule precedence, ambiguity, repair, and fallback.
-2. Registry validation for every family/type/scope combination.
-3. Type-specific activation truth tables.
-4. Consolidation relation and resolver truth tables.
-5. Read eligibility, precedence, relevance, budget, and abstention.
-6. Context formatting and prompt-injection resistance.
+2. Explicit-intent truth table with ordinary questions/statements as negative
+   examples; classifier-only output cannot authorize durable mutation.
+3. Registry validation for every family/type/scope combination.
+4. Authority/scope/retention truth tables, including source deletion with
+   `USER_DURABLE`, `SOURCE_BOUND`, and `CONVERSATION_BOUND` state.
+5. Type-specific activation truth tables.
+6. Consolidation relation and resolver truth tables, including `REVOKE` entry
+   only from the explicit authorized lifecycle path.
+7. Suppression-generation tests for formation, activation, read, and explicit
+   re-remember.
+8. `SourceHandlingRecord` tests proving absence is `UNHANDLED` and never
+   background permission.
+9. Read eligibility, precedence, relevance, budget, and abstention, including an
+   `ACTIVE` item rejected by lifecycle policy.
+10. Context formatting and prompt-injection resistance.
 
 ### PostgreSQL Integration
 
@@ -678,6 +1040,12 @@ database design cannot satisfy.
 5. Stable idempotent redelivery.
 6. Concurrent same-identity writes and different-owner parallelism.
 7. Deletion propagation and projection cleanup.
+8. `ExplicitMemoryTurnCommit` rollback injection at every write boundary proves
+   there is no committed Memory mutation without its acknowledgement and
+   source-handling outcome.
+9. Forget/re-remember concurrency proves stale generations cannot reactivate.
+10. Conversation deletion invalidates source evidence while preserving a
+    user-durable value without retaining access to deleted source text.
 
 No required PostgreSQL integration test may count as passing when skipped.
 
@@ -697,12 +1065,25 @@ No required PostgreSQL integration test may count as passing when skipped.
 8. Summarize a long conversation without losing a declared constraint.
 9. Refuse a user attempt to write procedural instructions.
 10. Recover from worker retry without duplicate semantic effect.
+11. Ask an ordinary question such as a hotel preference query and prove no
+    durable explicit Memory is created without an explicit speech act.
+12. Explicitly remember A, forget A, process delayed pre-forget shadow work, and
+    prove A does not return to eligible state.
+13. Explicitly re-remember A after forget and prove only the new generation may
+    become active.
+14. Delete the source conversation for a `SOURCE_BOUND` Memory and prove it is
+    re-evaluated against remaining valid evidence; repeat with `USER_DURABLE`
+    Memory and prove the value survives without deleted-source exposure.
+15. Inject failure after Memory mutation staging but before explicit turn
+    completion and prove the transaction leaves neither mutation nor successful
+    acknowledgement durable.
 
 ### Quality Gates
 
 Measure per type and aggregate:
 
 - intent-mode precision/recall;
+- explicit durable-action precision and false-positive rate;
 - extraction and normalization precision/recall;
 - activation precision and false-activation rate;
 - conflict-resolution correctness;
@@ -713,64 +1094,85 @@ Measure per type and aggregate:
 - p50/p95 latency and token/model cost.
 
 Privacy leakage, cross-owner selection, prohibited-secret Memory-model exposure,
-unresolved-conflict use, and non-idempotent semantic duplication are
-zero-tolerance gates.
+classifier-only durable mutation, missing-source-handling background extraction,
+post-forget resurrection, unresolved-conflict use, non-atomic explicit
+mutation/acknowledgement, and non-idempotent semantic duplication are
+zero-tolerance gates. Any required metric or scenario that cannot be measured is
+`INCONCLUSIVE`, never `PASS`.
 
 ## Compatibility and Staged Migration
 
-### Stage 1: Chat and PostgreSQL Conversation Foundation
+### Baseline Already Established
 
-Mount Chat, conversation history, operations, and health only. Support multiple
-standalone owner-scoped conversations. Commit messages and outbox intents in
-PostgreSQL. Keep Memory read/use disabled.
+The current branch already provides authenticated standalone PostgreSQL Chat,
+PostgreSQL conversation persistence, the turn-readiness outbox barrier, the
+separate Memory worker runtime, and removal of the former public Memory
+Manager/API and SQLite mounted runtime. Those completed clean-break decisions are
+prerequisites, not future stages of this design.
 
-### Stage 2: Turn Understanding and Explicit Semantic Memory
+### Stage 1: Turn Understanding, Action Routing, and Source Handling
 
-Move ordinary remember/correct/forget/inspect actions into Chat. Complete
-semantic preference/profile/constraint behavior through V2 PostgreSQL. Remove
-the Memory Manager from the mounted frontend.
+Introduce the typed `TurnUnderstanding`, pure `ActionRouter`, bounded
+`ContextPlanner`, deterministic `ExplicitIntentGate`, and family-specific
+`SourceHandlingRecord`. Preserve current Chat behavior while these seams are
+dark/shadow evaluated. No new durable explicit Memory is enabled until the
+negative-intent suite proves the authorization boundary.
 
-### Stage 3: Background Semantic Formation
+### Stage 2: Explicit Semantic Memory Lifecycle
 
-Deploy the worker runtime, stable idempotency, consolidation, and type-specific
-activation. Enable shadow capture first, then active inference only after its
-quality gates pass.
+Implement retention modes, `REVOKE`/`REVOKED`, assertion generation and
+suppression, the Chat-native explicit semantic action handler, and
+`ExplicitMemoryTurnCommit`. Start with the governed semantic registry and prove
+remember/correct/forget plus re-remember, source deletion, idempotency, and
+failure atomicity. Do not restore the removed Memory Manager or public Memory
+control routes.
 
-### Stage 4: V2 Read and Use
+### Stage 3: Semantic Read and Use
 
-Replace SQLite retrieval with the Memory Read and Context Composer modules.
-Enable exact structured retrieval first and pgvector episode/summary projection
-only after projection tests pass.
+Implement `MemoryLifecyclePolicy`, exact structured `MemoryReadEngine`,
+`ContextPlanner` Memory/RAG selection, deterministic Context Arbiter, and typed
+Memory Context Composer. Prove the complete explicit vertical slice
+`remember -> store -> read -> use -> correct/forget -> abstain` before enabling
+background-inferred activation.
 
-### Stage 5: Episodic and Working Memory
+### Stage 4: Background Semantic Formation and Activation
 
-Add episode, feedback, goal, temporary override, and summary vertical slices.
-Each type must pass its end-to-end and quality gates before rollout.
+Run formation/consolidation through the separate worker with positive source
+handling, stable semantic idempotency, suppression checks, and source-validity
+fences. Observe in shadow first. Active inferred Memory remains disabled until
+the governed evaluation is conclusive and passes the false-activation and
+privacy gates.
 
-### Stage 6: Procedural Publication
+### Stage 5: Episodic and Working Memory Vertical Slices
 
-Add the separate evaluation-approved publication workflow. It remains disabled
-for user chat mutations.
+Add episode, feedback, goal, temporary override, and summary behavior one
+vertical slice at a time. Each slice must define formation, retention,
+consolidation, read/use, deletion, failure behavior, and evaluation before the
+next slice is mounted.
 
-### Stage 7: Legacy Removal
+### Stage 6: Secondary Retrieval Projections
 
-Inventory SQLite without reading raw content into reports. If data is disposable,
-archive or delete it only with owner approval. If retention is required, import
-legacy rows as quarantined evidence and never auto-activate them. Remove SQLite
-runtime imports, configuration, adapters, and compatibility tests only after
-PostgreSQL replacement verification passes.
+Introduce PostgreSQL full-text and/or pgvector only for free-text episodes and
+summaries when exact structured lookup is insufficient. These are rebuildable
+projections behind lifecycle/owner/sensitivity filters, never canonical Memory
+state or activation authority.
+
+### Stage 7: Procedural Publication
+
+Add the separate evaluation-approved procedural publication workflow. It
+remains system/agent-owned and cannot be written directly by ordinary user chat.
 
 ## Rollout
 
 Independent gates control:
 
-1. PostgreSQL Chat persistence.
-2. Explicit chat commands.
-3. Background capture.
-4. Per-type activation.
-5. V2 read.
-6. V2 prompt use.
-7. Summary and episode projections.
+1. Turn Understanding / ActionRouter shadow observation.
+2. Explicit Chat Memory actions.
+3. Memory Read.
+4. Memory prompt use.
+5. Background capture.
+6. Per-type inferred activation.
+7. Summary, episode, full-text, and vector projections.
 8. Procedural publication.
 
 Read and use gates remain independently reversible. Shadow observation precedes
@@ -788,8 +1190,9 @@ durable events and versions.
 6. Never downgrade a schema while rows depend on the newer contract.
 7. Restore from tested PostgreSQL backup for destructive storage failure.
 
-Rollback does not reactivate deleted/superseded Memory or copy V2 state back to
-SQLite.
+Rollback does not reactivate revoked/deleted/superseded Memory or clear
+suppression generations. PostgreSQL remains the relational source of truth; no
+rollback path reintroduces SQLite.
 
 ## Proposed Supersession
 
@@ -817,53 +1220,102 @@ Existing accepted decisions to retain or amend:
 2. ADR 0012: versioned semantic Memory in PostgreSQL.
 3. ADR 0013: model-assisted extraction and deterministic resolution.
 4. ADR 0014: transactional outbox and idempotent workers.
-5. ADR 0017: risk-based Memory controls.
-6. ADR 0027: outbox turn-readiness barrier — an outbox event is released only
+5. ADR 0020: public Memory management removal; future controls return only
+   through an approved Chat-native design.
+6. ADR 0023: atomic two-phase Chat turn.
+7. ADR 0027: outbox turn-readiness barrier — an outbox event is released only
    when its turn reaches a terminal status (`complete` or `failed`).
+8. ADR 0029 and subsequent worker-runtime/credential decisions: background
+   Memory runs as an operationally separate worker with least-privilege database
+   authority.
+
+ADR 0017 is historical input for risk calibration but is not current authority
+for a public control surface because ADR 0020 superseded that surface.
 
 New decisions required before implementation:
 
-1. Unified Memory family, scope, lifecycle, and activation authority.
-2. Typed Turn Understanding and non-authoritative model boundary.
-3. Chat-first PostgreSQL runtime composition and staged SQLite retirement.
-4. Structured-plus-vector retrieval projection and Memory Use authority.
+1. Chat-native Memory actions: typed Turn Understanding, `ActionRouter`,
+   deterministic explicit-intent authority, and atomic
+   `ExplicitMemoryTurnCommit` acknowledgement semantics.
+2. Memory retention and revocation lifecycle: retention modes independent of
+   `Authority`, `REVOKE`/`REVOKED`, assertion suppression generation, and
+   re-remember semantics.
+3. Unified Memory family/scope lifecycle and activation authority, including
+   positive `SourceHandlingRecord` semantics.
+4. Memory Read/Use authority: lifecycle encapsulation, structured retrieval,
+   Context Planner/Arbiter, controlled context, and rebuildable vector/full-text
+   projections.
 5. System-owned procedural Memory publication boundary.
-6. Chat-first integration of ADR 0017's accepted risk-based control rules.
 
 ## Acceptance Criteria
 
 1. The specification and required ADRs are approved before implementation.
-2. Mounted Chat creates and continues multiple owner-scoped standalone
-   conversations without Workspace or SQLite.
-3. Every accepted user message commits exactly one durable extraction intent in
-   the same PostgreSQL transaction.
+2. The approved design preserves the established authenticated PostgreSQL-only
+   standalone Chat baseline and does not restore Workspace, SQLite, or the
+   removed public Memory management surface.
+3. Every accepted user turn allocates its messages and extraction intent with
+   the existing turn-readiness barrier; background processing cannot claim the
+   source before terminal handling.
 4. Turn Understanding produces only governed typed output and cannot mutate
    Memory.
-5. Explicit ordinary actions work inside Chat with source-message provenance and
-   committed-result acknowledgment.
-6. Every listed Memory family has at least one complete, evaluated vertical
+5. A durable explicit remember/correct/forget requires deterministic speech-act
+   corroboration; classifier-only authorization is impossible.
+6. A successful explicit Memory mutation, idempotency result, family-specific
+   source handling, acknowledgement assistant row, and terminal outbox
+   transition commit atomically.
+7. `Authority`, scope, and retention are independent contracts with executable
+   deletion/retention truth tables.
+8. Explicit forget produces `REVOKED` state plus assertion suppression; delayed
+   or old-generation evidence cannot resurrect the Memory, while a new
+   corroborated explicit remember can create a fresh eligible generation.
+9. Absence of `SourceHandlingRecord` never permits background extraction.
+10. Every listed Memory family has at least one complete, evaluated vertical
    behavior before the architecture is called complete.
-7. Type-specific activation policies enforce the evidence table in this spec.
-8. Only eligible active Memory reaches controlled context; current user intent
+11. Type-specific activation policies enforce the evidence table in this spec.
+12. Only lifecycle-eligible and relevant active Memory reaches controlled
+    context; current user intent
    overrides soft Memory.
-9. Background processing is non-blocking, retry-safe, deletion-aware, and
+13. Background processing is non-blocking, retry-safe, deletion-aware,
+    suppression-aware, and
    idempotent by semantic effect.
-10. PostgreSQL integration verification runs without required skips.
-11. End-to-end evaluation passes every zero-tolerance gate.
-12. No mounted runtime module imports or constructs a SQLite repository after
-    Stage 7.
-13. Legacy data is disposed of or quarantined according to a reviewed inventory;
-    it is never auto-activated.
-14. Operations documentation proves migration, backup, restore, worker recovery,
+14. PostgreSQL integration verification runs without required skips.
+15. End-to-end evaluation is `PASS` only when every required metric/scenario is
+    measured and every zero-tolerance gate passes; missing required evidence is
+    `INCONCLUSIVE`.
+16. Operations documentation proves migration, backup, restore, worker recovery,
     feature rollback, and safe deletion.
 
 ## Approval Record
 
-Version 0.1 is in review. Approval authorizes preparation of the required ADRs
+Version 0.3 is in review. Approval authorizes preparation of the required ADRs
 and staged implementation plans only. It does not authorize runtime edits,
-database migration, SQLite deletion, dependency changes, or Git delivery.
+database migrations, feature enablement, dependency changes, or Git delivery.
 
 ## Changelog
+
+### v0.3 Draft — 2026-09-12
+
+- Rebased **Current-State Evidence** onto the PostgreSQL-only, authenticated
+  Chat baseline after ADR 0020 and the worker/outbox remediation work.
+- Split provenance `Authority` from `RetentionMode`; defined
+  `CONVERSATION_BOUND`, `SOURCE_BOUND`, and `USER_DURABLE` semantics.
+- Added family-specific positive `SourceHandlingRecord`; absence is explicitly
+  `UNHANDLED` and fail-closed.
+- Added deterministic `ExplicitIntentGate` so a model may interpret semantics
+  but cannot independently authorize durable personal state.
+- Added `ExplicitMemoryTurnCommit` and the invariant that Memory mutation plus
+  acknowledgement/source handling commit atomically and idempotently.
+- Added explicit `REVOKE`/`REVOKED` lifecycle, assertion suppression generation,
+  no-resurrection semantics, and explicit re-remember behavior without
+  repurposing `memory_deletion_ledger`.
+- Made `ACTIVE` necessary but insufficient for read eligibility and centralized
+  lifecycle rules behind `MemoryLifecyclePolicy`.
+- Added the architecture-level **System Invariants** section and executable
+  failure/evaluation requirements, including `INCONCLUSIVE` when required
+  evidence cannot be measured.
+- Reordered staged delivery around complete vertical slices from the current
+  baseline: understanding/source handling -> explicit semantic write/store ->
+  semantic read/use -> background activation -> additional families/projections.
 
 ### v0.2 Draft — 2026-09-11
 
@@ -891,4 +1343,5 @@ database migration, SQLite deletion, dependency changes, or Git delivery.
    <https://arxiv.org/abs/2310.08560>
 4. Chhikara et al., “Mem0: Building Production-Ready AI Agents with Scalable
    Long-Term Memory”: <https://arxiv.org/abs/2504.19413>
-5. `docs/architecture/raw-input-codegraph-flow.md`.
+5. [Agent Memory Target Architecture](./2026-09-12-agent-memory-target-architecture-design.md),
+   the current approved successor specification.

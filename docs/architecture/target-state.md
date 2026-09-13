@@ -1,274 +1,250 @@
 # Target-state Architecture
 
-## Scope
+## Status and Authority
 
-This document describes the proposed target architecture for Travel Agent. It
-is not implemented behavior. It does not authorize runtime changes, source
-changes, storage migrations, new dependencies, production claims, or Git
-delivery.
+This document summarizes the **approved future architecture** for Travel Agent.
+It does not describe implemented behavior and does not by itself prove that a
+stage is complete.
 
-Use [Current-state Architecture](current-state.md) for the implemented baseline
-and [Data Model](data-model.md) for the conceptual target entities.
+The canonical authority chain is:
+
+1. [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.2 — Approved.
+2. ADRs [0036](../adr/0036-chat-native-memory-actions-and-transaction-coordinators.md), [0037](../adr/0037-memory-retention-revocation-and-suppression.md), [0038](../adr/0038-positive-source-handling-and-inferred-activation-authority.md), [0039](../adr/0039-memory-read-use-authority-and-retrieval-projections.md), and [0040](../adr/0040-system-owned-procedural-memory-publication-boundary.md) — Accepted.
+3. [Agent Memory Target Architecture Implementation Plan](../plans/2026-09-12-agent-memory-target-architecture-implementation.md) v0.5 — Approved 2026-09-13.
+
+Use [Current-state Architecture](current-state.md) for behavior that exists now
+and [Data Model](data-model.md) for cross-domain target entities and lifecycle
+relationships.
+
+## Baseline That Must Remain True
+
+The target starts from authenticated standalone Chat backed by PostgreSQL. It
+must not reintroduce Workspace as a product container, Planner as a mounted
+runtime surface, SQLite as canonical relational state, or the removed public
+Memory Manager/API.
+
+PostgreSQL remains canonical for tenant conversation and Memory state. Chroma
+remains travel-knowledge retrieval infrastructure. Any future Memory full-text
+or vector index is a rebuildable projection, never lifecycle authority.
 
 ## Target Principles
 
-1. Keep current behavior and target architecture visibly separate.
-2. Treat a trip workspace as the primary product container.
-3. Keep product memory separate from travel knowledge retrieval.
-4. Put small interfaces at durable module seams.
-5. Hide storage and model providers behind adapters.
-6. Assemble every model context bundle from evidence-bearing inputs.
-7. Capture enough trace data to evaluate quality regressions and improvements.
-8. Roll out memory and planner behavior in stages before using it in answers.
-9. Prefer user correction over inferred memory when conflicts appear.
-10. Avoid production security or privacy claims until Package 6 and later
-    runtime controls exist.
+1. Keep synchronous agent behavior bounded to one turn and one context/tool
+   phase rather than an unbounded autonomous loop.
+2. Let models interpret uncertain semantics, but keep authorization, lifecycle,
+   persistence, deletion/suppression, activation, and read eligibility under
+   deterministic application policy.
+3. Keep Memory and RAG as separate domains. RAG supplies travel knowledge;
+   Memory supplies governed personal/context state.
+4. Treat explicit user Memory actions differently from background inference.
+5. Make product forget a first-class lifecycle operation with suppression, not
+   a synonym for privacy erasure.
+6. Persist provenance/retention/lifecycle facts instead of reconstructing them
+   from current policy at read time.
+7. Fail closed at authority and lifecycle boundaries; degrade without Memory
+   when Memory is optional and unavailable.
+8. Introduce additional Memory families only as evaluated vertical slices.
 
-## Product Container: Trip Workspace
+## Product Boundary
 
-`TripWorkspace` is the target product container for one planned trip. It groups
-the user's planning conversations, destination shortlist, dates, budget,
-traveler constraints, accepted and rejected decisions, itinerary versions,
-trip-scoped memories, and evaluation traces.
+The product container is authenticated standalone Chat. A user owns multiple
+independent conversations through `owner_user_id`; there is no active
+`TripWorkspace` parent.
 
-A user can own multiple trip workspaces. A future collaboration model may allow
-membership, but Package 3 does not define team authorization or access control.
-The workspace gives the agent a stable place to preserve planning state without
-turning every remembered fact into global user memory.
+One user turn may be:
 
-## Target Module Map
+- a normal query;
+- an explicit Memory action (`remember`, `correct`, `forget`, `inspect`); or
+- evidence that may later be processed asynchronously for inferred Memory.
 
-| Module | Interface responsibility | Adapter examples | Current baseline |
+Conversation-scoped state may override a user-scoped default for the current
+conversation without rewriting the user-scoped value.
+
+## Bounded Agentic Turn
+
+The target synchronous flow is:
+
+```text
+request + authenticated principal
+-> resolve ephemeral dialogue state
+-> understand the turn
+-> choose action and context plan
+-> enforce deterministic policy
+-> execute one read/tool phase
+   -> Memory Read when requested
+   -> RAG when requested
+-> arbitrate structured context
+-> generate/acknowledge
+-> commit the terminal turn
+```
+
+`DialogueStateResolver` reconstructs short-lived referents, topic, current goal,
+and pending clarification. `TurnUnderstanding` returns typed but
+non-authoritative semantics. `ActionRouter` chooses normal query, explicit
+Memory action, or clarification. `ContextPlanner` selects `none`, `rag_only`,
+`memory_only`, or `both` as stages make those modes available.
+
+`TurnDisposition` describes the reasoning outcome (`ANSWERED`,
+`NEEDS_CLARIFICATION`, `INCOMPLETE`, `EXECUTION_FAILED`) and remains distinct
+from persisted `MessageStatus`. It stays internal to `TurnOutcome` in the first
+rollout.
+
+## Target Module Boundaries
+
+| Component | Owns | Must not own |
+| --- | --- | --- |
+| Chat application/orchestration | One bounded synchronous turn, routing, context planning, generation, terminal result | Background Memory lifecycle |
+| Conversation store | Conversation/message persistence, deletion epoch, outbox allocation/release, guarded terminal transition | Memory semantics |
+| DialogueStateResolver | Ephemeral current-turn referents/topic/goal | Durable Memory |
+| TurnUnderstanding | Typed semantic interpretation | Durable mutation authority |
+| ExplicitIntentGate | High-precision corroboration of remember/correct/forget speech acts | Key/value parsing or persistence |
+| ExplicitMemoryActionHandler | Registry, scope, retention, sensitivity, conflict validation and typed proposal | Transaction ownership |
+| ExplicitMemoryTurnCommit | Atomic API-side explicit Memory effect + acknowledgement + source handling + guarded terminal transition | Semantic interpretation |
+| BackgroundMemoryCommit | Fenced worker-side background Memory effect + source-event completion | Explicit Chat authority |
+| MemoryFormationEngine | Background evidence/candidate formation | Direct activation |
+| MemoryConsolidationEngine | Duplicate/reinforce/correction/conflict resolution | Storage transaction ownership |
+| MemoryLifecyclePolicy | Shared formation/write/activation/read eligibility predicates | Relevance ranking |
+| MemoryReadEngine | Eligible/relevant Memory selection | RAG retrieval |
+| ContextArbiter / MemoryContextComposer | Precedence, bounded Memory context, prompt-safe structured projection | Canonical Memory storage |
+| RAG domain | Travel-document retrieval and citation evidence | Personal Memory authority |
+| Procedural publication | Offline evaluated, versioned system behavior | Tenant/user writable Memory |
+
+## Memory Families
+
+| Family | Ownership | Typical scope | Rollout rule |
 | --- | --- | --- | --- |
-| Client Experience | Sends user intent, workspace selection, conversation events, and explicit edits | Browser UI adapter, future mobile adapter | React/Vite client posts `{ message }` |
-| Backend Application | Validates request contracts, resolves authenticated context later, and calls orchestration | FastAPI route adapter | FastAPI mounts `/health` and `/api/v1/chat` |
-| Conversation Orchestrator | Coordinates workspace state, memory read/write policy, knowledge retrieval, planning, generation, and tracing | None; this is product logic | Current chat route calls RAG directly |
-| Workspace Module | Owns workspace lifecycle, itinerary state, constraints, decisions, and memberships | Workspace repository adapter | Not implemented |
-| Memory Module | Owns extraction, retrieval, consolidation, conflict handling, confidence, retention, and deletion policy | Memory repository adapter, embedding adapter | Not implemented |
-| Knowledge Retrieval Module | Owns travel-document retrieval and citation metadata | Vector-store adapter | Partly implemented by `ChromaVectorStore` and RAG code |
-| Planner Module | Owns itinerary drafts, plan operations, alternatives, conflict detection, and decision state | Plan repository adapter | Not implemented |
-| Generation Module | Owns prompt assembly and model-provider calls from a context bundle | Model-provider adapter | Partly implemented by `RAGService` |
-| Evaluation and Trace Module | Owns trace capture, metric inputs, offline datasets, and quality gates | Trace repository adapter | Not implemented in online route |
-| Storage Adapters | Persist relational, vector, blob, and trace data behind interfaces | Relational, vector, blob, and event-store adapters | Chroma only for local travel knowledge |
+| Semantic | Tenant/user-derived | user or conversation | First complete explicit vertical slice |
+| Episodic | Tenant/user-derived | conversation; governed user generalization | Later evaluated slice |
+| Working | Tenant/user-derived | conversation | Later evaluated slice; may feed dialogue-state reconstruction after its gate |
+| Procedural | System-owned | separate publication boundary | Offline evaluation and repository-owner approved publication only |
 
-A module is a unit with an interface and implementation. A seam is the location
-where the module interface lives. An adapter satisfies an interface at a seam
-and hides a concrete external system or storage choice.
+Procedural Memory is not represented with a fake tenant owner and does not
+weaken tenant RLS.
 
-## Dependency Direction
+## Independent Memory Dimensions
 
-Target dependency direction:
+Every user-derived Memory decision keeps these dimensions separate:
 
-```mermaid
-flowchart TD
-    UI[Client Experience] --> API[Backend Application]
-    API --> Orchestrator[Conversation Orchestrator]
-    Orchestrator --> Workspace[Workspace Module Interface]
-    Orchestrator --> Memory[Memory Module Interface]
-    Orchestrator --> Knowledge[Knowledge Retrieval Interface]
-    Orchestrator --> Planner[Planner Module Interface]
-    Orchestrator --> Generation[Generation Module Interface]
-    Orchestrator --> Trace[Evaluation and Trace Interface]
-    Workspace --> WorkspaceStore[Workspace Storage Adapter]
-    Memory --> MemoryStore[Memory Storage Adapter]
-    Knowledge --> VectorStore[Vector-store Adapter]
-    Generation --> ModelProvider[Model-provider Adapter]
-    Trace --> TraceStore[Trace Storage Adapter]
+- **Authority:** `EXPLICIT_SAVE`, `EXPLICIT_STATEMENT`, `REPEATED_INFERENCE`.
+- **Scope:** `conversation` or `user`.
+- **Retention:** `CONVERSATION_BOUND`, `SOURCE_BOUND`, `USER_DURABLE`.
+- **Sensitivity:** deterministic registry/policy floor that a model may only
+  raise, never lower.
+- **Lifecycle:** at least `SHADOW/PENDING`, `ACTIVE`, `SUPERSEDED`, `REVOKED`,
+  `REJECTED`, and effective `EXPIRED`.
+- **Response precedence:** current request and verified hard constraints outrank
+  soft durable personalization.
+
+`ACTIVE` is necessary but not sufficient for answer-time use.
+
+## Explicit Memory Write Path
+
+Explicit `remember`, `correct`, and `forget` require deterministic speech-act
+corroboration before any model-assisted payload parsing. Parsing is bounded,
+closed-schema, registry-validated, and fail-closed.
+
+The API-side commit owner atomically persists the Memory effect together with:
+
+1. semantic idempotency result;
+2. family-specific `SourceHandlingRecord`;
+3. deterministic acknowledgement; and
+4. guarded terminal turn/outbox transition.
+
+The model never chooses SQL, persistence operation, retention, activation, or
+suppression behavior.
+
+## Background Inference Path
+
+Background formation is asynchronous through the existing worker/outbox model.
+Absence of a source-handling record means `UNHANDLED`, never permission.
+Formation for a family requires a positive family-specific
+`BACKGROUND_ELIGIBLE` outcome.
+
+Inferred Memory is shadow-first. Activation thresholds depend on family/type and
+require independent evidence; retries or repeated extraction of one source do
+not increase support. Missing or inconclusive evaluation keeps inferred Memory
+non-answer-eligible.
+
+## Consolidation, Forget, and Re-remember
+
+The consolidation vocabulary includes new, duplicate, reinforcement,
+correction, contradiction, temporary exception, stale, unrelated, and uncertain.
+Deterministic identity/authority/time/scope/value/generation comparisons run
+before any bounded semantic classifier.
+
+Governed effects include `ADD`, `REINFORCE`, `SUPERSEDE`, `ADD_EXCEPTION`,
+`PENDING_CONFLICT`, `REJECT`, `NOOP`, and `REVOKE`.
+
+Product forget uses `REVOKE`/`REVOKED` and advances an assertion suppression
+generation. Delayed work from an older generation cannot form, activate, or
+read. A later explicit re-remember creates state in the current generation; it
+does not reactivate the revoked version.
+
+## Read and Use Boundary
+
+Memory Read applies, in order:
+
+```text
+owner/scope filter
+-> lifecycle + retention + source-validity + suppression eligibility
+-> relevance
+-> precedence/conflict exclusion
+-> bounded ranking/selection
 ```
 
-Routes and UI can depend on orchestration interfaces. Orchestration can depend
-on module interfaces. Business modules can depend on repository or provider
-interfaces. Concrete storage and model clients stay in adapters and must not
-leak into product policy.
+Memory is projected into generation as structured, prompt-safe data. Raw source
+evidence is excluded by default. Memory is not a citation channel and retrieved
+Memory text is never treated as instructions.
 
-## Layered Memory Architecture
+RAG and Memory may execute in parallel as independent read-only context sources.
+Orchestration projects both into a neutral generation input; neither domain
+imports the other's canonical records.
 
-| Layer | Scope | Target use | Write rule | Evaluation focus |
-| --- | --- | --- | --- | --- |
-| Working context | One model turn | Current user message, active plan slice, selected memory bundle | Created per request and discarded | Token discipline and correct inclusion |
-| Conversation summary | One conversation | Recent decisions, unresolved questions, local continuity | Updated from conversation events | Faithfulness and update accuracy |
-| Trip state | One trip workspace | Dates, budget, destination shortlist, itinerary versions, constraints | Written by planner actions or explicit user edits | Plan consistency and conflict detection |
-| User profile memory | One user across trips | Stable preferences, accessibility needs, dietary patterns, pace, hotel style | Promoted only when confidence and usefulness pass policy | Precision, usefulness, privacy safety |
-| Episodic memory | One user or trip event | Past decisions, rejected options, contextual reasons | Promoted with provenance and decay behavior | Retrieval relevance and time sensitivity |
-| Travel knowledge | Global corpus | Destination facts, guide content, activities, citations | Written by offline indexing only | Retrieval relevance and groundedness |
-| Evaluation trace | One request, run, or experiment | Inputs, selected context, answer, scores, failures | Written by trace policy | Reproducibility and learning signal quality |
+## Conversation Deletion and Source Validity
 
-Memory read and write are separate operations. Reading memory selects scoped
-evidence for a turn. Writing memory proposes candidates, validates them through
-policy, and persists only accepted records with provenance and retention state.
+Conversation deletion always invalidates evidence sourced from that
+conversation. Resulting Memory eligibility depends on persisted retention:
 
-## Context Assembly Flow
+- `CONVERSATION_BOUND`: becomes ineligible with the conversation;
+- `SOURCE_BOUND`: re-evaluate support from remaining valid independent evidence;
+- `USER_DURABLE`: normalized value may survive, but deleted-source content must
+  not reappear through read, inspect, prompt, trace, summary, projection, or
+  citation.
 
-```mermaid
-sequenceDiagram
-    participant O as Conversation Orchestrator
-    participant W as Workspace Module
-    participant M as Memory Module
-    participant K as Knowledge Retrieval Module
-    participant P as Planner Module
-    participant G as Generation Module
-    participant T as Evaluation and Trace Module
+Time expiry, source validity, retention, and suppression remain independent.
 
-    O->>W: load workspace state
-    O->>M: retrieve scoped user and trip memories
-    O->>K: retrieve travel knowledge with citations
-    O->>P: select active itinerary and constraints
-    O->>O: assemble ContextBundle with provenance
-    O->>G: generate response from ContextBundle
-    O->>T: record selected inputs and response
-```
+## Staged Delivery
 
-The context bundle must carry scope, source type, provenance, confidence,
-recency, and selection reason for each memory or retrieval item. This lets later
-evaluation explain why an answer improved or regressed.
-
-## Trip Planning Flow
-
-Target trip planning is stateful:
-
-1. User opens or creates a trip workspace.
-2. User gives intent, constraints, or corrections.
-3. Orchestrator loads workspace state and relevant memories.
-4. Planner proposes operations such as add destination, remove activity, update
-   date, adjust budget, or create itinerary version.
-5. User-facing response explains the proposed or applied change.
-6. Accepted planner operations create a new itinerary version or decision
-   record.
-7. Rejected planner operations become decision evidence rather than silent
-   failure.
-
-Planner writes must be explicit. If saving fails, the assistant must not
-pretend an itinerary was saved.
-
-## Memory Write and Promotion Flow
-
-```mermaid
-flowchart TD
-    Message[Message or planner event] --> Extract[Extract MemoryCandidate]
-    Extract --> Classify[Classify scope, type, sensitivity, usefulness]
-    Classify --> Decision{Promote?}
-    Decision -->|Accept| Store[Write MemoryRecord with provenance]
-    Decision -->|Reject| Trace[Record rejection reason]
-    Decision -->|Needs user action| Review[Ask or expose for user correction]
-    Store --> Trace
-    Review --> Trace
-```
-
-Memory promotion must consider:
-
-1. Whether the candidate is true enough to remember.
-2. Whether it is useful for future travel assistance.
-3. Whether the scope is user-wide, trip-scoped, conversation-scoped, global
-   knowledge, or evaluation-only.
-4. Whether the candidate contains sensitive personal data or secrets.
-5. Whether it conflicts with a newer explicit user edit.
-6. Whether it should expire, decay, or require review.
-
-## Evaluation and Trace Flow
-
-Evaluation trace is part of the target architecture because memory quality
-cannot improve without measurement.
-
-Each trace should connect:
-
-1. Request context: user, workspace, conversation, message, and model
-   configuration when available.
-2. Retrieval inputs: query text, filters, and requested limits.
-3. Selected context: memory items, trip state, itinerary slice, retrieval
-   chunks, citations, and reasons for inclusion.
-4. Output: assistant response, planner operations, and citations.
-5. Quality signals: automated checks, judge scores, user correction, accepted
-   change, rejected change, or failure label.
-6. Safety signals: sensitive memory rejection, deletion action, redaction, or
-   scope violation.
-
-Package 5 owns the detailed RAG and memory evaluation protocols. Package 3 only
-defines the architecture surfaces that those protocols will use.
-
-## Security and Privacy Boundaries
-
-Target boundaries:
-
-| Boundary | Requirement |
+| Stage | Target |
 | --- | --- |
-| User to workspace | Workspace and memory records must be scoped before retrieval |
-| Retrieved travel content to prompt | Travel knowledge remains untrusted data and cannot override instructions |
-| Memory candidate to durable memory | Promotion requires policy, provenance, and retention state |
-| Secret values to logs or traces | Real credentials must not be stored in docs, traces, fixtures, or logs |
-| User correction to inferred memory | Explicit correction outranks inferred records |
-| Deletion request to stores | Deletion or tombstoning semantics must exist before production privacy claims |
+| 1 | Turn understanding, dialogue state, routing, context-planner contract, explicit intent gate, positive source handling, telemetry hardening |
+| 2 | Explicit Semantic Memory write/store lifecycle, retention, revoke/suppression, dual commit coordinators, eight-key registry v2 |
+| 3 | Semantic Memory Read/Use, explicit inspect, context arbitration |
+| 4 | Background semantic formation and per-type inferred activation after conclusive gates |
+| 5 | Evaluated Episodic and Working Memory slices |
+| 6 | Optional full-text/vector projection only when structured retrieval is insufficient |
+| 7 | System-owned procedural publication |
 
-Authentication, authorization, production privacy guarantees, tenant isolation,
-and incident response are not established by Package 3.
+The approved execution source is plan v0.5; this document intentionally does not
+repeat task-level file lists or verification commands.
 
-## Failure and Recovery
+## Rollout and Rollback
 
-| Failure | Target behavior |
-| --- | --- |
-| Workspace lookup fails | Return a recoverable product error or create an explicit default only if the route contract allows it |
-| Memory read unavailable | Continue with workspace state, current conversation, and travel knowledge, while tracing degraded memory |
-| Knowledge retrieval unavailable | Answer with explicit limitations or decline unsupported factual claims |
-| Model provider fails | Return a controlled error and record failure when trace storage exists |
-| Planner write fails | Tell the user the plan was not saved |
-| Trace write fails | User-facing chat may proceed, but the operational failure must be visible later |
-| Memory conflict appears | Prefer explicit user correction and preserve conflict evidence |
+Capabilities enable independently: understanding shadow observation, explicit
+Memory, read, prompt use, background capture, inferred activation, additional
+families/projections, then procedural publication.
 
-## Capacity, Latency, and Cost Budgets
+Rollback disables higher-authority consumers before lower layers. It never
+clears revoke/suppression history, reactivates superseded/revoked versions,
+restores SQLite as truth, or restores the removed public Memory Manager/API.
 
-Package 3 does not set production budgets. Later runtime plans must define and
-measure at least:
+## Explicitly Removed from the Target
 
-1. Memory retrieval latency per turn.
-2. Knowledge retrieval latency per turn.
-3. Context assembly token budget.
-4. Model call token and cost budget.
-5. Memory extraction cost per message or conversation batch.
-6. Evaluation trace storage growth.
-7. Workspace, message, itinerary, and memory storage growth.
+The following are historical architecture, not future product direction:
 
-No implementation may claim production readiness until concrete budgets and
-measurement gates exist.
-
-## Staged Migration
-
-Recommended staged migration:
-
-1. Preserve the current `message`-only RAG route and Stage A health path.
-2. Add workspace contracts and storage behind interfaces.
-3. Add conversation persistence behind an adapter.
-4. Run shadow memory extraction without using memories in answers.
-5. Evaluate memory candidates for precision, recall, sensitivity, and scope.
-6. Add memory retrieval into context assembly behind a feature gate.
-7. Evaluate personalization utility, groundedness, and privacy behavior.
-8. Add planner operations and itinerary versioning.
-9. Promote planner writes only after conflict and rollback behavior pass tests.
-
-Each stage needs its own approved spec and implementation plan.
-
-## Required ADRs
-
-After architecture approval and before runtime implementation, prepare ADRs for:
-
-1. Trip workspace as the primary product container.
-2. Layered memory model and memory promotion policy.
-3. Storage ownership for relational data, vector data, and trace data.
-4. Context assembly and dependency direction between memory, RAG, planner, and
-   generation modules.
-5. Evaluation trace schema and quality gate ownership.
-
-Additional ADRs may be needed for authentication, authorization, deployment
-topology, model-provider adapters, and production observability.
-
-## Open Implementation Questions
-
-These questions are intentionally deferred to later specs or ADRs:
-
-1. Which storage technology owns users, workspaces, conversations, messages,
-   itinerary versions, and memory records?
-2. Which vector store owns user memories versus travel knowledge?
-3. Which authentication model will identify users locally and in production?
-4. Which planner operations are available in the first runtime increment?
-5. Which memory categories require explicit user confirmation?
-6. Which traces are retained for product debugging versus offline evaluation?
-7. Which metrics become merge gates for memory-aware behavior?
-8. Which UI affordances let users inspect, edit, and delete memories?
+- `TripWorkspace` as the primary product container;
+- Workspace-scoped Planner routes/state;
+- SQLite application persistence;
+- a separate public Memory management surface;
+- unbounded autonomous planning loops;
+- vector search as canonical Memory truth.

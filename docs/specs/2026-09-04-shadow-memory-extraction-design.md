@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | Superseded |
 | Version | 0.1 |
 | Date | 2026-09-04 |
 | Change class | Level 3 - Architecture Design |
@@ -14,6 +14,7 @@
 | Implementation plan | [Shadow Memory Extraction Implementation Plan](../plans/2026-09-04-shadow-memory-extraction-implementation.md), version 0.1 (Approved) |
 | Related issue | None - R5 specification drafting was authorized by the repository owner in conversation on 2026-09-04 |
 | Superseded document | None |
+| Superseded by | [Authenticated Chat-Only PostgreSQL Clean Break](./2026-09-10-authenticated-chat-postgresql-clean-break-design.md) v0.1 retired the legacy Workspace/SQLite shadow surface; later Memory write-pipeline designs govern retained Memory capability |
 
 ## Summary
 

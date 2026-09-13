@@ -16,72 +16,50 @@ entities, [Specifications](../specs/README.md) for change approval, and
 
 ## Current Phase
 
-Travel Agent is in foundation phase. The repository has an early local RAG chat
-prototype with a React/Vite frontend, FastAPI backend, Chroma travel-knowledge
-retrieval, and an external model call path. The implemented chat contract is
-one `message` in and `reply`, `model`, and `citations` out.
+Travel Agent now runs on the authenticated standalone Chat/PostgreSQL clean-break
+baseline. Workspace routes/state, Planner routes/state, SQLite application
+persistence, unauthenticated compatibility mode, and the separate public Memory
+management surface are retired from the mounted product. Current implementation
+truth is maintained in [Current-state Architecture](../architecture/current-state.md).
 
-Trip workspaces are no longer conceptual. Milestone `R3` implements a
-backend-only `TripWorkspace` container with three `/api/v1/workspaces` routes and
-local SQLite storage behind a repository interface. The repository owner accepted
-that change set and merged it into `feature/agent-memory` at `2f632e2` on
-2026-09-04. It adds no authentication and no workspace-aware chat.
+The next approved architecture program is **Agent Memory Target Architecture
+v0.2**. The repository owner approved its exact implementation plan v0.5 on
+2026-09-13. The program keeps Chat as the product boundary and delivers Memory
+in independently evaluated stages rather than restoring the historical
+Workspace/Planner roadmap.
 
-Conversation persistence is delivered. `R4` added a shared local application
-store with per-module schema versions, a `backend/conversations/` module, a
-`backend/orchestration/` orchestration seam, five conversation routes, and an
-optional `conversation_id` on the chat request. The repository owner delivered it
-to `feature/agent-memory` at `e590ca6` on 2026-09-04. It adds no authentication,
-no summarization, no deletion path, and no frontend work, so real browser traffic
-is still not persisted.
+### Active Agent Memory Program
 
-Shadow memory extraction is delivered. `R5` has a backend-only memory candidate
-store, a shadow evaluation path, and a `PASS` shadow report. The repository
-owner accepted the change set after two review rounds and merged it into
-`feature/agent-memory` at `89496eb`. No memory candidate reaches a generated
-answer, which is the boundary ADR 0006 exists to hold.
+| Stage | Direction | Gate |
+| --- | --- | --- |
+| 1 | Turn understanding, ephemeral dialogue state, routing, context planning contract, explicit intent gate, positive source handling, telemetry hardening | Typed semantics and source handling verified before durable behavior |
+| 2 | Chat-native explicit Semantic Memory write/store lifecycle with retention, revoke/suppression, dual commit coordinators, and closed eight-key registry v2 | Remember/correct/forget/re-remember atomicity and all eight keys pass Stage-2 evidence |
+| 3 | Governed Semantic Memory Read/Use, explicit inspect, context arbitration | Eligibility, relevance, precedence, abstention and prompt-safety gates pass |
+| 4 | Background semantic formation and per-type inferred activation | Shadow-first evidence is conclusive before any inferred answer influence |
+| 5 | Episodic and Working Memory vertical slices | Each family independently passes formation/lifecycle/read/use/deletion evaluation |
+| 6 | Optional full-text/vector retrieval projection | Added only if structured retrieval is demonstrably insufficient |
+| 7 | System-owned procedural publication | Offline evaluation and publication authority verified; tenant Chat remains non-writable |
 
-Memory retrieval is delivered. `R6` has an approved version 0.3 spec, an
-accepted ADR 0007, and a completed implementation plan. The feature-gated
-implementation and retrieval report `r6-retrieval-v0.1` passed owner review
-after the R6 fix round and were delivered to `feature/agent-memory` at `d62b41b`.
-Two limitations remain accepted: personalization and constraint-delta metrics
-report `INCONCLUSIVE` until a provider-backed answer judge exists, and the `R9`
-ordering problem recorded in Dependency Rules is unresolved.
+Historical milestones `R3`–`R9` below remain useful delivery evidence. They do
+not override later clean-break decisions. In particular, delivered historical
+Workspace/Planner milestones describe what existed at those commits, not what
+the current or target runtime should restore.
 
-Trip planner state is delivered. `R7` has an approved version 0.2 spec,
-accepted ADR 0008, and a completed implementation plan. The backend-only
-planner module and state report `r7-state-v0.1` passed owner review after the
-R7 atomicity fix round, which moved every operation row into the same repository
-transaction as the state change it records. Git delivery completed on the active
-local `feature/agent-memory` branch at `57e70fe`.
-
-Observability and operations is accepted in the R8 worktree. `R8` has an
-approved version 0.2 spec, an accepted ADR 0009, and a completed implementation
-plan. The local privacy-safe observability layer and ops report
-`r8-operational-readiness-v0.1` passed owner review after the R8 fix round, which
-kept an unvalidated `conversation_id` out of the chat accepted event so a
-malformed id preserves the `404` contract, and extended redaction to `counters`
-entries. Git delivery is still pending, so R8 is not yet marked Delivered.
-
-User identity, layered memory, production security policy, operational runbooks,
-license text, and open-source templates are planned direction rather than
-current capability.
-
-Documentation packages `D0` through `D7` are complete and accepted. Documentation
-work is no longer the active package; runtime milestones are.
+Documentation packages `D0` through `D7` remain historical governance
+foundations. New work follows the current spec/ADR/plan chain rather than the old
+workspace-first dependency narrative.
 
 ## Roadmap Principles
 
-1. Preserve a clear line between implemented behavior and target direction.
-2. Put evaluation before quality claims.
-3. Put workspace ownership before memory and planner state.
-4. Put memory shadow mode before memory affects answers.
-5. Put traceability before optimization.
-6. Put security and operations gates before external-facing confidence.
-7. Keep Git delivery under repository-owner control.
-8. Treat every milestone as a reviewable change with a spec, plan, evidence,
-   and rollback path.
+1. Preserve a clear line between implemented behavior and approved target direction.
+2. Put evaluation before quality or personalization claims.
+3. Preserve authenticated owner isolation and PostgreSQL canonical state before enabling new Memory influence.
+4. Put explicit, high-precision Memory behavior before inferred activation.
+5. Keep inferred Memory shadow-only until its family/type gate is conclusive.
+6. Keep RAG knowledge retrieval and personal Memory authority separate.
+7. Put traceability, rollback, security, and operational gates before broad enablement.
+8. Keep Git delivery under repository-owner control.
+9. Treat every stage as a reviewable change with approved authority, evidence, and rollback boundaries.
 
 ## Milestone Status Vocabulary
 

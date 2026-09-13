@@ -2,13 +2,13 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted |
+| Status | Superseded |
 | Date | 2026-09-05 |
 | Decision owners | Repository owner |
 | Scope | R7 planner state storage, module ownership, write provenance, and operation log boundary |
 | Governing spec | [Trip Planner State Design](../specs/2026-09-05-trip-planner-state-design.md), version 0.2 |
 | Superseded ADR | None |
-| Superseded by | None |
+| Superseded by | [ADR 0018](./0018-authenticated-chat-only-product-container.md) removed the Workspace/Planner mounted product surface |
 
 ## Context
 

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | Superseded |
 | Version | 0.1 |
 | Date | 2026-09-06 |
 | Change class | Level 2 - Feature Spec |
@@ -10,6 +10,7 @@
 | Scope | `frontend/` (React/Vite SPA, design system, API service, UI components) |
 | Related issue | Milestone R10 / Frontend Modernization |
 | Superseded document | None |
+| Superseded by | [Authenticated Chat-Only PostgreSQL Clean Break](./2026-09-10-authenticated-chat-postgresql-clean-break-design.md) v0.1 removed Workspace/Planner product surfaces that this frontend targeted |
 
 ---
 

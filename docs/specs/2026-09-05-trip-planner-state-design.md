@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | Superseded |
 | Version | 0.2 |
 | Date | 2026-09-05 |
 | Change class | Level 3 - Architecture Design |
@@ -14,6 +14,7 @@
 | Implementation plan | [Trip Planner State Implementation Plan](../plans/2026-09-05-trip-planner-state-implementation.md), version 0.2 (Approved) |
 | Related issue | None - R7 documentation drafting was authorized by the repository owner in conversation on 2026-09-05 |
 | Superseded document | None |
+| Superseded by | [Authenticated Chat-Only PostgreSQL Clean Break](./2026-09-10-authenticated-chat-postgresql-clean-break-design.md) v0.1 removed Planner from the mounted product |
 
 ## Summary
 

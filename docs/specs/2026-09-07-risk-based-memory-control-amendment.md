@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved |
+| Status | Superseded |
 | Version | 0.1 |
 | Date | 2026-09-07 |
 | Approved | 2026-09-08 |
@@ -11,6 +11,7 @@
 | Scope | Confirmation, application-owned save feedback, sensitive no-store policy, ambiguous conflicts, and Shadow semantics |
 | Related issue | Repository-owner approved exception: interactive memory design session on 2026-09-07 |
 | Superseded document | Amends the approved [Basic Semantic Memory Write Pipeline Design](./2026-09-07-basic-semantic-memory-write-pipeline-design.md) v0.1 after approval |
+| Superseded by | [Authenticated Chat-Only PostgreSQL Clean Break](./2026-09-10-authenticated-chat-postgresql-clean-break-design.md) v0.1 and ADR 0020 removed the public Memory-control surface; risk rules remain historical input to [Agent Memory Target Architecture](./2026-09-12-agent-memory-target-architecture-design.md) v0.2 |
 
 ## Summary
 

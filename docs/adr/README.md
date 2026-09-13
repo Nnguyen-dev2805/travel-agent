@@ -144,17 +144,17 @@ evidence.
 | 0004 | Shared Local Application Store and Per-module Schema Registry | Superseded | 2026-09-04 | [ADR 0004](./0004-shared-local-application-store-and-per-module-schema-registry.md) |
 | 0005 | Conversation Orchestration Seam and Optional Chat Conversation Binding | Superseded | 2026-09-04 | [ADR 0005](./0005-conversation-orchestration-seam-and-optional-chat-binding.md) |
 | 0006 | Shadow Memory Candidate Store and Policy Boundary | Superseded | 2026-09-04 | [ADR 0006](./0006-shadow-memory-candidate-store-and-policy-boundary.md) |
-| 0007 | Feature-gated Memory Retrieval and Context Boundary | Accepted | 2026-09-05 | [ADR 0007](./0007-feature-gated-memory-retrieval-and-context-boundary.md) |
-| 0008 | Workspace-owned Planner State and Operation Log | Accepted | 2026-09-05 | [ADR 0008](./0008-workspace-owned-planner-state-and-operation-log.md) |
+| 0007 | Feature-gated Memory Retrieval and Context Boundary | Superseded | 2026-09-05 | [ADR 0007](./0007-feature-gated-memory-retrieval-and-context-boundary.md) |
+| 0008 | Workspace-owned Planner State and Operation Log | Superseded | 2026-09-05 | [ADR 0008](./0008-workspace-owned-planner-state-and-operation-log.md) |
 | 0009 | Privacy-safe Local Observability Boundary | Accepted | 2026-09-05 | [ADR 0009](./0009-privacy-safe-local-observability-boundary.md) |
 | 0010 | Local Identity, Authorization, and Deletion Boundary | Accepted | 2026-09-06 | [ADR 0010](./0010-local-identity-authorization-and-deletion-boundary.md) |
-| 0011 | Authenticated Standalone Conversations | Accepted | 2026-09-07 | [ADR 0011](./0011-authenticated-standalone-conversations.md) |
+| 0011 | Authenticated Standalone Conversations | Superseded | 2026-09-07 | [ADR 0011](./0011-authenticated-standalone-conversations.md) |
 | 0012 | Versioned Semantic Memory in PostgreSQL | Accepted | 2026-09-07 | [ADR 0012](./0012-versioned-semantic-memory-in-postgresql.md) |
 | 0013 | Model-assisted Extraction and Deterministic Resolution | Accepted | 2026-09-07 | [ADR 0013](./0013-model-assisted-extraction-and-deterministic-resolution.md) |
 | 0014 | Transactional Outbox and Idempotent Memory Workers | Accepted | 2026-09-07 | [ADR 0014](./0014-transactional-outbox-and-idempotent-memory-workers.md) |
 | 0015 | Memory Sensitivity and Confirmed User Control | Superseded | 2026-09-07 | [ADR 0015](./0015-memory-sensitivity-and-confirmed-user-control.md) |
 | 0016 | Focused Memory Write Evaluation and Rollout | Accepted | 2026-09-07 | [ADR 0016](./0016-focused-memory-write-evaluation-and-rollout.md) |
-| 0017 | Risk-based Memory Confirmation | Accepted | 2026-09-07 | [ADR 0017](./0017-risk-based-memory-confirmation.md) |
+| 0017 | Risk-based Memory Confirmation | Superseded | 2026-09-07 | [ADR 0017](./0017-risk-based-memory-confirmation.md) |
 | 0018 | Authenticated Chat-Only Product Container | Accepted | 2026-09-10 | [ADR 0018](./0018-authenticated-chat-only-product-container.md) |
 | 0019 | PostgreSQL-Only Application Relational Persistence and SQLite Retirement | Accepted | 2026-09-10 | [ADR 0019](./0019-postgresql-only-application-persistence-sqlite-retirement.md) |
 | 0020 | Removal of Public Memory Management Surface | Accepted | 2026-09-10 | [ADR 0020](./0020-removal-of-public-memory-management-surface.md) |
@@ -173,3 +173,8 @@ evidence.
 | 0033 | A Fenced Worker Stops Without Cancelling the Conversation's Other Events | Accepted | 2026-09-12 | [ADR 0033](./0033-a-fenced-worker-stops-without-cancelling.md) |
 | 0034 | Each Process Receives Only the Credential Its Role Requires | Accepted | 2026-09-12 | [ADR 0034](./0034-per-process-credential-isolation.md) |
 | 0035 | Application Composition Happens at Startup, and a Request Without It Fails Closed | Accepted | 2026-09-12 | [ADR 0035](./0035-application-composition-happens-at-startup.md) |
+| 0036 | Chat-native Memory Actions and Dual Transaction Coordinators | Accepted | 2026-09-12 | [ADR 0036](./0036-chat-native-memory-actions-and-transaction-coordinators.md) |
+| 0037 | Memory Retention, Revocation, Suppression, and Re-remember | Accepted | 2026-09-12 | [ADR 0037](./0037-memory-retention-revocation-and-suppression.md) |
+| 0038 | Positive Source Handling and Inferred Activation Authority | Accepted | 2026-09-12 | [ADR 0038](./0038-positive-source-handling-and-inferred-activation-authority.md) |
+| 0039 | Memory Read/Use Authority and Rebuildable Retrieval Projections | Accepted | 2026-09-12 | [ADR 0039](./0039-memory-read-use-authority-and-retrieval-projections.md) |
+| 0040 | System-owned Procedural Memory Publication Boundary | Accepted | 2026-09-12 | [ADR 0040](./0040-system-owned-procedural-memory-publication-boundary.md) |

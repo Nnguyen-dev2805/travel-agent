@@ -20,7 +20,7 @@ data, provider, or Git changes. Repository security policy lives in
    fingerprints only when useful.
 4. Prefer synthetic/redacted user examples and stable IDs over full content.
 5. Separate immediate containment from permanent remediation.
-6. Treat Package 5 memory hard-gate failures as zero-tolerance failures; do not
+6. Treat applicable Agent Memory hard-gate failures as zero-tolerance failures; do not
    average them away.
 7. Do not restore service merely because a process starts. Verify the affected
    security, integrity, and quality boundary first.
@@ -37,7 +37,8 @@ Classify by impact and scope, not by a promised response time:
 | S4 - Low | Minor bounded operational issue, false positive, or near miss with no material confidentiality/integrity impact |
 
 Always record affected environment, component, release/commit when known, data
-class, user/workspace scope when applicable, and whether exposure is ongoing.
+class, owner/conversation/Memory scope when applicable, and whether exposure is
+ongoing.
 Unknown scope increases caution; it is not evidence of no impact.
 
 ## Detect and Record
@@ -68,11 +69,10 @@ payloads, paths, or stack traces into incident evidence.
 For suspected credential exposure, rotate the affected bearer token through
 the environment configuration and confirm the old value appears in no log,
 response, report, or committed file; token values are never persisted by the
-backend, so rotation is configuration-only. For deletion incidents, record
-the workspace retention states before and after, and never claim confirmed
-deletion until child transitions verify; a workspace left in
-`deletion_requested` after a partial failure stays denied to normal access
-while recovery retries.
+backend, so rotation is configuration-only. For lifecycle incidents, record
+the affected conversation or Memory state before and after the action and never
+claim deletion, revocation, suppression, or expiry correctness until the
+applicable child/derived-state transitions are verified.
 
 ## Contain
 
@@ -125,15 +125,15 @@ readiness checks, affected security control verification, data-integrity checks,
 and applicable RAG/memory quality/safety gates.
 
 For a public environment, the complete
-[Deployment Readiness](./deployment.md) gate still applies. A failed Package 5
-memory hard gate blocks recovery of memory-aware behavior.
+[Deployment Readiness](./deployment.md) gate still applies. A failed applicable
+Agent Memory hard gate blocks recovery of memory-aware behavior.
 
 ## Post-incident Review
 
 Review:
 
 1. root cause and contributing conditions;
-2. affected users/workspaces/data classes and confidence in the scope;
+2. affected owners/conversations/Memory scopes/data classes and confidence in the scope;
 3. detection gap and why existing checks did or did not catch it;
 4. containment speed and side effects without inventing an SLA;
 5. evidence quality and privacy handling;
@@ -152,8 +152,8 @@ Each playbook below separates first response from permanent remediation.
 | --- | --- | --- | --- | --- | --- |
 | Credential or token exposure | Identify credential owner/type, exposure surface, first/last known exposure, and whether misuse is suspected; never record the value | Revoke/disable or rotate through the owning provider/account; stop the path still emitting it | Credential name/ID, redacted fingerprint if approved, timestamps, exposure location, rotation/revocation result | Old credential is unusable, replacement is injected through approved secret handling, logs/docs no longer expose it | Root cause change through normal spec/plan; add regression/secret-safety checks where appropriate |
 | Private/user data in logs, issues, traces, screenshots, or reports | Identify data class, artifact/location, affected scope, and access audience | Restrict/remove public exposure using the platform's reversible/private controls where available; stop further logging/capture | Artifact IDs, redacted field names, minimal sample, affected count/scope | Exposure path is closed, unnecessary copies are removed or access-restricted under approved process, telemetry behavior is verified | Logging/trace/privacy changes through governed implementation; add redaction tests |
-| Unauthorized access or cross-user/cross-workspace leakage | Identify users/workspaces, resource IDs, read/write path, and whether leakage is ongoing | Disable the affected user-scoped feature or exposure path; restrict access using already-approved controls | Stable user/workspace/resource IDs, counts, redacted examples, release identity | Isolation tests pass, affected access path is verified, applicable memory leakage gates are `0` | Authentication/authorization/isolation changes are Level 3 when required and need approved design/ADRs |
-| Deleted or tombstoned memory becomes retrievable | Confirm deletion state, memory ID/scope, retrieval path, and whether answer behavior used it | Disable memory retrieval or the affected memory feature when a reversible feature boundary exists | Memory ID, tombstone/deletion state, retrieval selection IDs, no private value unless strictly necessary | Deleted-memory retrieval count returns to `0` and deletion lifecycle verification passes | Memory storage/deletion fix under approved memory/storage spec and Package 5 regression case |
+| Unauthorized access or cross-owner/cross-conversation/Memory-scope leakage | Identify owners/conversations/Memory scopes, resource IDs, read/write path, and whether leakage is ongoing | Disable the affected scoped feature or exposure path; restrict access using already-approved controls | Stable owner/conversation/resource IDs, counts, redacted examples, release identity | Isolation tests pass, affected access path is verified, applicable Memory leakage gates are `0` | Authentication/authorization/isolation changes are Level 3 when required and need approved design/ADRs |
+| Revoked, suppressed, expired, or deleted Memory becomes answer-eligible | Confirm lifecycle state, Memory ID/scope, read/use path, and whether answer behavior used it | Disable Memory read/use or the affected Memory feature when a reversible feature boundary exists | Memory ID, lifecycle state, selection IDs, no private value unless strictly necessary | Ineligible-Memory selection/use returns to `0` and lifecycle verification passes | Memory lifecycle/read-use fix under the approved Memory architecture plus a governed regression case |
 | Unsafe public exposure of unauthenticated or wildcard-CORS API | Identify exposed origin/network path, API version, authentication state, and CORS behavior | Remove public exposure or stop the affected service at the existing network/process boundary; do not "accept risk" via documentation | Endpoint/origin identifiers, configuration names, timestamps, access evidence without credentials | Public path is no longer reachable until auth/authz, restrictive CORS, TLS, and other deployment gates pass | Production security/deployment architecture through approved Level 3 work and required ADRs |
 | Data corruption, accidental deletion, or vector-store integrity loss | Identify store/path, last known-good state, affected collections/records, and whether writes continue | Stop writes/indexing to the affected state; preserve current state before rebuild/restore | Store/collection IDs, hashes/counts, redacted validation errors, backup/version identity | Integrity checks pass against known source/evaluation evidence and restore/rebuild provenance is reviewable | Data/index/storage repair through approved workflow; destructive recovery requires explicit target and recoverability evidence |
 | External model/provider outage or suspected compromise | Distinguish availability failure from suspected confidentiality/integrity compromise; identify requests/data classes sent | For outage, disable/reduce affected capability if no approved fallback; for compromise, stop data transmission and revoke affected credentials as appropriate | Provider/model identifiers, timestamps, request IDs, error class, data-class summary without prompt bodies | Provider path is trusted/reachable again, credentials are safe, degraded behavior is verified, required quality checks pass | Provider/adaptor/security changes through approved design; no silent provider swap |
@@ -181,7 +181,7 @@ Stop and escalate the incident decision when:
   artifact to continue;
 - containment would remove persistent data without a recoverability check;
 - recovery depends on an unapproved production architecture/provider choice;
-- a Package 5 hard safety gate still fails;
+- an applicable Agent Memory hard safety gate still fails;
 - a permanent fix lacks the required spec, plan, architecture approval, or ADR;
 - public production would resume while any mandatory deployment gate remains
   missing or unknown.

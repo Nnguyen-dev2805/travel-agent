@@ -1,28 +1,40 @@
 # Memory Evaluation Protocol
 
+> **Legacy umbrella protocol.** This document preserves the earlier R5/R6
+> evaluation contract and historical workspace/trip-scoped scenarios. Where it
+> conflicts with the approved
+> [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md)
+> v0.2 or ADR 0036–0040, those newer authorities win. The approved implementation
+> plan assigns the new target architecture's stage metrics, lifecycle/scope
+> safety gates, and cross-stage promotion proof to
+> `docs/evaluation/agent-memory-evaluation.md` (Tasks 4 and 11–16). Until that
+> artifact is created and approved through the plan, workspace/trip-specific
+> fields in this legacy protocol must not be treated as target product
+> requirements.
+
 ## Focused Protocols
 
-The umbrella protocol delegates the first V2 semantic-memory write vertical
+For the historical R5/R6 program, this umbrella protocol delegated the first V2 semantic-memory write vertical
 slice to [Basic Memory Write Pipeline Evaluation](./memory-write-pipeline-evaluation.md).
 That focused protocol owns canonical-key, immutable decision, conflict,
 confirmation, PostgreSQL atomicity, idempotency, background shadow, and
-write-specific safety evidence. This umbrella remains the owner of broader
-memory read/use, summary, episodic, personalization, and later promotion gates.
+write-specific safety evidence for that retained slice. Broader Agent Memory
+read/use, episodic/working behavior, personalization, and promotion gates are
+now owned by the approved 2026-09-12 architecture and its planned
+`agent-memory-evaluation.md` artifact.
 
 [Risk-based Memory Control Evaluation Amendment](./memory-control-amendment-evaluation.md)
-is currently In Review under the approved risk-based control design and
-identifies the exact focused scenarios that will change after this evaluation
-amendment receives its separate approval.
+is retained as historical evidence only because its public-control design was
+superseded by the clean break. It is not current execution authority.
 
 ## Scope
 
-This document is the canonical quality and safety protocol for Travel Agent
-memory. It defines how future memory extraction, promotion, retrieval,
-personalization, conflict handling, correction, deletion, expiration, scope,
-and sensitive-data behavior must be evaluated before memory affects answers.
-
-It governs later `R5` shadow-memory and `R6` memory-retrieval work. It does not
-claim that a runtime memory subsystem already exists.
+This document is the retained quality/safety protocol for the historical R5/R6
+Memory program. It preserves the earlier extraction, promotion, retrieval,
+personalization, conflict, correction, deletion, expiration, scope, and
+sensitive-data evaluation contract for regression/history purposes. It does
+not govern the new Agent Memory target where ADR 0036–0040 or the approved plan
+define different semantics.
 
 ## Preconditions and Current-state Limitations
 

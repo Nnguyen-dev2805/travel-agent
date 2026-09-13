@@ -2,7 +2,9 @@
 
 ## Scope and Maturity
 
-Travel Agent is an early local RAG prototype. This policy defines repository
+Travel Agent is an authenticated local travel-assistant prototype with RAG,
+PostgreSQL conversation persistence, and a governed Memory write foundation.
+This policy defines repository
 security, privacy, trust, evidence-handling, and production-readiness rules. It
 does not implement runtime controls and does not certify the current system as
 production-ready.
@@ -73,7 +75,7 @@ future data types are policy examples, not claims that those stores exist today.
 | --- | --- | --- | --- | --- | --- | --- |
 | Public project data | Source, public docs, public travel knowledge, synthetic fixtures | Allowed when provenance and licensing permit | Allowed when useful | Allowed for approved project purposes | Allowed through approved public/project flows | Normal repository review |
 | Operational metadata | Request IDs, timings, counts, component states, redacted failure labels | Only when useful and non-sensitive | Preferred operational evidence | Only for an approved operational purpose | Only when the operational data flow is approved | Confirm purpose, minimization, and access |
-| User content | Chat text, itinerary preferences, future workspace or conversation content | Do not commit | Minimize; full content is not the default | Only through an approved user-data store and lifecycle | Only through an approved data flow | Confirm purpose, scope, retention, deletion, and provider handling |
+| User content | Chat text, travel preferences, conversation content, Memory evidence/candidates/versions | Do not commit | Minimize; full content is not the default | Only through an approved user-data store and lifecycle | Only through an approved data flow | Confirm purpose, scope, retention, deletion, and provider handling |
 | Sensitive user data | Precise travel identity data, contact details, travel documents, financial or other high-impact personal data if introduced | Do not commit | Do not log by default | Requires explicit approved purpose, access scope, retention, and deletion | Requires explicit approved purpose and provider/data-flow review | Strong security/privacy review before collection or use |
 | Secrets | API tokens, credentials, signing keys, private connection material | Never | Never | Environment or approved secret manager only | Only to the service that requires the secret | Treat exposure as an incident |
 
@@ -128,10 +130,12 @@ These controls represent local prototype security and tenant isolation, not prod
 ## External Providers
 
 The current generation path can send the user message and retrieved travel
-context to the configured external model endpoint. On feature-gated bound
-turns it can additionally send selected memory record text. Credentials and
-user content sent to any model, search, storage, tracing, or other external
-provider must be
+context to the configured external model endpoint. The approved Agent Memory
+target may additionally send a bounded, policy-approved Memory selection only
+after the Memory Read/Use stages are implemented and verified; that target
+behavior must not be inferred from this policy as current runtime behavior.
+Credentials and user content sent to any model, search, storage, tracing, or
+other external provider must be
 covered by an approved data-flow and privacy contract before production use.
 
 That contract must identify the purpose, transmitted data classes, provider
@@ -155,7 +159,7 @@ Before any new durable user-data store is used in production, its approved
 design must define:
 
 1. purpose and decision owner;
-2. access and user/workspace scope;
+2. access and owner/conversation/Memory scope;
 3. retention trigger;
 4. deletion mechanism and resulting state;
 5. backup, replica, cache, or derived-copy behavior;
@@ -168,20 +172,23 @@ investigation purpose and remains minimized or redacted.
 
 ## Memory Safety
 
-The prototype has feature-gated memory retrieval only: shadow candidates,
-promoted records, and selected memory exist as local development state, and
-no memory influences answers unless the default-off retrieval gate is
-explicitly enabled. Default-on personalization, production memory claims,
-and durable memory privacy guarantees do not exist. Future memory behavior is
-governed by [Memory Evaluation](docs/evaluation/memory-evaluation.md).
+The current runtime has a PostgreSQL-backed semantic Memory write foundation
+and background outbox path, but the approved Agent Memory Read/Use architecture
+is not yet current behavior. The retired legacy Memory Manager and legacy
+feature-gated SQLite retrieval path must not be treated as the target product
+surface. The future boundary is governed by the
+[Agent Memory Target Architecture](docs/specs/2026-09-12-agent-memory-target-architecture-design.md),
+[ADR 0037](docs/adr/0037-memory-retention-revocation-and-suppression.md),
+[ADR 0038](docs/adr/0038-positive-source-handling-and-inferred-activation-authority.md),
+and [ADR 0039](docs/adr/0039-memory-read-use-authority-and-retrieval-projections.md).
 
-The following Package 5 hard gates are zero-tolerance and non-compensating:
+The following Memory hard gates are zero-tolerance and non-compensating:
 
-- cross-user memory leakage count must remain `0`;
-- cross-workspace leakage for trip-scoped memory must remain `0`;
-- deleted/tombstoned memory retrieval after confirmed deletion must remain `0`;
-- controlled secret-like durable promotion must remain `0`;
-- older inferred memory must not override an explicit newer correction.
+- cross-owner Memory leakage must remain `0`;
+- conversation-scoped Memory must not escape its conversation;
+- revoked, suppressed, expired, or otherwise ineligible Memory must not be selected for answer use;
+- controlled secret-like content must not become durable answer-eligible Memory;
+- older inferred Memory must not override a stronger explicit correction.
 
 An applicable hard-gate failure is a release blocker and an incident/review
 signal. Aggregate quality or personalization scores cannot offset it.
@@ -200,7 +207,8 @@ gates.
 ## Incident Response
 
 Suspected credential exposure, private-data leakage, unauthorized access,
-cross-user/workspace leakage, deleted-memory retrieval, unsafe public exposure,
+cross-owner/conversation/Memory-scope leakage, revoked-or-deleted Memory use,
+unsafe public exposure,
 data-integrity loss, provider compromise, prompt-injection boundary crossing, or
 supply-chain compromise routes to
 [Incident Response](docs/runbooks/incident-response.md).
@@ -216,7 +224,8 @@ Public production is blocked until every applicable mandatory gate in
 Missing, unknown, stale, or unreviewable evidence fails closed.
 
 In particular, documentation cannot compensate for absent authentication and
-authorization, missing tenant/workspace isolation, wildcard CORS, missing TLS
+authorization, missing owner/conversation/Memory-scope isolation, unsafe CORS,
+missing TLS
 and trusted-origin configuration, unapproved secret handling, privacy-unsafe
 logs/errors, unapproved durable stores, missing rollback evidence, or failed RAG
 and memory quality/safety gates.

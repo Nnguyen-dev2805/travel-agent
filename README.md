@@ -27,8 +27,9 @@ SQLite stores are retired.
 - Standalone conversation CRUD and history API (`/api/v1/conversations`).
 - Mandatory Bearer token authentication and tenant row-level security (RLS).
 - Decoupled basic semantic memory write pipeline capturing turn candidates asynchronously.
-- Ops readiness endpoint (`GET /api/v1/ops/readiness`) verifying PostgreSQL, Alembic
-  head, Chroma, and model provider.
+- Ops readiness endpoint (`GET /api/v1/ops/readiness`) reporting six components:
+  application, model provider, RAG Chroma, PostgreSQL, Alembic head, and memory
+  write pipeline.
 - RAG generation service embedding messages (`BAAI/bge-m3`), querying Chroma vectors,
   and formatting citations.
 - React/Vite frontend and Docker Compose local development stack.
@@ -99,7 +100,9 @@ only a successful chat response.
 - [DEVELOPMENT.md](DEVELOPMENT.md) covers local setup, commands, side effects,
   and verification status.
 - [ARCHITECTURE.md](ARCHITECTURE.md) maps the implemented high-level system and
-  known architecture gaps.
+  links the approved future architecture.
+- [docs/architecture/target-state.md](docs/architecture/target-state.md) summarizes
+  the approved Chat-first Agent Memory target; it is not a claim of implemented behavior.
 - [docs/roadmap/master-roadmap.md](docs/roadmap/master-roadmap.md) defines the
   milestone order, dependencies, and exit gates.
 - [docs/evaluation/rag-evaluation.md](docs/evaluation/rag-evaluation.md) defines
@@ -135,9 +138,8 @@ only a successful chat response.
 - RAG quality has not been certified by an approved evaluation gate.
 - Chat readiness can depend on credentials, network access, model availability,
   and populated local vector data.
-- The current chat request is stateless beyond one `message` field.
-- Trip workspaces, long-term memory, short-term memory, user identity, and
-  durable personalization are future direction rather than current capability.
+- Chat persists standalone conversations, but the approved Agent Memory stages are not yet fully implemented or enabled.
+- The approved future direction adds governed Semantic, Episodic, Working, and system-owned Procedural Memory without restoring TripWorkspace/Planner as product requirements.
 - The repository now has an `Apache-2.0` source license, GitHub intake
   templates, third-party notice baseline, and release-only changelog, but full
   open-source release readiness remains a later gated milestone.
