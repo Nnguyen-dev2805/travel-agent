@@ -1,21 +1,28 @@
-"""Task 4 re-review fix 2: the gate must bind to an approved manifest.
+"""Task 4 round-3 fix 2: the manifest's trust root must not be a caller argument.
 
-The previous version accepted an `ApprovedFixtureSet` object the caller built, so
-anyone could write:
+The previous version hashed the file but still accepted any `manifest` the caller
+built, and `load_approved_manifest` accepted any path. So:
 
 ```python
-compute_stage1_metrics(twenty_ad_hoc_examples,
-    approved=ApprovedFixtureSet("totally-unapproved-ad-hoc-id", 20))
+manifest = load_approved_manifest("/tmp/totally-unapproved.json")
+compute_stage1_metrics(twenty_matching_examples, manifest=manifest)
 ```
 
-and get `CONCLUSIVE → false_none_rate=0.0 → planner_enforcement_permitted=True`
-while no approved dataset existed. Declaring the set was treated as being the set.
+returned `CONCLUSIVE → false_none_rate=0.0 → planner_enforcement_permitted=True`.
+Having *a* manifest is not the same as having an *approved* one.
 
-The gate now requires a **manifest file**: a governance artifact whose content is
-hashed, whose fixture IDs must match the evaluated examples exactly, and whose
-`grounding_required_fixture_ids` — not the caller's per-example flag — defines the
-false-`NONE` denominator. A fabricated manifest fails the digest check; a
-substituted or partial set fails the membership check.
+Two things changed:
+
+1. The manifest is read from a fixed governed path
+   (`docs/evaluation/fixtures/agent-memory/stage1-manifest.json`), and
+   `compute_stage1_metrics` takes **no manifest argument** at all, so there is
+   nothing for a caller to substitute. Tests exercise the conclusive path by
+   patching the module constant, which is a test seam and not a production API.
+2. The manifest must carry an explicit **approval record** (`approved_by`,
+   `approved_on`), so an accidental file at the governed path does not qualify.
+
+Duplicate fixture IDs are also rejected: membership compared `frozenset`s, so 21
+examples with one repeated ID satisfied a 20-ID manifest.
 
 `spec:915` still governs: missing required evidence is `INCONCLUSIVE`, never
 `PASS`.
@@ -26,13 +33,14 @@ No test here touches a database, a model, HTTP, or the network.
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import json
 
 import pytest
 
+from backend.memory.write_pipeline.evaluation import stage1_metrics
 from backend.memory.write_pipeline.evaluation.stage1_metrics import (
     MIN_APPROVED_GROUNDING_FIXTURES,
-    ApprovedFixtureManifest,
     GateState,
     StageOneExample,
     compute_stage1_metrics,
@@ -43,11 +51,12 @@ from backend.orchestration.turn_models import ContextMode, InteractionMode
 
 TOTAL = MIN_APPROVED_GROUNDING_FIXTURES + 2
 GROUNDING_IDS = [f"fixture-{index:03d}" for index in range(MIN_APPROVED_GROUNDING_FIXTURES)]
-OTHER_IDS = [f"fixture-{index:03d}" for index in range(MIN_APPROVED_GROUNDING_FIXTURES, TOTAL)]
+OTHER_IDS = [
+    f"fixture-{index:03d}" for index in range(MIN_APPROVED_GROUNDING_FIXTURES, TOTAL)
+]
 
 
-def _manifest_file(tmp_path, fixture_ids=None, grounding_ids=None):
-    """Write a real manifest file and load it, as a caller must."""
+def _write_manifest(tmp_path, *, approved=True, fixture_ids=None, grounding_ids=None):
     payload = {
         "fixture_set_id": "stage1-understanding-v0.1",
         "fixture_ids": fixture_ids if fixture_ids is not None else GROUNDING_IDS + OTHER_IDS,
@@ -55,9 +64,24 @@ def _manifest_file(tmp_path, fixture_ids=None, grounding_ids=None):
             grounding_ids if grounding_ids is not None else GROUNDING_IDS
         ),
     }
+    if approved:
+        payload["approved_by"] = "repository-owner"
+        payload["approved_on"] = "2026-09-13"
     path = tmp_path / "stage1-manifest.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
-    return load_approved_manifest(path)
+    return path
+
+
+@pytest.fixture
+def governed_manifest(tmp_path, monkeypatch):
+    """A genuine manifest at the governed path, with an approval record."""
+
+    def _install(**kwargs):
+        path = _write_manifest(tmp_path, **kwargs)
+        monkeypatch.setattr(stage1_metrics, "APPROVED_MANIFEST_PATH", path)
+        return path
+
+    return _install
 
 
 def _example(fixture_id: str, **overrides) -> StageOneExample:
@@ -74,89 +98,132 @@ def _example(fixture_id: str, **overrides) -> StageOneExample:
 
 
 def _approved_examples(**overrides) -> list[StageOneExample]:
-    """One example per approved fixture, all correct by default."""
-    by_id = overrides
     return [
-        _example(fixture_id, **by_id.get(fixture_id, {}))
+        _example(fixture_id, **overrides.get(fixture_id, {}))
         for fixture_id in GROUNDING_IDS + OTHER_IDS
     ]
 
 
 # ---------------------------------------------------------------------------
-# The fake-approved-set defect
+# The trust root is fixed
 # ---------------------------------------------------------------------------
 
 
-def test_a_fabricated_manifest_fails_the_digest_check(tmp_path):
-    """Declaring an approved set is not the same as having one.
+def test_the_metrics_take_no_manifest_argument():
+    """There must be nothing for a caller to substitute.
 
-    A hand-built manifest whose file does not contain those IDs must not be
-    accepted; otherwise the gate is satisfied by a string the caller invented.
+    A `manifest` parameter — however hashed — is a caller-supplied trust root, so
+    an arbitrary file could be presented as the approved set.
     """
-    genuine = _manifest_file(tmp_path)
-    fabricated = ApprovedFixtureManifest(
-        fixture_set_id="totally-unapproved-ad-hoc-id",
-        fixture_ids=frozenset(GROUNDING_IDS + OTHER_IDS),
-        grounding_required_fixture_ids=frozenset(GROUNDING_IDS),
-        digest=genuine.digest,
-        path=genuine.path,
+    parameters = inspect.signature(compute_stage1_metrics).parameters
+
+    assert "manifest" not in parameters
+    assert list(parameters) == ["examples"]
+
+
+def test_a_caller_supplied_path_is_not_part_of_the_api():
+    """`load_approved_manifest` reads the governed path, not an argument."""
+    parameters = inspect.signature(load_approved_manifest).parameters
+
+    assert "path" not in parameters
+
+
+def test_the_governed_manifest_path_is_inside_the_repository():
+    assert stage1_metrics.APPROVED_MANIFEST_PATH.parts[-3:] == (
+        "fixtures",
+        "agent-memory",
+        "stage1-manifest.json",
+    )
+    assert "docs" in stage1_metrics.APPROVED_MANIFEST_PATH.parts
+
+
+# ---------------------------------------------------------------------------
+# Evidence sufficiency
+# ---------------------------------------------------------------------------
+
+
+def test_no_examples_is_inconclusive(governed_manifest):
+    governed_manifest()
+
+    metrics = compute_stage1_metrics([])
+
+    assert metrics.state is GateState.INCONCLUSIVE
+    assert planner_enforcement_permitted(metrics) is False
+
+
+def test_no_manifest_at_the_governed_path_is_inconclusive(tmp_path, monkeypatch):
+    """Twenty perfect examples with no approved manifest cannot conclude."""
+    monkeypatch.setattr(
+        stage1_metrics, "APPROVED_MANIFEST_PATH", tmp_path / "absent.json"
     )
 
-    metrics = compute_stage1_metrics(_approved_examples(), manifest=fabricated)
+    metrics = compute_stage1_metrics(_approved_examples())
 
     assert metrics.state is GateState.INCONCLUSIVE
     assert planner_enforcement_permitted(metrics) is False
 
 
-def test_no_manifest_is_inconclusive_however_perfect_the_examples(tmp_path):
-    """Twenty ad-hoc examples with no approved manifest cannot conclude."""
-    metrics = compute_stage1_metrics(_approved_examples(), manifest=None)
+def test_a_manifest_without_an_approval_record_is_inconclusive(
+    tmp_path, monkeypatch
+):
+    """A file at the governed path is not automatically approved."""
+    path = _write_manifest(tmp_path, approved=False)
+    monkeypatch.setattr(stage1_metrics, "APPROVED_MANIFEST_PATH", path)
+
+    assert load_approved_manifest() is None
+
+    metrics = compute_stage1_metrics(_approved_examples())
 
     assert metrics.state is GateState.INCONCLUSIVE
-    assert "manifest" in metrics.reason
+
+
+def test_duplicate_fixture_ids_are_rejected(governed_manifest):
+    """Membership compared sets, so a repeated ID satisfied a 20-ID manifest."""
+    governed_manifest()
+    examples = _approved_examples() + [_example(GROUNDING_IDS[0])]
+
+    metrics = compute_stage1_metrics(examples)
+
+    assert metrics.state is GateState.INCONCLUSIVE
     assert planner_enforcement_permitted(metrics) is False
 
 
-def test_an_absent_manifest_file_is_inconclusive(tmp_path):
-    assert load_approved_manifest(tmp_path / "missing.json") is None
-
-    metrics = compute_stage1_metrics(_approved_examples(), manifest=None)
-
-    assert metrics.state is GateState.INCONCLUSIVE
-
-
-def test_an_example_outside_the_manifest_is_inconclusive(tmp_path):
-    manifest = _manifest_file(tmp_path)
+def test_an_example_outside_the_manifest_is_inconclusive(governed_manifest):
+    governed_manifest()
     examples = _approved_examples()
     examples[0] = _example("fixture-not-approved")
 
-    metrics = compute_stage1_metrics(examples, manifest=manifest)
-
-    assert metrics.state is GateState.INCONCLUSIVE
-    assert planner_enforcement_permitted(metrics) is False
-
-
-def test_a_partial_set_is_inconclusive(tmp_path):
-    manifest = _manifest_file(tmp_path)
-
-    metrics = compute_stage1_metrics(_approved_examples()[:-1], manifest=manifest)
+    metrics = compute_stage1_metrics(examples)
 
     assert metrics.state is GateState.INCONCLUSIVE
 
 
-def test_a_manifest_below_the_sufficiency_floor_is_inconclusive(tmp_path):
+def test_a_partial_set_is_inconclusive(governed_manifest):
+    governed_manifest()
+
+    metrics = compute_stage1_metrics(_approved_examples()[:-1])
+
+    assert metrics.state is GateState.INCONCLUSIVE
+
+
+def test_a_manifest_below_the_sufficiency_floor_is_inconclusive(
+    tmp_path, monkeypatch
+):
     few = GROUNDING_IDS[:3]
-    manifest = _manifest_file(tmp_path, fixture_ids=few, grounding_ids=few)
+    path = _write_manifest(tmp_path, fixture_ids=few, grounding_ids=few)
+    monkeypatch.setattr(stage1_metrics, "APPROVED_MANIFEST_PATH", path)
 
-    metrics = compute_stage1_metrics([_example(i) for i in few], manifest=manifest)
+    metrics = compute_stage1_metrics([_example(i) for i in few])
 
     assert metrics.state is GateState.INCONCLUSIVE
 
 
-def test_a_genuine_manifest_with_matching_examples_concludes(tmp_path):
-    manifest = _manifest_file(tmp_path)
+def test_a_genuine_approved_manifest_with_matching_examples_concludes(
+    governed_manifest,
+):
+    governed_manifest()
 
-    metrics = compute_stage1_metrics(_approved_examples(), manifest=manifest)
+    metrics = compute_stage1_metrics(_approved_examples())
 
     assert metrics.state is GateState.CONCLUSIVE
     assert metrics.false_none_rate == 0.0
@@ -165,27 +232,27 @@ def test_a_genuine_manifest_with_matching_examples_concludes(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# The denominator is the manifest's, not the caller's
+# The denominator is the manifest's
 # ---------------------------------------------------------------------------
 
 
-def test_the_grounding_denominator_comes_from_the_manifest(tmp_path):
-    """A caller cannot shrink the denominator by claiming nothing needs grounding."""
-    manifest = _manifest_file(tmp_path)
-    examples = _approved_examples()
+def test_the_grounding_denominator_comes_from_the_manifest(governed_manifest):
+    governed_manifest()
 
-    metrics = compute_stage1_metrics(examples, manifest=manifest)
+    metrics = compute_stage1_metrics(_approved_examples())
 
     assert metrics.evaluated_grounding_required == len(GROUNDING_IDS)
 
 
-def test_a_grounding_required_query_proposed_none_is_a_false_none(tmp_path):
-    manifest = _manifest_file(tmp_path)
+def test_a_grounding_required_query_proposed_none_is_a_false_none(
+    governed_manifest,
+):
+    governed_manifest()
     examples = _approved_examples(
         **{GROUNDING_IDS[0]: {"proposed_context_mode": ContextMode.NONE}}
     )
 
-    metrics = compute_stage1_metrics(examples, manifest=manifest)
+    metrics = compute_stage1_metrics(examples)
 
     assert metrics.false_none_rate == pytest.approx(1 / len(GROUNDING_IDS))
     assert planner_enforcement_permitted(metrics) is False
@@ -196,8 +263,8 @@ def test_a_grounding_required_query_proposed_none_is_a_false_none(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_the_wrong_durable_action_is_not_a_true_positive(tmp_path):
-    manifest = _manifest_file(tmp_path)
+def test_the_wrong_durable_action_is_not_a_true_positive(governed_manifest):
+    governed_manifest()
     examples = _approved_examples(
         **{
             GROUNDING_IDS[0]: {
@@ -211,7 +278,7 @@ def test_the_wrong_durable_action_is_not_a_true_positive(tmp_path):
         }
     )
 
-    metrics = compute_stage1_metrics(examples, manifest=manifest)
+    metrics = compute_stage1_metrics(examples)
 
     assert metrics.intent_recall == pytest.approx(0.5)
     assert metrics.intent_precision == pytest.approx(0.5)
@@ -219,19 +286,19 @@ def test_the_wrong_durable_action_is_not_a_true_positive(tmp_path):
     assert metrics.interaction_mode_accuracy < 1.0
 
 
-def test_rates_are_none_when_their_denominator_is_empty(tmp_path):
-    manifest = _manifest_file(tmp_path)
+def test_rates_are_none_when_their_denominator_is_empty(governed_manifest):
+    governed_manifest()
 
-    metrics = compute_stage1_metrics(_approved_examples(), manifest=manifest)
+    metrics = compute_stage1_metrics(_approved_examples())
 
     assert metrics.intent_precision is None
     assert metrics.intent_recall is None
     assert metrics.durable_action_false_positive_rate is None
 
 
-def test_the_metrics_are_frozen(tmp_path):
-    manifest = _manifest_file(tmp_path)
-    metrics = compute_stage1_metrics(_approved_examples(), manifest=manifest)
+def test_the_metrics_are_frozen(governed_manifest):
+    governed_manifest()
+    metrics = compute_stage1_metrics(_approved_examples())
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         metrics.state = GateState.INCONCLUSIVE  # type: ignore[misc]

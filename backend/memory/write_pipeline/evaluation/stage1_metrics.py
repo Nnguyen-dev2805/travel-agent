@@ -5,24 +5,26 @@ precision/recall, a durable-action false-positive rate, and clarification
 correctness. `plan v0.7:482-493` adds context-mode evaluation and the
 false-`NONE` rate, and makes the latter a hard gate.
 
-Four properties this module exists to keep:
+Five properties this module exists to keep:
 
 1. **Correctness is exact.** A reading that proposes the *wrong* durable action
    is a mistake, not a success, so `expected EXPLICIT_REMEMBER, observed
    EXPLICIT_FORGET` counts as neither a true positive nor a correct reading.
-2. **The approved set is a governance artifact, not a caller argument.** The gate
-   is bound to a **manifest file**: its content is hashed, its fixture IDs must
-   match the evaluated examples exactly, and its `grounding_required_fixture_ids`
-   — not a per-example flag — defines the false-`NONE` denominator. An earlier
-   version accepted an object the caller built, so declaring a set was treated as
-   being the set; twenty ad-hoc examples with an invented ID concluded the gate.
-3. **Evidence must be sufficient.** A set below `MIN_APPROVED_GROUNDING_FIXTURES`
-   cannot conclude.
-4. **Missing evidence is `INCONCLUSIVE`, never `PASS`** (`spec:915`). A rate that
+2. **The approved set is a repository artifact, not a caller argument.** The
+   manifest is read from a fixed governed path, and `compute_stage1_metrics`
+   takes no manifest parameter at all, so there is nothing for a caller to
+   substitute. An earlier version hashed the file but still accepted a caller's
+   path, so `/tmp/totally-unapproved.json` could conclude the gate.
+3. **The manifest carries an approval record.** `approved_by` and `approved_on`
+   must be present, so an accidental file at the governed path does not qualify.
+4. **Membership is exact and duplicate-free.** The evaluated fixture IDs must
+   equal the manifest's, and a repeated ID is refused — comparing sets let 21
+   examples with one duplicate satisfy a 20-ID manifest.
+5. **Missing evidence is `INCONCLUSIVE`, never `PASS`** (`spec:915`). A rate that
    cannot be computed is `None` with a stated reason, not `0.0`.
 
 Reading the manifest file is deliberate I/O: it is the only way to make the
-approved set something the caller cannot fabricate in-process.
+approved set something a caller cannot fabricate in-process.
 """
 
 from __future__ import annotations
@@ -37,6 +39,18 @@ from backend.orchestration.turn_models import (
     DURABLE_ACTION_MODES,
     ContextMode,
     InteractionMode,
+)
+
+#: Where an approved Stage-1 dataset must live. Fixed on purpose: a trust root the
+#: caller supplies is not a trust root. Changing this path is a repository change
+#: a reviewer sees.
+APPROVED_MANIFEST_PATH = (
+    Path(__file__).resolve().parents[4]
+    / "docs"
+    / "evaluation"
+    / "fixtures"
+    / "agent-memory"
+    / "stage1-manifest.json"
 )
 
 #: The minimum number of approved grounding-required fixtures before the Stage-1
@@ -56,16 +70,17 @@ class GateState(str, Enum):
 
 @dataclass(frozen=True)
 class ApprovedFixtureManifest:
-    """An approved Stage-1 dataset, as read from its manifest file.
+    """An approved Stage-1 dataset, as read from the governed manifest file.
 
-    Produced by `load_approved_manifest`; `compute_stage1_metrics` re-reads the
-    file and requires this value to match, so a hand-built manifest with invented
-    IDs cannot stand in for an approved one.
+    The approval record is part of the value: a manifest without `approved_by`
+    and `approved_on` is not loaded at all.
     """
 
     fixture_set_id: str
     fixture_ids: frozenset[str]
     grounding_required_fixture_ids: frozenset[str]
+    approved_by: str
+    approved_on: str
     digest: str
     path: str
 
@@ -108,32 +123,34 @@ class StageOneMetrics:
     false_none_rate: float | None
 
 
-def _digest_of(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def load_approved_manifest() -> ApprovedFixtureManifest | None:
+    """Read the manifest at `APPROVED_MANIFEST_PATH`, or return `None`.
 
-
-def load_approved_manifest(path: Path) -> ApprovedFixtureManifest | None:
-    """Read an approved manifest, or return `None` when there is not one.
-
-    A missing file is not an error — it is the honest state of a repository that
-    has not adopted an approved dataset yet, and the caller turns it into
-    `INCONCLUSIVE`.
+    `None` is the honest answer for every way the evidence can be absent or
+    unusable: no file, unreadable JSON, missing fields, or no approval record.
+    The caller turns that into `INCONCLUSIVE`.
     """
-    path = Path(path)
+    path = APPROVED_MANIFEST_PATH
     if not path.is_file():
         return None
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+        fixture_set_id = str(payload["fixture_set_id"])
         fixture_ids = frozenset(payload["fixture_ids"])
         grounding_ids = frozenset(payload["grounding_required_fixture_ids"])
-        fixture_set_id = str(payload["fixture_set_id"])
+        approved_by = str(payload["approved_by"]).strip()
+        approved_on = str(payload["approved_on"]).strip()
     except (KeyError, TypeError, ValueError):
+        return None
+    if not approved_by or not approved_on:
         return None
     return ApprovedFixtureManifest(
         fixture_set_id=fixture_set_id,
         fixture_ids=fixture_ids,
         grounding_required_fixture_ids=grounding_ids,
-        digest=_digest_of(path),
+        approved_by=approved_by,
+        approved_on=approved_on,
+        digest=hashlib.sha256(path.read_bytes()).hexdigest(),
         path=str(path),
     )
 
@@ -142,48 +159,46 @@ def _is_durable(mode: InteractionMode) -> bool:
     return mode in DURABLE_ACTION_MODES
 
 
-def compute_stage1_metrics(
-    examples: list[StageOneExample],
-    manifest: ApprovedFixtureManifest | None = None,
-) -> StageOneMetrics:
+def compute_stage1_metrics(examples: list[StageOneExample]) -> StageOneMetrics:
     """Compute the Stage-1 metrics, or report why they cannot be computed.
 
+    There is no manifest parameter: the approved set is read from the governed
+    path, so a caller cannot present a different one.
+
     Returns `INCONCLUSIVE` unless all of these hold: an approved manifest exists
-    and still matches its file, the evaluated fixture IDs are exactly the
-    approved ones, and the set meets the sufficiency floor. Only then is a rate
-    meaningful.
+    with an approval record, the evaluated fixture IDs are exactly the approved
+    ones with no duplicates, and the set meets the sufficiency floor.
     """
     if not examples:
         return _inconclusive("no evaluated fixtures were supplied", 0, 0)
+
+    manifest = load_approved_manifest()
     if manifest is None:
         return _inconclusive(
-            "no approved fixture manifest was supplied, so these examples are "
-            "ad-hoc evidence and cannot conclude the gate",
+            "no approved fixture manifest is present at "
+            f"{APPROVED_MANIFEST_PATH}, so these examples are ad-hoc evidence "
+            "and cannot conclude the gate",
             len(examples),
             0,
         )
 
-    # Re-derive from the file. A manifest object the caller built — with invented
-    # IDs, or a borrowed digest — will not match what the file actually says.
-    verified = load_approved_manifest(Path(manifest.path))
-    if verified is None or verified != manifest:
+    evaluated_ids = [example.fixture_id for example in examples]
+    if len(set(evaluated_ids)) != len(evaluated_ids):
         return _inconclusive(
-            "the approved fixture manifest could not be verified against its file",
+            "the evaluated set contains a duplicate fixture id",
             len(examples),
             0,
         )
-
-    evaluated_ids = frozenset(example.fixture_id for example in examples)
-    if evaluated_ids != verified.fixture_ids:
+    if set(evaluated_ids) != manifest.fixture_ids:
         return _inconclusive(
             "the evaluated set does not match the approved manifest "
-            f"({len(evaluated_ids)} fixtures evaluated, "
-            f"{len(verified.fixture_ids)} approved)",
+            f"({len(set(evaluated_ids))} fixtures evaluated, "
+            f"{len(manifest.fixture_ids)} approved)",
             len(examples),
             0,
         )
 
-    grounding_required = verified.grounding_required_fixture_ids
+    grounding_required = manifest.grounding_required_fixture_ids
     if len(grounding_required) < MIN_APPROVED_GROUNDING_FIXTURES:
         return _inconclusive(
             "the approved manifest is below the sufficiency floor of "
@@ -232,7 +247,7 @@ def compute_stage1_metrics(
         state=GateState.CONCLUSIVE,
         reason=(
             f"the evaluated set matches approved manifest "
-            f"'{verified.fixture_set_id}' and meets the sufficiency floor"
+            f"'{manifest.fixture_set_id}' and meets the sufficiency floor"
         ),
         evaluated=len(examples),
         evaluated_grounding_required=len(grounding_required),

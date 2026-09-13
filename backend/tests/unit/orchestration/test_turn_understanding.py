@@ -182,7 +182,7 @@ def test_a_negation_of_a_bare_verb_is_simply_not_an_action():
 
 
 def test_conflicting_speech_acts_are_ambiguous_not_guessed():
-    result = _understand("nhớ là tôi thích cà phê nhưng cũng quên")
+    result = _understand("nhớ là tôi thích cà phê, nhưng quên chuyện cũ đi")
 
     assert result.interaction_mode is InteractionMode.AMBIGUOUS
     assert UnderstandingReason.AMBIGUOUS_SPEECH_ACT in result.reason_codes
@@ -418,7 +418,6 @@ def test_a_question_or_mention_never_authorizes_a_durable_action(message):
     result = _understand(message)
 
     assert result.interaction_mode not in DURABLE_ACTION_MODES
-    assert UnderstandingReason.MENTION_NOT_SPEECH_ACT in result.reason_codes
 
 
 @pytest.mark.parametrize(
@@ -534,7 +533,6 @@ def test_a_statement_about_memory_is_not_a_speech_act(message):
     result = _understand(message)
 
     assert result.interaction_mode not in DURABLE_ACTION_MODES
-    assert UnderstandingReason.MENTION_NOT_SPEECH_ACT in result.reason_codes
 
 
 @pytest.mark.parametrize(
@@ -609,3 +607,139 @@ def test_the_active_topic_follows_the_goal_not_the_last_answer():
     result = UNDERSTANDING.understand("Vậy lên lịch giúp tôi", state)
 
     assert result.topics == ("Lên lịch Đà Nẵng 3 ngày",)
+
+
+# ---------------------------------------------------------------------------
+# Position is not enough: the verb must be in an imperative frame (round 3, 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Quên mang hộ chiếu rất phiền.",
+        "Quên mang hộ chiếu làm chuyến đi rất mệt.",
+        "Delete rows in SQL uses DELETE FROM.",
+    ],
+)
+def test_a_bare_verb_at_the_start_of_a_comment_is_not_a_command(message):
+    """Being first is not enough — a comment also starts with the verb.
+
+    `Quên mang hộ chiếu rất phiền.` and `Delete rows in SQL uses DELETE FROM.`
+    are statements whose subject happens to be the verb. The cue must be in an
+    imperative **frame**, not merely at position zero.
+    """
+    result = _understand(message)
+
+    assert result.interaction_mode not in DURABLE_ACTION_MODES
+
+
+def test_a_refused_frame_reports_why_it_was_refused():
+    """`MENTION_NOT_SPEECH_ACT` names a frame that was present but refused.
+
+    A message with no frame at all has nothing to explain and stays
+    `NO_EXPLICIT_SIGNAL`; the two are different diagnoses.
+    """
+    refused = _understand("I remember that I went to Paris.")
+
+    assert UnderstandingReason.MENTION_NOT_SPEECH_ACT in refused.reason_codes
+
+    no_frame = _understand("Why do people forget things?")
+
+    assert no_frame.reason_codes == (UnderstandingReason.NO_EXPLICIT_SIGNAL,)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Quên mang hộ chiếu rất phiền.",
+        "Delete rows in SQL uses DELETE FROM.",
+    ],
+)
+def test_a_comment_never_reaches_the_gate_as_an_action(message):
+    from backend.orchestration.action_router import ActionRouter
+    from backend.orchestration.turn_models import RoutingDecision
+
+    assert (
+        ActionRouter().route(_understand(message))
+        is not RoutingDecision.EXPLICIT_MEMORY_ACTION
+    )
+
+
+def test_a_statement_using_an_imperative_frame_is_still_not_a_command():
+    """`I remember that …` has the frame but is still the user describing himself."""
+    result = _understand("I remember that I went to Paris.")
+
+    assert result.interaction_mode not in DURABLE_ACTION_MODES
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        ("quên chuyện cà phê đi", InteractionMode.EXPLICIT_FORGET),
+        ("xóa ghi chú đó đi", InteractionMode.EXPLICIT_FORGET),
+        ("forget my seat preference", InteractionMode.EXPLICIT_FORGET),
+        ("forget that I said that", InteractionMode.EXPLICIT_FORGET),
+    ],
+)
+def test_the_forget_frame_is_still_recognised(message, expected):
+    """`quên … đi` and `forget that/my` are the frames; a bare verb is not."""
+    assert _understand(message).interaction_mode is expected
+
+
+def test_a_command_addressed_through_a_subject_is_recognised():
+    """`Tôi muốn bạn nhớ là …` is a command; the assistant is the addressee."""
+    result = _understand("Tôi muốn bạn nhớ là tôi thích cà phê muối")
+
+    assert result.interaction_mode is InteractionMode.EXPLICIT_REMEMBER
+
+
+# ---------------------------------------------------------------------------
+# A topic change is not a clarification answer (round 3, 3)
+# ---------------------------------------------------------------------------
+
+
+def _state_with_an_open_question() -> DialogueState:
+    return RESOLVER.resolve(
+        [
+            _message(1, MessageRole.USER, "Lên lịch Đà Nẵng 3 ngày"),
+            _message(2, MessageRole.ASSISTANT, "Bạn muốn Đà Nẵng hay Hội An?"),
+        ]
+    )
+
+
+def test_a_new_question_is_not_a_clarification_answer():
+    """The user changing the subject is not answering the pending question.
+
+    Treating every turn after an assistant question as an answer made the flag
+    meaningless and kept a stale goal.
+    """
+    result = UNDERSTANDING.understand("Thời tiết Hà Nội thế nào?", _state_with_an_open_question())
+
+    assert result.answers_pending_clarification is False
+
+
+def test_a_new_request_replaces_the_goal():
+    """The active goal follows the conversation, not the first request forever."""
+    result = UNDERSTANDING.understand("Thời tiết Hà Nội thế nào?", _state_with_an_open_question())
+
+    assert result.current_goal == "Thời tiết Hà Nội thế nào?"
+    assert result.current_goal != "Lên lịch Đà Nẵng 3 ngày"
+
+
+def test_a_short_answer_is_still_a_clarification_answer():
+    """The narrowing must not lose the case it exists for."""
+    result = UNDERSTANDING.understand("Hội An", _state_with_an_open_question())
+
+    assert result.answers_pending_clarification is True
+    assert result.current_goal == "Lên lịch Đà Nẵng 3 ngày"
+
+
+def test_a_long_message_after_a_question_is_not_treated_as_an_answer():
+    """A paragraph is a new request, not a one-word answer to a question."""
+    result = UNDERSTANDING.understand(
+        "Tôi đang nghĩ đến việc đổi sang một thành phố khác cho chuyến đi này",
+        _state_with_an_open_question(),
+    )
+
+    assert result.answers_pending_clarification is False

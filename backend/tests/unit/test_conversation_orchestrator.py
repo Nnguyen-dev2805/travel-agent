@@ -1000,7 +1000,7 @@ def test_the_control_a_completed_turn_is_still_reported_as_persisted(rag, journa
 
 
 #: An ambiguous speech act, so the planner proposes `NONE` rather than `RAG_ONLY`.
-AMBIGUOUS_MESSAGE = "nhớ là tôi thích cà phê nhưng cũng quên"
+AMBIGUOUS_MESSAGE = "nhớ là tôi thích cà phê, nhưng quên chuyện cũ đi"
 
 #: An obvious explicit remember, which the gate corroborates and routes to the
 #: Memory branch — where Stage 1 still has no handler.

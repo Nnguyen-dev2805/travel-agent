@@ -46,17 +46,67 @@ _EDGE_PUNCTUATION = ".,!?;:\"'()[]{}…—–-"
 #: Openers paired with the closer that ends their span.
 _QUOTE_PAIRS = {'"': '"', "'": "'", "“": "”", "«": "»"}
 
-#: Speech acts that would propose a durable Memory mutation. Two different
-#: families in one message is a conflict, not a preference.
+#: A durable cue is a **frame**, not a bare verb. `quên` and `delete` appear in
+#: comments and noun phrases, so they are commands only when the frame is
+#: present: `quên … đi` (where `đi` must end the message) or an explicit English
+#: object (`forget my/that/about`). Position alone is not enough —
+#: `Quên mang hộ chiếu rất phiền.` and `Delete rows in SQL uses DELETE FROM.` both
+#: begin with the verb and are statements.
 #:
-#: The remember cues are **declarative or imperative forms**, not the bare verb
-#: `nhớ`. A bare verb also appears in questions — `bạn có nhớ tôi không?` — and
-#: treating an interrogative as a command would authorize a durable write from a
-#: question, which is the precision failure this layer exists to prevent
-#: (`spec:389-391`).
-_REMEMBER_CUES = ("nhớ là", "nhớ rằng", "ghi nhớ", "lưu lại", "remember", "note that")
-_CORRECT_CUES = ("sửa lại", "đính chính", "không phải", "chứ không phải", "actually", "i meant")
-_FORGET_CUES = ("quên", "xóa", "xoá", "forget", "delete")
+#: Each entry is `(lead, required_final_token)`. `None` means the lead alone is
+#: the frame.
+_FRAMES: dict[InteractionMode, tuple[tuple[str, str | None], ...]] = {
+    InteractionMode.EXPLICIT_REMEMBER: (
+        ("nhớ là", None),
+        ("nhớ rằng", None),
+        ("ghi nhớ", None),
+        ("hãy nhớ", None),
+        ("remember that", None),
+        ("remember to", None),
+        ("note that", None),
+        ("please remember", None),
+    ),
+    InteractionMode.EXPLICIT_CORRECT: (
+        ("sửa lại", None),
+        ("đính chính", None),
+        ("i meant", None),
+        ("correct that", None),
+    ),
+    InteractionMode.EXPLICIT_FORGET: (
+        ("quên", "đi"),
+        ("xóa", "đi"),
+        ("xoá", "đi"),
+        ("hãy quên", None),
+        ("forget that", None),
+        ("forget my", None),
+        ("forget about", None),
+        ("delete my", None),
+        ("please forget", None),
+    ),
+}
+
+#: Subjects that make a sentence a statement *about* the speaker or a third party
+#: rather than an instruction to the assistant. `bạn` is deliberately absent:
+#: `Tôi muốn bạn nhớ là …` addresses the assistant and is a command.
+_STATEMENT_SUBJECTS = frozenset(
+    {
+        "i",
+        "we",
+        "they",
+        "he",
+        "she",
+        "it",
+        "people",
+        "someone",
+        "everyone",
+        "tôi",
+        "mình",
+        "chúng",
+        "họ",
+        "ai",
+        "người",
+    }
+)
 
 #: Cues that negate the speech act itself — `đừng nhớ` is not a remember.
 #: `không phải` is deliberately absent: in `sửa lại … không phải X mà là Y` it
@@ -166,61 +216,62 @@ def _is_question(message: str, tokens: list[str]) -> bool:
     return _first_cue(tokens, _INTERROGATIVE_MARKERS) >= 0
 
 
-#: Tokens that may immediately precede a command: an address or politeness
-#: marker, a negation that introduces the command it negates, or a conjunction
-#: joining it to another command. A cue preceded by anything else is part of a
-#: statement *about* memory — `I remember …`, `People forget …`, `Tôi quên …` —
-#: rather than an instruction to the assistant.
-_SPEECH_ACT_LEAD_INS = frozenset(
-    {
-        "hãy",
-        "ơn",
-        "giúp",
-        "please",
-        "đừng",
-        "chớ",
-        "don't",
-        "do",
-        "not",
-        "never",
-        "nhưng",
-        "và",
-        "but",
-        "and",
-        "cũng",
-        "also",
-    }
-)
-
-#: A cue followed by a copula is a noun subject, not a verb: `Delete is a common
-#: database operation.`
-_COPULA_MARKERS = frozenset(
-    {"is", "are", "was", "were", "seems", "means", "refers", "là"}
-)
+#: A frame followed by a copula is a noun subject, not a verb:
+#: `Delete is a common database operation.` `là` is deliberately absent — it is
+#: part of the `nhớ là` frame, so treating it as a copula refused
+#: `hãy nhớ là …`.
+_COPULA_MARKERS = frozenset({"is", "are", "was", "were", "seems", "means", "refers"})
 
 
-def _is_speech_act(tokens: list[str], index: int, span: int) -> bool:
-    """Whether a matched cue is an instruction rather than a mention.
+def _first_frame(
+    tokens: list[str], frames: tuple[tuple[str, str | None], ...]
+) -> tuple[int, str] | None:
+    """The earliest matching frame as `(index, lead)`, or `None`.
 
-    A command is issued at the start of a message, or after an address marker, a
-    negating marker, or a conjunction. Position is what distinguishes a command
-    from a description when the same verb is used for both.
+    A frame with a required final token only matches when that token ends the
+    message, which is what distinguishes the imperative `quên chuyện cà phê đi`
+    from the comment `Quên mang hộ chiếu làm chuyến đi rất mệt.`
     """
-    if index > 0 and tokens[index - 1] not in _SPEECH_ACT_LEAD_INS:
+    best: tuple[int, str] | None = None
+    for lead, required_final in frames:
+        index = _cue_index(tokens, lead)
+        if index < 0:
+            continue
+        if required_final is not None and (not tokens or tokens[-1] != required_final):
+            continue
+        if best is None or index < best[0]:
+            best = (index, lead)
+    return best
+
+
+def _is_addressed_to_the_assistant(tokens: list[str], index: int, span: int) -> bool:
+    """Whether a matched frame is an instruction rather than a statement.
+
+    Two refusals, both of which the position-only rule allowed:
+
+    - the frame follows a first- or third-person subject, so the sentence is the
+      user (or people in general) *describing* memory rather than instructing the
+      assistant: `I remember that …`, `People forget that …`, `Tôi quên …`; and
+    - the frame is followed by a copula, so the cue is a noun:
+      `Delete is a common database operation.`
+    """
+    if index > 0 and tokens[index - 1] in _STATEMENT_SUBJECTS:
         return False
     following = index + span
     return not (following < len(tokens) and tokens[following] in _COPULA_MARKERS)
 
 
 def _current_goal(state: DialogueState) -> str | None:
-    """The request the conversation is trying to satisfy.
+    """The request the conversation is currently trying to satisfy.
 
-    The first delivered user turn that is not itself an answer to a question the
-    assistant asked. A clarification exchange inserts question/answer pairs, so
-    the *last* user turn is usually an answer to the latest question — not the
-    goal, which is the request that started the exchange.
+    The **last** delivered user turn that is not itself an answer to a question
+    the assistant asked. A clarification exchange inserts question/answer pairs,
+    so the latest user turn is usually an answer to the latest question — not the
+    goal. Taking the last such turn rather than the first means a later change of
+    subject also moves the goal, instead of pinning it to the original request.
     """
     previous_was_question = False
+    goal: str | None = None
     for turn in state.turns:
         if turn.role is MessageRole.ASSISTANT:
             previous_was_question = _is_question(
@@ -228,9 +279,26 @@ def _current_goal(state: DialogueState) -> str | None:
             )
             continue
         if not previous_was_question:
-            return turn.content
+            goal = turn.content
         previous_was_question = False
-    return None
+    return goal
+
+
+#: How many tokens a message may have and still plausibly be a one-line answer to
+#: a question the assistant asked. A paragraph is a new request.
+_CLARIFICATION_REPLY_MAX_TOKENS = 8
+
+
+def _looks_like_an_answer(message: str, tokens: list[str]) -> bool:
+    """Whether a message plausibly answers the question that was asked.
+
+    A short, non-question message answers; a question or a paragraph starts a new
+    request instead. Telling "answers the question" apart from "changes the
+    subject" needs semantics a deterministic rule does not have, so the test is
+    deliberately conservative and the ceiling is documented: an unusual answer
+    that is itself a question is treated as a new request.
+    """
+    return not _is_question(message, tokens) and len(tokens) <= _CLARIFICATION_REPLY_MAX_TOKENS
 
 
 def _without_quoted_spans(message: str) -> str:
@@ -263,10 +331,9 @@ def _without_quoted_spans(message: str) -> str:
 
 def _has_any_cue(message: str) -> bool:
     tokens = _tokens(message)
-    families = (
-        _REMEMBER_CUES,
-        _CORRECT_CUES,
-        _FORGET_CUES,
+    families = tuple(
+        tuple(lead for lead, _ in frames) for frames in _FRAMES.values()
+    ) + (
         _NEGATION_CUES,
         _INSPECT_CUES,
         _CONTINUATION_CUES,
@@ -337,21 +404,17 @@ class TurnUnderstanding:
         #    means: the cue's presence is not corroboration.
         durable: list[tuple[InteractionMode, int, str]] = []
         mentioned = False
-        for mode, cues in (
-            (InteractionMode.EXPLICIT_REMEMBER, _REMEMBER_CUES),
-            (InteractionMode.EXPLICIT_CORRECT, _CORRECT_CUES),
-            (InteractionMode.EXPLICIT_FORGET, _FORGET_CUES),
-        ):
-            index = _first_cue(tokens, cues)
-            if index < 0:
+        for mode, frames in _FRAMES.items():
+            matched_frame = _first_frame(tokens, frames)
+            if matched_frame is None:
                 continue
-            matched = next(cue for cue in cues if _cue_index(tokens, cue) == index)
-            if _is_question(message, tokens) or not _is_speech_act(
-                tokens, index, len(matched.split())
+            index, lead = matched_frame
+            if _is_question(message, tokens) or not _is_addressed_to_the_assistant(
+                tokens, index, len(lead.split())
             ):
                 mentioned = True
                 continue
-            durable.append((mode, index, matched))
+            durable.append((mode, index, lead))
 
         if len(durable) > 1:
             return TurnUnderstandingResult(
@@ -388,26 +451,30 @@ class TurnUnderstanding:
             or _first_cue(tokens, _FIRST_REFERENT_CUES) >= 0
             or _first_cue(tokens, _OVERRIDE_CUES) >= 0
         ):
-            return self._resolve_against_state(tokens, state)
+            return self._resolve_against_state(message, tokens, state)
 
         # 6. A reply to a question the assistant asked is context-dependent even
         #    when it contains no cue phrase at all. Deriving the pending question
         #    from the structural state is what makes clarification and goal
-        #    semantics general rather than three hard-coded phrases.
+        #    semantics general rather than three hard-coded phrases. Only a
+        #    message that plausibly *answers* qualifies: a new question or a
+        #    paragraph starts a new request instead.
         if state.latest_assistant_turn is not None and _is_question(
             state.latest_assistant_turn.content,
             _tokens(state.latest_assistant_turn.content),
-        ):
-            return self._resolve_against_state(tokens, state)
+        ) and _looks_like_an_answer(message, tokens):
+            return self._resolve_against_state(message, tokens, state)
 
-        # 7. Deterministic escalation: an ordinary query claims nothing.
+        # 7. Deterministic escalation: an ordinary query claims nothing, and it
+        #    becomes the active goal — a new request replaces the old one.
         return TurnUnderstandingResult(
             interaction_mode=InteractionMode.NORMAL_QUERY,
+            current_goal=message,
             reason_codes=(UnderstandingReason.NO_EXPLICIT_SIGNAL,),
         )
 
     def _resolve_against_state(
-        self, tokens: list[str], state: DialogueState
+        self, message: str, tokens: list[str], state: DialogueState
     ) -> TurnUnderstandingResult:
         """Resolve a context-dependent cue against the delivered turns.
 
@@ -456,7 +523,7 @@ class TurnUnderstanding:
         # resolver owns.
         answers_pending_clarification = _is_question(
             prior_answer.content, _tokens(prior_answer.content)
-        )
+        ) and _looks_like_an_answer(message, tokens)
 
         return TurnUnderstandingResult(
             interaction_mode=InteractionMode.NORMAL_QUERY,

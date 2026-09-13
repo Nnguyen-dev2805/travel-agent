@@ -52,33 +52,38 @@ grounding-required set for this stage, and none has been adopted here.
 an accurate reading, and it counts against the durable-action false-positive
 rate. Scoring it as correct was a defect of the first version of this harness.
 
-**A set must be approved, and approval is a file.** The metrics are bound to an
-**approved manifest** (`docs/evaluation/fixtures/agent-memory/stage1-manifest.json`):
-its content is hashed, its fixture IDs must match the evaluated examples exactly,
-and its `grounding_required_fixture_ids` — not a per-example flag — defines the
-false-`NONE` denominator. The metrics re-read the file and require the manifest to
-match it, so a hand-built manifest with invented IDs, or a borrowed digest, is
-refused. Declaring a set is not the same as having one: an earlier version
-accepted an object the caller built, and twenty ad-hoc examples with an invented
-ID concluded the gate. The set must also meet
+**A set must be approved, and the trust root is fixed.** The metrics are bound to
+`APPROVED_MANIFEST_PATH` — `docs/evaluation/fixtures/agent-memory/stage1-manifest.json`
+— and `compute_stage1_metrics` takes **no manifest argument**, so there is nothing
+for a caller to substitute. The manifest must carry an explicit approval record
+(`approved_by`, `approved_on`), its fixture IDs must equal the evaluated examples
+exactly **with no duplicates**, and its `grounding_required_fixture_ids` — not a
+per-example flag — define the false-`NONE` denominator. The set must also meet
 `MIN_APPROVED_GROUNDING_FIXTURES` (20).
+
+Two earlier versions were insufficient. The first accepted an object the caller
+built, so declaring a set was treated as being the set. The second hashed the file
+but still accepted a caller-supplied **path**, so a manifest at
+`/tmp/totally-unapproved.json` concluded the gate. Having *a* manifest is not the
+same as having an *approved* one, and membership compared sets, so 21 examples
+with one repeated ID satisfied a 20-ID manifest.
 
 **Recorded run (2026-09-13):**
 
 ```text
-load_approved_manifest('docs/evaluation/fixtures/agent-memory/stage1-manifest.json')
-  -> None   (the file does not exist)
+APPROVED_MANIFEST_PATH
+  = docs/evaluation/fixtures/agent-memory/stage1-manifest.json
+  exists: False
 
-compute_stage1_metrics([20 perfect ad-hoc examples], manifest=None)
+compute_stage1_metrics([20 perfect ad-hoc examples])
   state = inconclusive
-  reason = no approved fixture manifest was supplied, so these examples are
-           ad-hoc evidence and cannot conclude the gate
+  reason = no approved fixture manifest is present at <governed path>, so these
+           examples are ad-hoc evidence and cannot conclude the gate
   planner_enforcement_permitted = False
 
-compute_stage1_metrics([20 perfect ad-hoc examples],
-                       manifest=<hand-built with an invented fixture_set_id>)
-  state = inconclusive
-  reason = the approved fixture manifest could not be verified against its file
+# a manifest written to /tmp and given to the previous API
+compute_stage1_metrics([20 matching examples])     # no manifest argument exists
+  state = inconclusive                             # the /tmp file is never read
   planner_enforcement_permitted = False
 ```
 
@@ -156,6 +161,10 @@ execution. This is verified by test, not by a rate:
 | `effective` always matches what executes | `backend/tests/unit/orchestration/test_context_planner.py::test_the_effective_mode_always_matches_what_executes` |
 | The approved set is bound to a manifest file, not a caller object | `backend/tests/unit/memory_write_pipeline/test_stage1_metrics.py::test_a_fabricated_manifest_fails_the_digest_check` |
 | The removed-subsystem guard catches `from backend import planner` | `backend/tests/unit/test_runtime_container.py::test_a_forbidden_submodule_imported_by_name_is_caught` |
+| A comment or noun usage of a memory verb is not a command | `backend/tests/unit/orchestration/test_turn_understanding.py::test_a_bare_verb_at_the_start_of_a_comment_is_not_a_command` |
+| A topic change is not a clarification answer, and it replaces the goal | `backend/tests/unit/orchestration/test_turn_understanding.py::test_a_new_question_is_not_a_clarification_answer` |
+| The approved manifest's trust root is fixed, not a caller argument | `backend/tests/unit/memory_write_pipeline/test_stage1_metrics.py::test_the_metrics_take_no_manifest_argument` |
+| Duplicate fixture IDs are refused | `backend/tests/unit/memory_write_pipeline/test_stage1_metrics.py::test_duplicate_fixture_ids_are_rejected` |
 
 ## 5. Zero-tolerance failures relevant to this stage
 
