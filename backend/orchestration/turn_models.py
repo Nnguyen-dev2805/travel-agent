@@ -3,8 +3,8 @@
 `TurnDisposition` names what a bounded agentic turn achieved. It is a reasoning
 outcome, deliberately distinct from `MessageStatus`, which describes persistence
 completeness (ADR 0023). The two are orthogonal with constrained valid
-combinations (`spec:309-333`), and the disposition stays internal to `TurnOutcome`
-in the first rollout rather than becoming a public Chat field (`spec:335-338`).
+combinations (`spec:332-363`), and the disposition stays internal to `TurnOutcome`
+in the first rollout rather than becoming a public Chat field (`spec:360-363`).
 
 Contracts only: no storage, no model call, no I/O.
 """
@@ -17,11 +17,11 @@ from backend.conversations.models import MessageStatus
 
 
 class TurnDisposition(str, Enum):
-    """What the bounded turn achieved (`spec:314-319`).
+    """What the bounded turn achieved (`spec:336-344`).
 
     `EXECUTION_FAILED` is not a persistence failure: a `COMPLETE` row carrying it
     reports an execution or context limitation, and the reply itself was stored
-    (`spec:330-333`).
+    (`spec:355-358`).
     """
 
     ANSWERED = "answered"
@@ -30,7 +30,7 @@ class TurnDisposition(str, Enum):
     EXECUTION_FAILED = "execution_failed"
 
 
-#: The approved matrix (`spec:327-333`), written once. `None` is the "not
+#: The approved matrix (`spec:352-356`), written once. `None` is the "not
 #: finalized yet" value and is valid only while the row is still `PENDING`.
 _VALID_DISPOSITIONS: dict[MessageStatus, frozenset[TurnDisposition | None]] = {
     MessageStatus.PENDING: frozenset({None}),

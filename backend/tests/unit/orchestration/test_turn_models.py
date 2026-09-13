@@ -2,9 +2,9 @@
 
 `MessageStatus` (ADR 0023) describes persistence completeness. `TurnDisposition`
 describes what the bounded agentic turn achieved. They are orthogonal dimensions
-with constrained valid combinations (`spec:309-333`), and the disposition stays
+with constrained valid combinations (`spec:332-363`), and the disposition stays
 internal to `TurnOutcome` in the first rollout — it is never a public Chat field
-(`spec:335-338`).
+(`spec:360-363`).
 
 The combination table is pinned as a **total** classification: every
 `(MessageStatus, TurnDisposition | None)` pair is either accepted or rejected, so
@@ -33,7 +33,7 @@ NEEDS_CLARIFICATION = TurnDisposition.NEEDS_CLARIFICATION
 INCOMPLETE = TurnDisposition.INCOMPLETE
 EXECUTION_FAILED = TurnDisposition.EXECUTION_FAILED
 
-#: The approved matrix (`plan:345-349`, `spec:327-333`), written out once.
+#: The approved matrix (`plan:352-356`, `spec:352-356`), written out once.
 #: `None` means "not finalized yet", which is the only value `PENDING` admits.
 VALID_COMBINATIONS: dict[MessageStatus, frozenset[TurnDisposition | None]] = {
     MessageStatus.PENDING: frozenset({None}),
@@ -105,20 +105,20 @@ def test_the_combination_matrix_is_total(status, disposition):
 
 
 def test_pending_has_no_finalized_disposition():
-    """`PENDING` is in flight, so nothing is finalized yet (`spec:327-329`)."""
+    """`PENDING` is in flight, so nothing is finalized yet (`spec:352-354`)."""
     for disposition in TurnDisposition:
         assert disposition_is_valid(MessageStatus.PENDING, disposition) is False
     assert disposition_is_valid(MessageStatus.PENDING, None) is True
 
 
 def test_a_failed_row_can_never_be_answered():
-    """A persisted failure cannot have produced an answer (`spec:329`)."""
+    """A persisted failure cannot have produced an answer (`spec:353-354`)."""
     assert disposition_is_valid(MessageStatus.FAILED, ANSWERED) is False
 
 
 def test_a_complete_row_accepts_all_four():
     """`EXECUTION_FAILED` on a complete row reports a limitation, not a
-    persistence failure — the reply itself was stored (`spec:330-333`)."""
+    persistence failure — the reply itself was stored (`spec:355-358`)."""
     for disposition in TurnDisposition:
         assert disposition_is_valid(MessageStatus.COMPLETE, disposition) is True
 
@@ -136,7 +136,7 @@ def test_the_disposition_serialises_as_a_plain_string():
 
 
 def test_the_public_chat_response_exposes_no_disposition():
-    """The plan's review gate: `TurnDisposition` stays internal (`plan:357`).
+    """The plan's review gate: `TurnDisposition` stays internal (`plan:367-368`).
 
     Only the absence is asserted. Pinning the whole field set would break this
     Task 3 test the moment an unrelated Chat field is added.
@@ -145,7 +145,7 @@ def test_the_public_chat_response_exposes_no_disposition():
 
 
 def test_turn_models_reaches_no_storage_model_or_web_framework():
-    """Domain modules import no FastAPI/SQLAlchemy/provider/RAG (`spec:530-531`).
+    """Domain modules import no FastAPI/SQLAlchemy/provider/RAG (`spec:555-556`).
 
     `backend.conversations` is deliberately absent from this list: orchestration
     depends on conversations (`orchestration/__init__.py:8-9`), and the matrix is

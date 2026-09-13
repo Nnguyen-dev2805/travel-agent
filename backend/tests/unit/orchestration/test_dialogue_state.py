@@ -1,11 +1,16 @@
 """Task 3: `DialogueState` is ephemeral, structural, and rebuilt per turn.
 
-`spec:907` scopes Stage 1 to **recent turns only**, and `plan:355` forbids a
-model, a DB write, and a Working Memory dependency. So the resolver reconstructs
-only facts about the rows it is handed: which turns were delivered, in what
-order, and which assistant turn a follow-up could continue from. It infers no
-topic and no goal — those arrive with Working Memory in Stage 5 (`spec:265-267`),
-and a model-free function over message rows could not produce them anyway.
+Stage-1 responsibility is split by design (`plan:343-348`, `spec:265-275`).
+`DialogueStateResolver` assembles deterministic structural context from exactly
+one conversation: which turns were delivered, in what order, and which assistant
+turn exists to build on. `TurnUnderstanding` (Task 4) owns semantic
+interpretation of the current message against that context — topic, referents,
+current goal, intent, and pending clarification.
+
+So the resolver infers none of those, and must not: a model-free, database-free,
+Working-Memory-free function over message rows cannot produce them. Working Memory
+becomes an additional **reconstruction** input in Stage 5 without moving semantic
+ownership out of `TurnUnderstanding` (`spec:279-281`).
 
 Only `COMPLETE` rows are turns, and that is the persistence contract rather than
 an invented rule: `conversations/models.py:278-285` guarantees content for a
@@ -26,6 +31,7 @@ from pathlib import Path
 import pytest
 
 from backend.conversations.models import (
+    ConversationValidationError,
     Message,
     MessageRole,
     MessageSource,
@@ -40,16 +46,20 @@ from backend.orchestration.dialogue_state import (
 
 RESOLVER = DialogueStateResolver()
 
+CONVERSATION_A = "cv_" + "a" * 32
+CONVERSATION_B = "cv_" + "b" * 32
+
 
 def _message(
     sequence: int,
     role: MessageRole,
     content: str,
     status: MessageStatus = MessageStatus.COMPLETE,
+    conversation_id: str = CONVERSATION_A,
 ) -> Message:
     return Message(
         message_id=generate_message_id(),
-        conversation_id="cv_" + "0" * 32,
+        conversation_id=conversation_id,
         sequence=sequence,
         role=role,
         content=content,
@@ -59,16 +69,21 @@ def _message(
     )
 
 
-def _user(sequence: int, content: str) -> Message:
-    return _message(sequence, MessageRole.USER, content)
+def _user(
+    sequence: int, content: str, conversation_id: str = CONVERSATION_A
+) -> Message:
+    return _message(sequence, MessageRole.USER, content, conversation_id=conversation_id)
 
 
 def _assistant(
     sequence: int,
     content: str,
     status: MessageStatus = MessageStatus.COMPLETE,
+    conversation_id: str = CONVERSATION_A,
 ) -> Message:
-    return _message(sequence, MessageRole.ASSISTANT, content, status)
+    return _message(
+        sequence, MessageRole.ASSISTANT, content, status, conversation_id=conversation_id
+    )
 
 
 def _first_turn_shape() -> list[Message]:
@@ -84,12 +99,86 @@ def _first_turn_shape() -> list[Message]:
 
 
 def test_an_empty_history_yields_an_empty_state():
-    """A brand-new conversation has no rows, and that is not an error."""
+    """A brand-new conversation has no rows, and that is not an error.
+
+    Also the negative control for the single-conversation guard: no rows means no
+    scope conflict, so an empty input must stay a success rather than raise.
+    """
     state = RESOLVER.resolve([])
 
     assert state.turns == ()
     assert state.latest_user_turn is None
     assert state.latest_assistant_turn is None
+
+
+def test_rows_from_one_conversation_are_accepted():
+    """One conversation is the only supported input, and it must still work.
+
+    Pins the assembled state, not just the count: a guard that silently consumed
+    the input would still produce a well-formed but empty state.
+    """
+    state = RESOLVER.resolve(
+        [
+            _user(1, "Hà Nội có gì đẹp?"),
+            _assistant(2, "Phố cổ và hồ Hoàn Kiếm."),
+        ]
+    )
+
+    assert [turn.sequence for turn in state.turns] == [1, 2]
+    assert state.latest_user_turn.sequence == 1
+    assert state.latest_assistant_turn.sequence == 2
+
+
+def test_a_one_shot_iterable_is_not_silently_emptied():
+    """The scope guard must not consume the input it is validating.
+
+    `Sequence` is the declared type, but a one-shot iterable would be drained by
+    the scope check, and the resolver would then return an empty state instead of
+    the rows it was handed — a fail-open path inside the guard whose whole job is
+    to fail closed.
+    """
+    rows = [
+        _user(1, "Hà Nội có gì đẹp?"),
+        _assistant(2, "Phố cổ và hồ Hoàn Kiếm."),
+    ]
+
+    assert len(RESOLVER.resolve(iter(rows)).turns) == 2
+
+
+def test_mixed_conversation_input_fails_closed():
+    """Rows from more than one conversation must be refused (`spec:268-269`).
+
+    The signature carries no conversation identity (`plan:340`), so the rows are
+    the only evidence of scope. Before this rule the resolver merged two
+    conversations into one plausible state — `latest_user_turn` from one
+    conversation and `latest_assistant_turn` from another.
+    """
+    with pytest.raises(ConversationValidationError):
+        RESOLVER.resolve(
+            [
+                _user(1, "Kế hoạch Hà Nội của tôi"),
+                _assistant(2, "Dạ, tôi đã ghi nhớ.", conversation_id=CONVERSATION_B),
+            ]
+        )
+
+
+def test_a_supplied_foreign_row_fails_closed_even_when_it_would_be_filtered():
+    """Scope is decided on the rows **supplied**, not on the rows retained.
+
+    `spec:268-269` says "fail closed if rows from more than one conversation are
+    supplied". A `PENDING` row from another conversation is filtered out of
+    `turns`, but it is still a foreign row in the input, and accepting it would
+    make the isolation rule depend on the eligibility filter.
+    """
+    with pytest.raises(ConversationValidationError):
+        RESOLVER.resolve(
+            [
+                _user(1, "Kế hoạch Hà Nội của tôi"),
+                _assistant(
+                    2, "", MessageStatus.PENDING, conversation_id=CONVERSATION_B
+                ),
+            ]
+        )
 
 
 def test_turns_are_ordered_by_sequence_not_input_order():
@@ -163,16 +252,17 @@ def test_the_latest_user_turn_is_the_last_complete_user_row():
 
 
 def test_a_first_turn_has_nothing_to_continue():
-    """A context-dependent turn such as "tiếp tục đi" has no referent yet.
+    """A first turn has no delivered assistant turn to build on.
 
-    This is the state Task 4's understanding reads; the resolver does not
-    interpret the cue itself (`plan:351-352`, `spec:260-264`).
+    Structural only — this is the state `TurnUnderstanding` reads. Whether the
+    current message is a context-dependent turn such as "tiếp tục đi" is decided
+    there, not here (`plan:400-403`, `spec:272-275`).
     """
     assert RESOLVER.resolve(_first_turn_shape()).latest_assistant_turn is None
 
 
 def test_a_completed_exchange_offers_something_to_continue():
-    """After one answered turn, a follow-up does have prior context."""
+    """After one delivered exchange, structural context exists to build on."""
     state = RESOLVER.resolve(
         [
             _user(1, "Hà Nội có gì đẹp?"),
@@ -199,7 +289,7 @@ def test_the_state_does_not_depend_on_the_order_of_the_input():
 
 
 def test_the_state_is_frozen():
-    """An immutable closed contract, per `plan:354`."""
+    """An immutable closed contract, per `plan:363-365`."""
     state = RESOLVER.resolve([])
 
     with pytest.raises(dataclasses.FrozenInstanceError):
@@ -207,7 +297,7 @@ def test_the_state_is_frozen():
 
 
 def test_dialogue_state_reaches_no_memory_persistence_or_provider():
-    """The plan's review gate (`plan:357-358`) and `spec:530-531`."""
+    """The plan's review gate (`plan:367-368`) and `spec:555`."""
     forbidden = (
         "fastapi",
         "sqlalchemy",
