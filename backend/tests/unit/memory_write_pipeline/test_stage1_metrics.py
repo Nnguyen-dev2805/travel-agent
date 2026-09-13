@@ -1,15 +1,24 @@
-"""Task 4 review fix 2: the Stage-1 gate must be evidence-based and exact.
+"""Task 4 re-review fix 2: the gate must bind to an approved manifest.
 
-Three defects this file pins:
+The previous version accepted an `ApprovedFixtureSet` object the caller built, so
+anyone could write:
 
-1. **Exact interaction-mode correctness was not measured.** A reading that
-   proposed the *wrong* durable action counted as correct, so `expected REMEMBER,
-   observed FORGET` scored as a true positive. Correctness is now exact equality.
-2. **Ad-hoc fixtures could conclude the gate.** A single example, or a handful
-   invented at the call site, made the state `CONCLUSIVE`. A fixture set now has
-   to be *declared approved* and *sufficient*, and the evaluated set has to match
-   that declaration.
-3. **`spec:915`** — missing required evidence is `INCONCLUSIVE`, never `PASS`.
+```python
+compute_stage1_metrics(twenty_ad_hoc_examples,
+    approved=ApprovedFixtureSet("totally-unapproved-ad-hoc-id", 20))
+```
+
+and get `CONCLUSIVE → false_none_rate=0.0 → planner_enforcement_permitted=True`
+while no approved dataset existed. Declaring the set was treated as being the set.
+
+The gate now requires a **manifest file**: a governance artifact whose content is
+hashed, whose fixture IDs must match the evaluated examples exactly, and whose
+`grounding_required_fixture_ids` — not the caller's per-example flag — defines the
+false-`NONE` denominator. A fabricated manifest fails the digest check; a
+substituted or partial set fails the membership check.
+
+`spec:915` still governs: missing required evidence is `INCONCLUSIVE`, never
+`PASS`.
 
 No test here touches a database, a model, HTTP, or the network.
 """
@@ -17,108 +26,137 @@ No test here touches a database, a model, HTTP, or the network.
 from __future__ import annotations
 
 import dataclasses
+import json
 
 import pytest
 
 from backend.memory.write_pipeline.evaluation.stage1_metrics import (
     MIN_APPROVED_GROUNDING_FIXTURES,
-    ApprovedFixtureSet,
+    ApprovedFixtureManifest,
     GateState,
     StageOneExample,
     compute_stage1_metrics,
+    load_approved_manifest,
     planner_enforcement_permitted,
 )
 from backend.orchestration.turn_models import ContextMode, InteractionMode
 
-APPROVED = ApprovedFixtureSet(
-    fixture_set_id="stage1-understanding-v0.1",
-    grounding_required_count=MIN_APPROVED_GROUNDING_FIXTURES,
-)
+TOTAL = MIN_APPROVED_GROUNDING_FIXTURES + 2
+GROUNDING_IDS = [f"fixture-{index:03d}" for index in range(MIN_APPROVED_GROUNDING_FIXTURES)]
+OTHER_IDS = [f"fixture-{index:03d}" for index in range(MIN_APPROVED_GROUNDING_FIXTURES, TOTAL)]
 
 
-def _example(
-    *,
-    expected: InteractionMode = InteractionMode.NORMAL_QUERY,
-    observed: InteractionMode = InteractionMode.NORMAL_QUERY,
-    grounding_required: bool = True,
-    proposed: ContextMode = ContextMode.RAG_ONLY,
-    expected_clarification: bool = False,
-    observed_clarification: bool = False,
-) -> StageOneExample:
-    return StageOneExample(
-        expected_interaction_mode=expected,
-        observed_interaction_mode=observed,
-        grounding_required=grounding_required,
-        proposed_context_mode=proposed,
-        expected_needs_clarification=expected_clarification,
-        observed_needs_clarification=observed_clarification,
-    )
+def _manifest_file(tmp_path, fixture_ids=None, grounding_ids=None):
+    """Write a real manifest file and load it, as a caller must."""
+    payload = {
+        "fixture_set_id": "stage1-understanding-v0.1",
+        "fixture_ids": fixture_ids if fixture_ids is not None else GROUNDING_IDS + OTHER_IDS,
+        "grounding_required_fixture_ids": (
+            grounding_ids if grounding_ids is not None else GROUNDING_IDS
+        ),
+    }
+    path = tmp_path / "stage1-manifest.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return load_approved_manifest(path)
 
 
-def _approved_set(overrides: dict[int, StageOneExample] | None = None):
-    """A set that matches `APPROVED` exactly, all normal queries by default."""
-    overrides = overrides or {}
+def _example(fixture_id: str, **overrides) -> StageOneExample:
+    fields = {
+        "fixture_id": fixture_id,
+        "expected_interaction_mode": InteractionMode.NORMAL_QUERY,
+        "observed_interaction_mode": InteractionMode.NORMAL_QUERY,
+        "proposed_context_mode": ContextMode.RAG_ONLY,
+        "expected_needs_clarification": False,
+        "observed_needs_clarification": False,
+    }
+    fields.update(overrides)
+    return StageOneExample(**fields)
+
+
+def _approved_examples(**overrides) -> list[StageOneExample]:
+    """One example per approved fixture, all correct by default."""
+    by_id = overrides
     return [
-        overrides.get(index, _example())
-        for index in range(MIN_APPROVED_GROUNDING_FIXTURES)
+        _example(fixture_id, **by_id.get(fixture_id, {}))
+        for fixture_id in GROUNDING_IDS + OTHER_IDS
     ]
 
 
 # ---------------------------------------------------------------------------
-# Evidence sufficiency
+# The fake-approved-set defect
 # ---------------------------------------------------------------------------
 
 
-def test_no_fixtures_is_inconclusive():
-    metrics = compute_stage1_metrics([], approved=APPROVED)
+def test_a_fabricated_manifest_fails_the_digest_check(tmp_path):
+    """Declaring an approved set is not the same as having one.
 
-    assert metrics.state is GateState.INCONCLUSIVE
-    assert metrics.false_none_rate is None
-    assert planner_enforcement_permitted(metrics) is False
-
-
-def test_undeclared_fixtures_are_inconclusive_however_good_they_look():
-    """Ad-hoc examples cannot make the gate conclusive by being perfect."""
-    metrics = compute_stage1_metrics(_approved_set(), approved=None)
-
-    assert metrics.state is GateState.INCONCLUSIVE
-    assert "approved" in metrics.reason
-    assert planner_enforcement_permitted(metrics) is False
-
-
-def test_a_single_fixture_cannot_conclude_the_gate():
-    metrics = compute_stage1_metrics(
-        [_example()],
-        approved=ApprovedFixtureSet(fixture_set_id="ad-hoc", grounding_required_count=1),
+    A hand-built manifest whose file does not contain those IDs must not be
+    accepted; otherwise the gate is satisfied by a string the caller invented.
+    """
+    genuine = _manifest_file(tmp_path)
+    fabricated = ApprovedFixtureManifest(
+        fixture_set_id="totally-unapproved-ad-hoc-id",
+        fixture_ids=frozenset(GROUNDING_IDS + OTHER_IDS),
+        grounding_required_fixture_ids=frozenset(GROUNDING_IDS),
+        digest=genuine.digest,
+        path=genuine.path,
     )
 
-    assert metrics.state is GateState.INCONCLUSIVE
-    assert planner_enforcement_permitted(metrics) is False
-
-
-def test_a_declared_set_below_the_sufficiency_floor_is_inconclusive():
-    metrics = compute_stage1_metrics(
-        [_example() for _ in range(3)],
-        approved=ApprovedFixtureSet(fixture_set_id="tiny", grounding_required_count=3),
-    )
-
-    assert metrics.state is GateState.INCONCLUSIVE
-    assert "sufficien" in metrics.reason or "floor" in metrics.reason
-
-
-def test_an_evaluated_set_that_does_not_match_the_approved_set_is_inconclusive():
-    """Partial or substituted evidence is not the approved evidence."""
-    metrics = compute_stage1_metrics(
-        [_example() for _ in range(MIN_APPROVED_GROUNDING_FIXTURES - 1)],
-        approved=APPROVED,
-    )
+    metrics = compute_stage1_metrics(_approved_examples(), manifest=fabricated)
 
     assert metrics.state is GateState.INCONCLUSIVE
     assert planner_enforcement_permitted(metrics) is False
 
 
-def test_a_matching_sufficient_approved_set_concludes():
-    metrics = compute_stage1_metrics(_approved_set(), approved=APPROVED)
+def test_no_manifest_is_inconclusive_however_perfect_the_examples(tmp_path):
+    """Twenty ad-hoc examples with no approved manifest cannot conclude."""
+    metrics = compute_stage1_metrics(_approved_examples(), manifest=None)
+
+    assert metrics.state is GateState.INCONCLUSIVE
+    assert "manifest" in metrics.reason
+    assert planner_enforcement_permitted(metrics) is False
+
+
+def test_an_absent_manifest_file_is_inconclusive(tmp_path):
+    assert load_approved_manifest(tmp_path / "missing.json") is None
+
+    metrics = compute_stage1_metrics(_approved_examples(), manifest=None)
+
+    assert metrics.state is GateState.INCONCLUSIVE
+
+
+def test_an_example_outside_the_manifest_is_inconclusive(tmp_path):
+    manifest = _manifest_file(tmp_path)
+    examples = _approved_examples()
+    examples[0] = _example("fixture-not-approved")
+
+    metrics = compute_stage1_metrics(examples, manifest=manifest)
+
+    assert metrics.state is GateState.INCONCLUSIVE
+    assert planner_enforcement_permitted(metrics) is False
+
+
+def test_a_partial_set_is_inconclusive(tmp_path):
+    manifest = _manifest_file(tmp_path)
+
+    metrics = compute_stage1_metrics(_approved_examples()[:-1], manifest=manifest)
+
+    assert metrics.state is GateState.INCONCLUSIVE
+
+
+def test_a_manifest_below_the_sufficiency_floor_is_inconclusive(tmp_path):
+    few = GROUNDING_IDS[:3]
+    manifest = _manifest_file(tmp_path, fixture_ids=few, grounding_ids=few)
+
+    metrics = compute_stage1_metrics([_example(i) for i in few], manifest=manifest)
+
+    assert metrics.state is GateState.INCONCLUSIVE
+
+
+def test_a_genuine_manifest_with_matching_examples_concludes(tmp_path):
+    manifest = _manifest_file(tmp_path)
+
+    metrics = compute_stage1_metrics(_approved_examples(), manifest=manifest)
 
     assert metrics.state is GateState.CONCLUSIVE
     assert metrics.false_none_rate == 0.0
@@ -127,109 +165,73 @@ def test_a_matching_sufficient_approved_set_concludes():
 
 
 # ---------------------------------------------------------------------------
-# Exact interaction-mode correctness
+# The denominator is the manifest's, not the caller's
 # ---------------------------------------------------------------------------
 
 
-def test_the_wrong_durable_action_is_not_a_true_positive():
-    """`expected REMEMBER, observed FORGET` is a mistake, not a success."""
-    examples = _approved_set(
-        {
-            0: _example(
-                expected=InteractionMode.EXPLICIT_REMEMBER,
-                observed=InteractionMode.EXPLICIT_FORGET,
-            ),
-            1: _example(
-                expected=InteractionMode.EXPLICIT_REMEMBER,
-                observed=InteractionMode.EXPLICIT_REMEMBER,
-            ),
+def test_the_grounding_denominator_comes_from_the_manifest(tmp_path):
+    """A caller cannot shrink the denominator by claiming nothing needs grounding."""
+    manifest = _manifest_file(tmp_path)
+    examples = _approved_examples()
+
+    metrics = compute_stage1_metrics(examples, manifest=manifest)
+
+    assert metrics.evaluated_grounding_required == len(GROUNDING_IDS)
+
+
+def test_a_grounding_required_query_proposed_none_is_a_false_none(tmp_path):
+    manifest = _manifest_file(tmp_path)
+    examples = _approved_examples(
+        **{GROUNDING_IDS[0]: {"proposed_context_mode": ContextMode.NONE}}
+    )
+
+    metrics = compute_stage1_metrics(examples, manifest=manifest)
+
+    assert metrics.false_none_rate == pytest.approx(1 / len(GROUNDING_IDS))
+    assert planner_enforcement_permitted(metrics) is False
+
+
+# ---------------------------------------------------------------------------
+# Exact correctness
+# ---------------------------------------------------------------------------
+
+
+def test_the_wrong_durable_action_is_not_a_true_positive(tmp_path):
+    manifest = _manifest_file(tmp_path)
+    examples = _approved_examples(
+        **{
+            GROUNDING_IDS[0]: {
+                "expected_interaction_mode": InteractionMode.EXPLICIT_REMEMBER,
+                "observed_interaction_mode": InteractionMode.EXPLICIT_FORGET,
+            },
+            GROUNDING_IDS[1]: {
+                "expected_interaction_mode": InteractionMode.EXPLICIT_REMEMBER,
+                "observed_interaction_mode": InteractionMode.EXPLICIT_REMEMBER,
+            },
         }
     )
 
-    metrics = compute_stage1_metrics(examples, approved=APPROVED)
+    metrics = compute_stage1_metrics(examples, manifest=manifest)
 
-    # One exact match out of two durable expectations.
     assert metrics.intent_recall == pytest.approx(0.5)
-    # Both were proposed as durable; only one was the right one.
     assert metrics.intent_precision == pytest.approx(0.5)
     assert metrics.durable_action_false_positive_rate == pytest.approx(0.5)
     assert metrics.interaction_mode_accuracy < 1.0
 
 
-def test_interaction_mode_accuracy_counts_exact_matches_only():
-    examples = _approved_set(
-        {
-            0: _example(observed=InteractionMode.EXPLICIT_REMEMBER),
-            1: _example(observed=InteractionMode.AMBIGUOUS),
-        }
-    )
+def test_rates_are_none_when_their_denominator_is_empty(tmp_path):
+    manifest = _manifest_file(tmp_path)
 
-    metrics = compute_stage1_metrics(examples, approved=APPROVED)
-
-    expected = (MIN_APPROVED_GROUNDING_FIXTURES - 2) / MIN_APPROVED_GROUNDING_FIXTURES
-    assert metrics.interaction_mode_accuracy == pytest.approx(expected)
-
-
-def test_rates_are_none_when_their_denominator_is_empty():
-    """A number over nothing is an invention; `None` says so."""
-    metrics = compute_stage1_metrics(_approved_set(), approved=APPROVED)
+    metrics = compute_stage1_metrics(_approved_examples(), manifest=manifest)
 
     assert metrics.intent_precision is None
     assert metrics.intent_recall is None
     assert metrics.durable_action_false_positive_rate is None
 
 
-# ---------------------------------------------------------------------------
-# The false-NONE gate
-# ---------------------------------------------------------------------------
-
-
-def test_a_grounding_required_query_proposed_none_is_a_false_none():
-    examples = _approved_set({0: _example(proposed=ContextMode.NONE)})
-
-    metrics = compute_stage1_metrics(examples, approved=APPROVED)
-
-    assert metrics.false_none_rate == pytest.approx(
-        1 / MIN_APPROVED_GROUNDING_FIXTURES
-    )
-    assert planner_enforcement_permitted(metrics) is False
-
-
-def test_a_clarification_turn_proposed_none_is_not_a_false_none():
-    """A turn that only asks does not answer, so it needs no grounding.
-
-    The set carries the approved 20 grounding-required fixtures plus one
-    clarification turn, which is outside the false-`NONE` denominator.
-    """
-    examples = _approved_set() + [
-        _example(
-            expected=InteractionMode.AMBIGUOUS,
-            observed=InteractionMode.AMBIGUOUS,
-            grounding_required=False,
-            proposed=ContextMode.NONE,
-            expected_clarification=True,
-            observed_clarification=True,
-        )
-    ]
-
-    metrics = compute_stage1_metrics(examples, approved=APPROVED)
-
-    assert metrics.state is GateState.CONCLUSIVE
-    assert metrics.false_none_rate == 0.0
-    assert planner_enforcement_permitted(metrics) is True
-
-
-def test_enforcement_is_denied_while_the_gate_is_inconclusive():
-    assert planner_enforcement_permitted(
-        compute_stage1_metrics([], approved=APPROVED)
-    ) is False
-    assert planner_enforcement_permitted(
-        compute_stage1_metrics(_approved_set(), approved=None)
-    ) is False
-
-
-def test_the_metrics_are_frozen():
-    metrics = compute_stage1_metrics(_approved_set(), approved=APPROVED)
+def test_the_metrics_are_frozen(tmp_path):
+    manifest = _manifest_file(tmp_path)
+    metrics = compute_stage1_metrics(_approved_examples(), manifest=manifest)
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         metrics.state = GateState.INCONCLUSIVE  # type: ignore[misc]

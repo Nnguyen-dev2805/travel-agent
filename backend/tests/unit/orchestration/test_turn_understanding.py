@@ -508,3 +508,104 @@ def test_the_current_goal_is_derived_from_the_conversation_not_the_message():
     result = UNDERSTANDING.understand("3 ngày", state)
 
     assert result.current_goal == state.latest_user_turn.content
+
+
+# ---------------------------------------------------------------------------
+# A statement about memory is not a speech act (re-review finding 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "I remember my trip to Paris.",
+        "People forget their passports all the time.",
+        "Tôi quên mang hộ chiếu hôm qua.",
+        "Delete is a common database operation.",
+    ],
+)
+def test_a_statement_about_memory_is_not_a_speech_act(message):
+    """A cue word in a *statement* is a description, not an instruction.
+
+    `I remember …` and `People forget …` are the user talking about memory, not
+    asking the assistant to change durable state. Treating the cue's presence as
+    corroboration is what "deterministically corroborate a speech act" forbids.
+    """
+    result = _understand(message)
+
+    assert result.interaction_mode not in DURABLE_ACTION_MODES
+    assert UnderstandingReason.MENTION_NOT_SPEECH_ACT in result.reason_codes
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "I remember my trip to Paris.",
+        "People forget their passports all the time.",
+        "Tôi quên mang hộ chiếu hôm qua.",
+        "Delete is a common database operation.",
+    ],
+)
+def test_a_statement_never_reaches_the_gate_as_an_action(message):
+    from backend.orchestration.action_router import ActionRouter
+    from backend.orchestration.turn_models import RoutingDecision
+
+    assert (
+        ActionRouter().route(_understand(message))
+        is not RoutingDecision.EXPLICIT_MEMORY_ACTION
+    )
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        ("nhớ là tôi thích cà phê muối", InteractionMode.EXPLICIT_REMEMBER),
+        ("hãy nhớ là tôi thích ghế cửa sổ", InteractionMode.EXPLICIT_REMEMBER),
+        ("quên chuyện cà phê đi", InteractionMode.EXPLICIT_FORGET),
+        ("forget my seat preference", InteractionMode.EXPLICIT_FORGET),
+        ("please remember that I prefer trains", InteractionMode.EXPLICIT_REMEMBER),
+    ],
+)
+def test_an_addressed_command_is_still_a_speech_act(message, expected):
+    """The speech-act frame must not swallow real commands, addressed or bare."""
+    assert _understand(message).interaction_mode is expected
+
+
+# ---------------------------------------------------------------------------
+# The current goal survives a clarification exchange (re-review finding 3)
+# ---------------------------------------------------------------------------
+
+
+def _state_after_two_clarifications() -> DialogueState:
+    """A goal, then two question-and-answer exchanges about it."""
+    return RESOLVER.resolve(
+        [
+            _message(1, MessageRole.USER, "Lên lịch Đà Nẵng 3 ngày"),
+            _message(2, MessageRole.ASSISTANT, "Bạn ưu tiên biển hay văn hóa?"),
+            _message(3, MessageRole.USER, "Biển"),
+            _message(4, MessageRole.ASSISTANT, "Ngân sách bao nhiêu?"),
+            _message(5, MessageRole.USER, "5 triệu"),
+        ]
+    )
+
+
+def test_the_current_goal_is_the_original_request_not_the_last_answer():
+    """A clarification answer is not the goal; the request that started it is.
+
+    Setting the goal to the immediately preceding user turn made it `Biển`,
+    which is an answer to a question rather than what the conversation is for.
+    """
+    state = _state_after_two_clarifications()
+
+    result = UNDERSTANDING.understand("Vậy lên lịch giúp tôi", state)
+
+    assert result.current_goal == "Lên lịch Đà Nẵng 3 ngày"
+    assert result.answers_pending_clarification is True
+
+
+def test_the_active_topic_follows_the_goal_not_the_last_answer():
+    state = _state_after_two_clarifications()
+
+    result = UNDERSTANDING.understand("Vậy lên lịch giúp tôi", state)
+
+    assert result.topics == ("Lên lịch Đà Nẵng 3 ngày",)

@@ -5,27 +5,33 @@ precision/recall, a durable-action false-positive rate, and clarification
 correctness. `plan v0.7:482-493` adds context-mode evaluation and the
 false-`NONE` rate, and makes the latter a hard gate.
 
-Three properties this module exists to keep:
+Four properties this module exists to keep:
 
 1. **Correctness is exact.** A reading that proposes the *wrong* durable action
    is a mistake, not a success, so `expected EXPLICIT_REMEMBER, observed
    EXPLICIT_FORGET` counts as neither a true positive nor a correct reading.
-2. **Evidence must be approved and sufficient.** A perfect handful of examples
-   invented at the call site cannot conclude the gate: the set has to be
-   declared approved, meet a sufficiency floor, and the evaluated examples have
-   to match the declaration.
-3. **Missing evidence is `INCONCLUSIVE`, never `PASS`** (`spec:915`). A rate that
-   cannot be computed is `None` with a stated reason, not `0.0`, because an
-   absent number silently read as zero is how a rollout gate gets satisfied by
-   having no data.
+2. **The approved set is a governance artifact, not a caller argument.** The gate
+   is bound to a **manifest file**: its content is hashed, its fixture IDs must
+   match the evaluated examples exactly, and its `grounding_required_fixture_ids`
+   — not a per-example flag — defines the false-`NONE` denominator. An earlier
+   version accepted an object the caller built, so declaring a set was treated as
+   being the set; twenty ad-hoc examples with an invented ID concluded the gate.
+3. **Evidence must be sufficient.** A set below `MIN_APPROVED_GROUNDING_FIXTURES`
+   cannot conclude.
+4. **Missing evidence is `INCONCLUSIVE`, never `PASS`** (`spec:915`). A rate that
+   cannot be computed is `None` with a stated reason, not `0.0`.
 
-Pure computation: no database, no model, no network.
+Reading the manifest file is deliberate I/O: it is the only way to make the
+approved set something the caller cannot fabricate in-process.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 from backend.orchestration.turn_models import (
     DURABLE_ACTION_MODES,
@@ -49,25 +55,33 @@ class GateState(str, Enum):
 
 
 @dataclass(frozen=True)
-class ApprovedFixtureSet:
-    """The approved Stage-1 dataset: its identity and its required size.
+class ApprovedFixtureManifest:
+    """An approved Stage-1 dataset, as read from its manifest file.
 
-    Declaring the set is how a caller asserts the evidence is approved. The
-    metrics then verify the evaluated examples actually match that declaration,
-    so a partial run or a substitute set cannot be presented as the approved one.
+    Produced by `load_approved_manifest`; `compute_stage1_metrics` re-reads the
+    file and requires this value to match, so a hand-built manifest with invented
+    IDs cannot stand in for an approved one.
     """
 
     fixture_set_id: str
-    grounding_required_count: int
+    fixture_ids: frozenset[str]
+    grounding_required_fixture_ids: frozenset[str]
+    digest: str
+    path: str
 
 
 @dataclass(frozen=True)
 class StageOneExample:
-    """One evaluated turn: what was expected, and what Stage 1 produced."""
+    """One evaluated turn: what was expected, and what Stage 1 produced.
 
+    `fixture_id` binds the example to the approved manifest. Whether the fixture
+    requires grounding is **not** carried here — it comes from the manifest, so a
+    caller cannot shrink the false-`NONE` denominator.
+    """
+
+    fixture_id: str
     expected_interaction_mode: InteractionMode
     observed_interaction_mode: InteractionMode
-    grounding_required: bool
     proposed_context_mode: ContextMode
     expected_needs_clarification: bool
     observed_needs_clarification: bool
@@ -84,6 +98,7 @@ class StageOneMetrics:
     state: GateState
     reason: str
     evaluated: int
+    evaluated_grounding_required: int
     interaction_mode_accuracy: float | None
     intent_precision: float | None
     intent_recall: float | None
@@ -93,42 +108,88 @@ class StageOneMetrics:
     false_none_rate: float | None
 
 
+def _digest_of(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_approved_manifest(path: Path) -> ApprovedFixtureManifest | None:
+    """Read an approved manifest, or return `None` when there is not one.
+
+    A missing file is not an error — it is the honest state of a repository that
+    has not adopted an approved dataset yet, and the caller turns it into
+    `INCONCLUSIVE`.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        fixture_ids = frozenset(payload["fixture_ids"])
+        grounding_ids = frozenset(payload["grounding_required_fixture_ids"])
+        fixture_set_id = str(payload["fixture_set_id"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return ApprovedFixtureManifest(
+        fixture_set_id=fixture_set_id,
+        fixture_ids=fixture_ids,
+        grounding_required_fixture_ids=grounding_ids,
+        digest=_digest_of(path),
+        path=str(path),
+    )
+
+
 def _is_durable(mode: InteractionMode) -> bool:
     return mode in DURABLE_ACTION_MODES
 
 
 def compute_stage1_metrics(
     examples: list[StageOneExample],
-    approved: ApprovedFixtureSet | None = None,
+    manifest: ApprovedFixtureManifest | None = None,
 ) -> StageOneMetrics:
     """Compute the Stage-1 metrics, or report why they cannot be computed.
 
-    Returns `INCONCLUSIVE` unless all of these hold: an approved set is declared,
-    it meets the sufficiency floor, and the evaluated grounding-required count
-    matches the declaration exactly. Only then is a rate meaningful.
+    Returns `INCONCLUSIVE` unless all of these hold: an approved manifest exists
+    and still matches its file, the evaluated fixture IDs are exactly the
+    approved ones, and the set meets the sufficiency floor. Only then is a rate
+    meaningful.
     """
-    grounding_required = [example for example in examples if example.grounding_required]
-
     if not examples:
-        return _inconclusive("no evaluated fixtures were supplied", 0)
-    if approved is None:
+        return _inconclusive("no evaluated fixtures were supplied", 0, 0)
+    if manifest is None:
         return _inconclusive(
-            "no approved fixture set was declared, so these examples are ad-hoc "
-            "evidence and cannot conclude the gate",
+            "no approved fixture manifest was supplied, so these examples are "
+            "ad-hoc evidence and cannot conclude the gate",
             len(examples),
+            0,
         )
-    if approved.grounding_required_count < MIN_APPROVED_GROUNDING_FIXTURES:
+
+    # Re-derive from the file. A manifest object the caller built — with invented
+    # IDs, or a borrowed digest — will not match what the file actually says.
+    verified = load_approved_manifest(Path(manifest.path))
+    if verified is None or verified != manifest:
         return _inconclusive(
-            "the declared approved set is below the sufficiency floor of "
+            "the approved fixture manifest could not be verified against its file",
+            len(examples),
+            0,
+        )
+
+    evaluated_ids = frozenset(example.fixture_id for example in examples)
+    if evaluated_ids != verified.fixture_ids:
+        return _inconclusive(
+            "the evaluated set does not match the approved manifest "
+            f"({len(evaluated_ids)} fixtures evaluated, "
+            f"{len(verified.fixture_ids)} approved)",
+            len(examples),
+            0,
+        )
+
+    grounding_required = verified.grounding_required_fixture_ids
+    if len(grounding_required) < MIN_APPROVED_GROUNDING_FIXTURES:
+        return _inconclusive(
+            "the approved manifest is below the sufficiency floor of "
             f"{MIN_APPROVED_GROUNDING_FIXTURES} grounding-required fixtures",
             len(examples),
-        )
-    if len(grounding_required) != approved.grounding_required_count:
-        return _inconclusive(
-            "the evaluated set does not match the approved fixture set "
-            f"({len(grounding_required)} grounding-required fixtures evaluated, "
-            f"{approved.grounding_required_count} approved)",
-            len(examples),
+            len(grounding_required),
         )
 
     # Exact equality, not "both durable": the wrong action is not a success.
@@ -158,21 +219,23 @@ def compute_stage1_metrics(
         1
         for example in examples
         if (example.proposed_context_mode is ContextMode.RAG_ONLY)
-        == example.grounding_required
+        == (example.fixture_id in grounding_required)
     )
     false_none = sum(
         1
-        for example in grounding_required
-        if example.proposed_context_mode is ContextMode.NONE
+        for example in examples
+        if example.fixture_id in grounding_required
+        and example.proposed_context_mode is ContextMode.NONE
     )
 
     return StageOneMetrics(
         state=GateState.CONCLUSIVE,
         reason=(
-            f"the evaluated set matches approved fixture set "
-            f"'{approved.fixture_set_id}' and meets the sufficiency floor"
+            f"the evaluated set matches approved manifest "
+            f"'{verified.fixture_set_id}' and meets the sufficiency floor"
         ),
         evaluated=len(examples),
+        evaluated_grounding_required=len(grounding_required),
         interaction_mode_accuracy=exact_matches / len(examples),
         intent_precision=(
             true_positives / predicted_durable if predicted_durable else None
@@ -189,11 +252,14 @@ def compute_stage1_metrics(
     )
 
 
-def _inconclusive(reason: str, evaluated: int) -> StageOneMetrics:
+def _inconclusive(
+    reason: str, evaluated: int, evaluated_grounding_required: int
+) -> StageOneMetrics:
     return StageOneMetrics(
         state=GateState.INCONCLUSIVE,
         reason=reason,
         evaluated=evaluated,
+        evaluated_grounding_required=evaluated_grounding_required,
         interaction_mode_accuracy=None,
         intent_precision=None,
         intent_recall=None,

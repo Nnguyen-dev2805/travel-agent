@@ -225,6 +225,11 @@ def _forbidden_imports_in(source_path):
             if node.module and forbidden_segments & set(node.module.split(".")):
                 found.append(f"from {node.module} import ...")
             for alias in node.names:
+                # `from backend import planner` names the removed submodule in the
+                # *symbol*, not the module path, so the segment check above cannot
+                # see it. Without this the guard has a trivial bypass.
+                if alias.name in forbidden_segments:
+                    found.append(f"from {node.module} import {alias.name}")
                 if alias.name in forbidden_symbols:
                     found.append(f"imported symbol {alias.name}")
     return found
@@ -250,6 +255,26 @@ def test_the_forbidden_import_check_still_fires(tmp_path):
         "from backend.storage.sqlite_repository import SQLiteConversationRepository\n",
         encoding="utf-8",
     )
+
+    assert _forbidden_imports_in(planted) != []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from backend import planner\n",
+        "from backend import workspaces\n",
+        "from backend import planner, workspaces\n",
+    ],
+)
+def test_a_forbidden_submodule_imported_by_name_is_caught(tmp_path, source):
+    """`from backend import planner` names the module in the symbol, not the path.
+
+    Matching only the dotted module path misses this form entirely, which would
+    leave the guard with a trivial bypass.
+    """
+    planted = tmp_path / "planted.py"
+    planted.write_text(source, encoding="utf-8")
 
     assert _forbidden_imports_in(planted) != []
 

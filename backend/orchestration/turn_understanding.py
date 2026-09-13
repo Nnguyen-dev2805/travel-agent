@@ -30,6 +30,7 @@ authorizes (`ADR 0036:34-41`).
 
 from __future__ import annotations
 
+from backend.conversations.models import MessageRole
 from backend.orchestration.dialogue_state import DialogueState
 from backend.orchestration.turn_models import (
     InteractionMode,
@@ -165,6 +166,73 @@ def _is_question(message: str, tokens: list[str]) -> bool:
     return _first_cue(tokens, _INTERROGATIVE_MARKERS) >= 0
 
 
+#: Tokens that may immediately precede a command: an address or politeness
+#: marker, a negation that introduces the command it negates, or a conjunction
+#: joining it to another command. A cue preceded by anything else is part of a
+#: statement *about* memory — `I remember …`, `People forget …`, `Tôi quên …` —
+#: rather than an instruction to the assistant.
+_SPEECH_ACT_LEAD_INS = frozenset(
+    {
+        "hãy",
+        "ơn",
+        "giúp",
+        "please",
+        "đừng",
+        "chớ",
+        "don't",
+        "do",
+        "not",
+        "never",
+        "nhưng",
+        "và",
+        "but",
+        "and",
+        "cũng",
+        "also",
+    }
+)
+
+#: A cue followed by a copula is a noun subject, not a verb: `Delete is a common
+#: database operation.`
+_COPULA_MARKERS = frozenset(
+    {"is", "are", "was", "were", "seems", "means", "refers", "là"}
+)
+
+
+def _is_speech_act(tokens: list[str], index: int, span: int) -> bool:
+    """Whether a matched cue is an instruction rather than a mention.
+
+    A command is issued at the start of a message, or after an address marker, a
+    negating marker, or a conjunction. Position is what distinguishes a command
+    from a description when the same verb is used for both.
+    """
+    if index > 0 and tokens[index - 1] not in _SPEECH_ACT_LEAD_INS:
+        return False
+    following = index + span
+    return not (following < len(tokens) and tokens[following] in _COPULA_MARKERS)
+
+
+def _current_goal(state: DialogueState) -> str | None:
+    """The request the conversation is trying to satisfy.
+
+    The first delivered user turn that is not itself an answer to a question the
+    assistant asked. A clarification exchange inserts question/answer pairs, so
+    the *last* user turn is usually an answer to the latest question — not the
+    goal, which is the request that started the exchange.
+    """
+    previous_was_question = False
+    for turn in state.turns:
+        if turn.role is MessageRole.ASSISTANT:
+            previous_was_question = _is_question(
+                turn.content, _tokens(turn.content)
+            )
+            continue
+        if not previous_was_question:
+            return turn.content
+        previous_was_question = False
+    return None
+
+
 def _without_quoted_spans(message: str) -> str:
     """The message with every quoted span removed.
 
@@ -254,36 +322,36 @@ class TurnUnderstanding:
                 ),
             )
 
-        # 3. A cue inside a question or a definition request is a mention of the
-        #    word, not the user issuing a command. This runs after inspect — a
-        #    memory question is exactly what inspect is for — and before the
-        #    durable families, because a command must never be inferred from a
-        #    cue word's presence alone.
+        # 3. A durable cue is a speech act only when the message actually issues
+        #    one. Two frames are refused, and the previous version authorized
+        #    both:
         #
-        #    The reason is only reported when a durable cue was actually present:
-        #    an ordinary question with no memory cue has nothing to explain and
-        #    stays `NO_EXPLICIT_SIGNAL`.
-        durable_cue_present = any(
-            _first_cue(tokens, cues) >= 0
-            for cues in (_REMEMBER_CUES, _CORRECT_CUES, _FORGET_CUES)
-        )
-        if durable_cue_present and _is_question(message, tokens):
-            return TurnUnderstandingResult(
-                interaction_mode=InteractionMode.NORMAL_QUERY,
-                reason_codes=(UnderstandingReason.MENTION_NOT_SPEECH_ACT,),
-            )
-
-        # 4. High-precision explicit rules, one pass over the closed vocabularies.
+        #      - a question or definition request, where the cue is the subject
+        #        of the question (`Should I remember …?`, `xóa nghĩa là gì?`); and
+        #      - a statement *about* memory, where the cue is a verb inside a
+        #        description or a noun (`I remember my trip to Paris.`,
+        #        `People forget their passports all the time.`,
+        #        `Delete is a common database operation.`).
+        #
+        #    Refusing both is what "deterministically corroborate a speech act"
+        #    means: the cue's presence is not corroboration.
         durable: list[tuple[InteractionMode, int, str]] = []
+        mentioned = False
         for mode, cues in (
             (InteractionMode.EXPLICIT_REMEMBER, _REMEMBER_CUES),
             (InteractionMode.EXPLICIT_CORRECT, _CORRECT_CUES),
             (InteractionMode.EXPLICIT_FORGET, _FORGET_CUES),
         ):
             index = _first_cue(tokens, cues)
-            if index >= 0:
-                matched = next(cue for cue in cues if _cue_index(tokens, cue) == index)
-                durable.append((mode, index, matched))
+            if index < 0:
+                continue
+            matched = next(cue for cue in cues if _cue_index(tokens, cue) == index)
+            if _is_question(message, tokens) or not _is_speech_act(
+                tokens, index, len(matched.split())
+            ):
+                mentioned = True
+                continue
+            durable.append((mode, index, matched))
 
         if len(durable) > 1:
             return TurnUnderstandingResult(
@@ -305,6 +373,12 @@ class TurnUnderstanding:
                 interaction_mode=mode,
                 current_assertions=(assertion,) if assertion else (),
                 reason_codes=(UnderstandingReason.DETERMINISTIC_MATCH,),
+            )
+
+        if mentioned:
+            return TurnUnderstandingResult(
+                interaction_mode=InteractionMode.NORMAL_QUERY,
+                reason_codes=(UnderstandingReason.MENTION_NOT_SPEECH_ACT,),
             )
 
         # 5. Context-dependent cues: meaningless without something to point at,
@@ -353,7 +427,8 @@ class TurnUnderstanding:
                 reason_codes=(UnderstandingReason.CONTEXT_MISSING,),
             )
 
-        topics = (prior_user.content,)
+        goal = _current_goal(state)
+        topics = (goal,) if goal else (prior_user.content,)
         entities: tuple[str, ...] = ()
         overrides: tuple[str, ...] = ()
         temporal_context: str | None = None
@@ -389,7 +464,7 @@ class TurnUnderstanding:
             entities=entities,
             current_overrides=overrides,
             temporal_context=temporal_context,
-            current_goal=prior_user.content,
+            current_goal=goal,
             answers_pending_clarification=answers_pending_clarification,
             reason_codes=(UnderstandingReason.CONTEXT_REQUIRED,),
         )

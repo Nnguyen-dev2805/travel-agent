@@ -112,14 +112,44 @@ def test_enforcement_off_keeps_the_baseline_for_every_reading():
         assert plan.effective is ContextMode.RAG_ONLY, mode
 
 
-def test_enforcement_on_makes_the_proposal_authoritative():
+def test_enforcement_cannot_claim_a_mode_stage_one_does_not_execute():
+    """A plan must not report as effective something production never runs.
+
+    The orchestrator always calls the RAG baseline, so a plan claiming
+    `effective = NONE` would describe execution that does not happen. Requesting
+    enforcement is recorded, but it cannot make the contract untrue.
+    """
     plan = ContextPlanner(enforcement_enabled=True).plan(
         _reading(InteractionMode.AMBIGUOUS, needs_clarification=True)
     )
 
     assert plan.proposed is ContextMode.NONE
-    assert plan.effective is ContextMode.NONE
-    assert plan.is_shadow is False
+    assert plan.effective is ContextMode.RAG_ONLY
+    assert plan.is_shadow is True
+
+
+def test_enforcement_is_requested_but_not_active_in_stage_one():
+    """The flag is observable without being mistaken for an active behaviour.
+
+    Enforcement needs an executor that runs the effective plan; Stage 1 has none
+    (Task 10 owns authoritative execution), so `enforcement_enabled` reports what
+    is actually true.
+    """
+    planner = ContextPlanner(enforcement_enabled=True)
+
+    assert planner.enforcement_requested is True
+    assert planner.enforcement_enabled is False
+
+
+@pytest.mark.parametrize("enforcement", [False, True])
+@pytest.mark.parametrize("mode", ALL_INTERACTION_MODES)
+def test_the_effective_mode_always_matches_what_executes(enforcement, mode):
+    """Whatever is requested, `effective` describes the RAG baseline that runs."""
+    plan = ContextPlanner(enforcement_enabled=enforcement).plan(
+        _reading(mode, needs_clarification=True)
+    )
+
+    assert plan.effective is ContextMode.RAG_ONLY
 
 
 def test_a_rag_only_proposal_is_not_shadow_under_either_setting():

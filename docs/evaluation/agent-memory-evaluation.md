@@ -52,26 +52,33 @@ grounding-required set for this stage, and none has been adopted here.
 an accurate reading, and it counts against the durable-action false-positive
 rate. Scoring it as correct was a defect of the first version of this harness.
 
-**A set must be approved and sufficient.** The metrics take an
-`ApprovedFixtureSet` declaration — an identity and a required grounding-required
-count — and conclude only when the evaluated set matches it and meets
-`MIN_APPROVED_GROUNDING_FIXTURES` (20). A perfect handful of examples invented at
-the call site is ad-hoc evidence and reports `INCONCLUSIVE`.
+**A set must be approved, and approval is a file.** The metrics are bound to an
+**approved manifest** (`docs/evaluation/fixtures/agent-memory/stage1-manifest.json`):
+its content is hashed, its fixture IDs must match the evaluated examples exactly,
+and its `grounding_required_fixture_ids` — not a per-example flag — defines the
+false-`NONE` denominator. The metrics re-read the file and require the manifest to
+match it, so a hand-built manifest with invented IDs, or a borrowed digest, is
+refused. Declaring a set is not the same as having one: an earlier version
+accepted an object the caller built, and twenty ad-hoc examples with an invented
+ID concluded the gate. The set must also meet
+`MIN_APPROVED_GROUNDING_FIXTURES` (20).
 
 **Recorded run (2026-09-13):**
 
 ```text
-compute_stage1_metrics([], approved=ApprovedFixtureSet('stage1-understanding-v0.1', 20))
-  state                     = inconclusive
-  reason                    = no evaluated fixtures were supplied
-  all rates                 = None
+load_approved_manifest('docs/evaluation/fixtures/agent-memory/stage1-manifest.json')
+  -> None   (the file does not exist)
+
+compute_stage1_metrics([20 perfect ad-hoc examples], manifest=None)
+  state = inconclusive
+  reason = no approved fixture manifest was supplied, so these examples are
+           ad-hoc evidence and cannot conclude the gate
   planner_enforcement_permitted = False
 
-compute_stage1_metrics([one perfect example], approved=None)
-  state                     = inconclusive
-  reason                    = no approved fixture set was declared, so these
-                              examples are ad-hoc evidence and cannot conclude
-                              the gate
+compute_stage1_metrics([20 perfect ad-hoc examples],
+                       manifest=<hand-built with an invented fixture_set_id>)
+  state = inconclusive
+  reason = the approved fixture manifest could not be verified against its file
   planner_enforcement_permitted = False
 ```
 
@@ -104,19 +111,29 @@ false-`NONE` — so an inconclusive set yields `False` rather than a default
 approval. Enabling enforcement requires an owner-approved fixture set that makes
 the gate conclusive; that is Task 10, not Task 4.
 
-### The flag is wired, and enforcement is still off
+### The flag is wired, and `effective` says what actually executes
 
-`CONTEXT_PLANNER_ENFORCEMENT_ENABLED` is declared, defaults to `False`, and is now
-**read by production**: `RuntimeContainer.conversation_orchestrator` derives the
-injected `ContextPlanner` from it. The orchestrator itself may not import
-`backend.app` (an existing dependency-boundary test forbids it), which is why the
-planner is injected rather than read in place.
+`CONTEXT_PLANNER_ENFORCEMENT_ENABLED` is declared, defaults to `False`, and is
+read by production: `RuntimeContainer.conversation_orchestrator` passes it to the
+injected `ContextPlanner`. The orchestrator itself may not import `backend.app`
+(an existing dependency-boundary test forbids it), which is why the planner is
+injected rather than read in place.
 
-Wiring the flag **clarifies** the contract; it does not enable authoritative
-planner execution. With the default in place a `NONE` proposal is still not
-adopted, the effective source plan stays the `RAG_ONLY` baseline, and
-`ContextPlan.is_shadow` is `True`. Authoritative planner execution remains Task
-10 and still requires a conclusive zero-false-`NONE` gate.
+The two planner properties mean different things, and the distinction is the
+contract:
+
+| Property | Meaning |
+| --- | --- |
+| `enforcement_requested` | the configured rollout value, as passed by the composition root |
+| `enforcement_enabled` | whether authoritative planner execution is **active** — always `False` in Stage 1 |
+
+`ContextPlan.effective` describes what will **actually execute**. Stage 1's
+orchestrator always runs the RAG baseline and never consults the plan to decide
+whether to retrieve, so a plan claiming `effective = NONE` would describe
+execution that does not happen. `effective` is therefore the RAG baseline for
+every reading, and `is_shadow` is always `True`. Requesting enforcement is
+recorded; it cannot make the contract untrue. Authoritative planner execution
+remains Task 10, gated on a conclusive zero-false-`NONE` set.
 
 ## 4. Stage-1 execution invariant (not a metric)
 
@@ -134,6 +151,11 @@ execution. This is verified by test, not by a rate:
 | An internal dialogue-state invariant failure is not a user-facing 422 | `backend/tests/unit/test_conversation_orchestrator.py::test_a_dialogue_state_invariant_failure_is_not_a_user_validation_error` |
 | The recent-dialogue window never exceeds `DEFAULT_HISTORY_LIMIT` | `backend/tests/unit/test_conversation_service.py::test_recent_messages_never_exceeds_the_governed_window` |
 | The rollout flag reaches the planner from the composition root | `backend/tests/unit/test_context_planner_wiring.py::test_the_composition_root_derives_the_planner_from_the_setting` |
+| A statement *about* memory never authorizes a durable action | `backend/tests/unit/orchestration/test_turn_understanding.py::test_a_statement_about_memory_is_not_a_speech_act` |
+| The active goal is the original request, not the latest clarification answer | `backend/tests/unit/orchestration/test_turn_understanding.py::test_the_current_goal_is_the_original_request_not_the_last_answer` |
+| `effective` always matches what executes | `backend/tests/unit/orchestration/test_context_planner.py::test_the_effective_mode_always_matches_what_executes` |
+| The approved set is bound to a manifest file, not a caller object | `backend/tests/unit/memory_write_pipeline/test_stage1_metrics.py::test_a_fabricated_manifest_fails_the_digest_check` |
+| The removed-subsystem guard catches `from backend import planner` | `backend/tests/unit/test_runtime_container.py::test_a_forbidden_submodule_imported_by_name_is_caught` |
 
 ## 5. Zero-tolerance failures relevant to this stage
 

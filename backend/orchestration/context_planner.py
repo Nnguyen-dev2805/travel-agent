@@ -30,24 +30,31 @@ class ContextPlanner:
     """Propose a context source plan, and report what will actually execute."""
 
     def __init__(self, enforcement_enabled: bool = False) -> None:
-        """Bind the rollout gate.
+        """Record the rollout request.
 
         The default is the safe one: a caller that forgets to pass the flag gets
-        shadow behaviour, never enforcement. That matters because enforcement is
-        only permitted after the zero-false-`NONE` hard gate is conclusive, and a
-        default that enforced would silently pre-empt that gate.
+        shadow behaviour. The value is **recorded, not applied** — see
+        `enforcement_enabled`.
         """
-        self._enforcement_enabled = enforcement_enabled
+        self._enforcement_requested = enforcement_enabled
+
+    @property
+    def enforcement_requested(self) -> bool:
+        """The configured rollout value, as passed by the composition root."""
+        return self._enforcement_requested
 
     @property
     def enforcement_enabled(self) -> bool:
-        """Whether this planner's proposal is authoritative.
+        """Whether authoritative planner execution is active. Always `False` here.
 
-        Exposed so the composition root's wiring is inspectable: an inert rollout
-        flag is indistinguishable from a working one unless the gate state can be
-        read back. `False` means every plan is shadow evidence.
+        Enforcement means the orchestrator executes the *effective* plan instead
+        of the baseline. Stage 1 has no such executor — `handle_turn` always calls
+        the RAG path — so enforcement cannot be active, and a plan that reported
+        the proposal as effective would describe execution that never happens.
+        Task 10 owns authoritative execution, and it is gated on a conclusive
+        zero-false-`NONE` fixture set.
         """
-        return self._enforcement_enabled
+        return False
 
     def plan(self, understanding: TurnUnderstandingResult) -> ContextPlan:
         """Return the proposed and effective context modes for one turn.
@@ -57,13 +64,15 @@ class ContextPlanner:
         which is what the current baseline actually does — Stage 1 has no
         grounded alternative to propose.
 
-        While enforcement is off the effective mode is `RAG_ONLY` regardless of
-        the proposal, so a `NONE` proposal is recorded as shadow evidence and
-        cannot skip retrieval.
+        `effective` describes what will actually execute. Stage 1 always runs the
+        RAG-only baseline, so the proposal is never adopted and `is_shadow` is
+        always `True`. That is the honest contract: a field named "effective" must
+        not describe a mode nothing runs.
         """
-        proposed = self._propose(understanding)
-        effective = proposed if self._enforcement_enabled else ContextMode.RAG_ONLY
-        return ContextPlan(proposed=proposed, effective=effective)
+        return ContextPlan(
+            proposed=self._propose(understanding),
+            effective=ContextMode.RAG_ONLY,
+        )
 
     @staticmethod
     def _propose(understanding: TurnUnderstandingResult) -> ContextMode:

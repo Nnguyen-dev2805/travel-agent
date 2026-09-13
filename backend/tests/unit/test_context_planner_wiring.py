@@ -50,15 +50,28 @@ def test_the_composition_root_derives_the_planner_from_the_setting():
     enabled = RuntimeContainer(settings=_settings(True), rag_service=object())
 
     assert (
-        disabled.conversation_orchestrator(rag_service=object()).context_planner
-        .enforcement_enabled
+        disabled.conversation_orchestrator(rag_service=object())
+        .context_planner.enforcement_requested
         is False
     )
     assert (
-        enabled.conversation_orchestrator(rag_service=object()).context_planner
-        .enforcement_enabled
+        enabled.conversation_orchestrator(rag_service=object())
+        .context_planner.enforcement_requested
         is True
     )
+
+
+def test_requesting_enforcement_does_not_activate_it_in_stage_one():
+    """Wiring the flag makes it observable; it does not make it authoritative.
+
+    Enforcement needs an executor that runs the effective plan. Stage 1 has none,
+    so the request is recorded and `enforcement_enabled` stays `False`.
+    """
+    container = RuntimeContainer(settings=_settings(True), rag_service=object())
+    planner = container.conversation_orchestrator(rag_service=object()).context_planner
+
+    assert planner.enforcement_requested is True
+    assert planner.enforcement_enabled is False
 
 
 def test_the_default_setting_leaves_planner_execution_unauthoritative():
@@ -79,8 +92,11 @@ def test_the_default_setting_leaves_planner_execution_unauthoritative():
 
 def test_the_planner_exposes_its_gate_state():
     """The contract has to be inspectable, or wiring it cannot be verified."""
+    assert ContextPlanner().enforcement_requested is False
+    assert ContextPlanner(enforcement_enabled=True).enforcement_requested is True
+    # Neither request activates enforcement: Stage 1 has no executor for it.
     assert ContextPlanner().enforcement_enabled is False
-    assert ContextPlanner(enforcement_enabled=True).enforcement_enabled is True
+    assert ContextPlanner(enforcement_enabled=True).enforcement_enabled is False
 
 
 @pytest.mark.parametrize("enforcement", [False, True])
