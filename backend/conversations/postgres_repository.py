@@ -1079,9 +1079,10 @@ class PostgresConversationRepository:
         `before_sequence` is exclusive, and the window is positional — no
         arithmetic over sequence values, which are not dense.
         """
-        if limit < 1:
+        if not 1 <= limit <= DEFAULT_HISTORY_LIMIT:
             raise ConversationValidationError(
-                "The recent-message window must request at least one row."
+                "The recent-message window must be between 1 and "
+                f"{DEFAULT_HISTORY_LIMIT} rows."
             )
         try:
             with tenant_transaction(self._engine, owner_user_id) as connection:

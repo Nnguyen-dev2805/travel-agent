@@ -20,6 +20,7 @@ from typing import (
 
 from backend.conversations.models import (
     MEMORY_EXTRACT_EVENT_TYPE,
+    ConversationValidationError,
     MessageRole,
     MessageSource,
     OutboxIntent,
@@ -37,7 +38,11 @@ from backend.observability.models import (
 from backend.orchestration.action_router import ActionRouter
 from backend.orchestration.context_planner import ContextPlanner
 from backend.orchestration.dialogue_state import DialogueStateResolver
-from backend.orchestration.turn_models import RoutingDecision, TurnDisposition
+from backend.orchestration.turn_models import (
+    InteractionMode,
+    RoutingDecision,
+    TurnDisposition,
+)
 from backend.orchestration.turn_understanding import TurnUnderstanding
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -46,6 +51,31 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger("travel_agent_orchestration")
 
 DEFAULT_TOP_K = 4
+
+#: The controlled outcome for a recognized `explicit_inspect` before Stage 3.
+#: Stage 1 has no governed Memory read path, so the honest answer is that the
+#: capability is unavailable. It is deliberately content-free: a Memory summary
+#: here would be fabricated, and an ordinary RAG reply would masquerade as a
+#: successful inspection (`spec:397-401`).
+INSPECT_UNAVAILABLE_REPLY = (
+    "Tính năng xem ký ức chưa khả dụng ở giai đoạn này. "
+    "Tôi chưa thể liệt kê những gì đã ghi nhớ."
+)
+
+#: No model produced this reply, so the label says so rather than borrowing the
+#: configured model name — a model label must not be read as proof of a call.
+INSPECT_UNAVAILABLE_MODEL = "unavailable"
+
+
+class DialogueStateInvariantError(ConversationRepositoryError):
+    """The turn could not reconstruct dialogue state for its own conversation.
+
+    A mixed-conversation window is a failure of this server's composition, not
+    something the caller did. Raised as a `ConversationRepositoryError` on
+    purpose: the chat route maps that type to a content-free 500, whereas
+    `ConversationValidationError` would surface an internal invariant failure to
+    the user as a 422.
+    """
 
 
 class TurnTerminalWithoutContentError(ConversationRepositoryError):
@@ -113,6 +143,16 @@ class ConversationOrchestrator:
         # the shadow-only one. That default is the safe one — enforcement may only
         # be switched on after the zero-false-`NONE` gate is conclusive.
         self._planner = context_planner if context_planner is not None else ContextPlanner()
+
+    @property
+    def context_planner(self) -> ContextPlanner:
+        """The planner this orchestrator proposes with.
+
+        Read-only inspection point. The rollout gate is a composition-root
+        decision, so whether it was actually wired can only be verified by
+        reading the planner back.
+        """
+        return self._planner
 
     def handle_turn(
         self,
@@ -209,7 +249,16 @@ class ConversationOrchestrator:
                 owner_user_id,
                 before_sequence=user_message.sequence,
             )
-            dialogue_state = self._dialogue_state.resolve(recent_turns)
+            try:
+                dialogue_state = self._dialogue_state.resolve(recent_turns)
+            except ConversationValidationError as error:
+                # The resolver refuses a window spanning more than one
+                # conversation. That is this server's invariant failing, so it
+                # must not leave here as the validation error the API answers
+                # with a 422.
+                raise DialogueStateInvariantError(
+                    "Dialogue state could not be reconstructed for this turn."
+                ) from error
             understanding = self._understanding.understand(message, dialogue_state)
             route = self._router.route(understanding)
             context_plan = self._planner.plan(understanding)
@@ -227,8 +276,20 @@ class ConversationOrchestrator:
                 context_plan.effective.value,
             )
 
-            # Generation runs outside any transaction.
-            generated = self._generate(message)
+            if understanding.interaction_mode is InteractionMode.EXPLICIT_INSPECT:
+                # Recognized, not delivered: Memory inspection arrives in Stage 3.
+                # A controlled unavailable outcome, never an ordinary RAG answer
+                # dressed up as an inspection result.
+                generated = {
+                    "reply": INSPECT_UNAVAILABLE_REPLY,
+                    "model": INSPECT_UNAVAILABLE_MODEL,
+                    "citations": [],
+                }
+            else:
+                # Generation runs outside any transaction. The plan is not
+                # consulted here: while enforcement is off, the effective source
+                # plan is the existing RAG-only baseline for every route.
+                generated = self._generate(message)
         except Exception as error:
             # Phase two: record the failure rather than leaving an orphan turn.
             # `fail_turn` cancels this turn's outbox event in the same

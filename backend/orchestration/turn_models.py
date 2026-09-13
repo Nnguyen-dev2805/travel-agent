@@ -129,6 +129,11 @@ class UnderstandingReason(str, Enum):
     QUOTED_SPEECH_ACT = "quoted_speech_act"
     NEGATED_SPEECH_ACT = "negated_speech_act"
     AMBIGUOUS_SPEECH_ACT = "ambiguous_speech_act"
+    #: A memory cue appeared inside a question or a definition request, so it is a
+    #: mention of the word rather than the user issuing a command. Distinct from
+    #: `NO_EXPLICIT_SIGNAL` because the cue *was* present and the reading must be
+    #: diagnosable as a deliberate refusal rather than an absence.
+    MENTION_NOT_SPEECH_ACT = "mention_not_speech_act"
     CONTEXT_REQUIRED = "context_required"
     CONTEXT_MISSING = "context_missing"
     INSPECT_CAPABILITY_UNAVAILABLE = "inspect_capability_unavailable"
@@ -155,6 +160,12 @@ class TurnUnderstandingResult:
     an ordinary query asserts nothing. `reason_codes` is closed, and
     `needs_clarification` is the deterministic escape when the message cannot be
     resolved — never a silent guess.
+
+    `current_goal` and `answers_pending_clarification` are the two
+    dialogue-state semantics `plan v0.7:400-403` requires this layer to derive.
+    They are read out of the structural state (what the last user turn asked for,
+    whether the last assistant turn asked something), so nothing semantic has to
+    live in `DialogueState`.
     """
 
     interaction_mode: InteractionMode
@@ -166,6 +177,8 @@ class TurnUnderstandingResult:
     temporal_context: str | None = None
     needs_clarification: bool = False
     reason_codes: tuple[UnderstandingReason, ...] = ()
+    current_goal: str | None = None
+    answers_pending_clarification: bool = False
 
 
 @dataclass(frozen=True)

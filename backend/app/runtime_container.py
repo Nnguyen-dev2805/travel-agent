@@ -22,6 +22,7 @@ from backend.conversations.postgres_repository import PostgresConversationReposi
 from backend.conversations.repository import ConversationRepository
 from backend.conversations.service import ConversationService
 from backend.storage.postgres import ALEMBIC_HEAD, assert_least_privilege_role
+from backend.orchestration.context_planner import ContextPlanner
 from backend.orchestration.conversation_orchestrator import ConversationOrchestrator
 
 logger = logging.getLogger("travel_agent_runtime")
@@ -261,6 +262,14 @@ class RuntimeContainer:
             rag_service=resolved_rag,
             conversation_service_provider=self.conversation_service,
             outbox_enabled=resolved_outbox,
+            # The rollout gate is decided here, not inside the orchestrator:
+            # `backend.orchestration` may not import this module, so the planner
+            # arrives injected. With the flag at its default `False` the planner
+            # is shadow-only and the effective source plan stays the existing
+            # RAG-only baseline; authoritative planner execution is Task 10.
+            context_planner=ContextPlanner(
+                enforcement_enabled=self._settings.CONTEXT_PLANNER_ENFORCEMENT_ENABLED
+            ),
         )
 
     def readiness_probe(self) -> PostgresReadinessProbe:

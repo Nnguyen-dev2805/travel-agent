@@ -302,3 +302,25 @@ def test_recent_messages_rejects_a_non_positive_window(limit):
     with pytest.raises(ConversationValidationError):
         repo.get_recent_messages_before("cv_unit_1", "owner_a", 10, limit)
     assert connection.statements == []
+
+
+@pytest.mark.parametrize("limit", [51, 200, 1000])
+def test_recent_messages_never_selects_more_than_the_governed_limit(limit):
+    """The window is bounded by policy, not by whatever the caller asks for.
+
+    `DEFAULT_HISTORY_LIMIT` is the governed bound; a larger request is refused
+    rather than silently clamped, so a caller cannot believe it read more than it
+    did.
+    """
+    from backend.conversations.models import (
+        DEFAULT_HISTORY_LIMIT,
+        ConversationValidationError,
+    )
+
+    assert DEFAULT_HISTORY_LIMIT == 50
+    connection = _FakeConnection([])
+    repo = PostgresConversationRepository(_FakeEngine(connection))
+
+    with pytest.raises(ConversationValidationError):
+        repo.get_recent_messages_before("cv_unit_1", "owner_a", 10, limit)
+    assert connection.statements == []

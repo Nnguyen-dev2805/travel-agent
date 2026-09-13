@@ -1139,3 +1139,97 @@ def test_a_context_read_failure_fails_the_turn_instead_of_stranding_it(rag, jour
 
     assert "fail_turn" in journal, "the pending assistant row was stranded"
     assert not rag.calls, "generation ran for a turn that had already failed"
+
+
+# 14. Task 4 review fixes 4 and 5.
+
+
+def test_inspect_returns_a_controlled_unavailable_outcome(rag, journal):
+    """Stage 1 recognizes inspect but cannot deliver it; the read path is Stage 3.
+
+    Answering with an ordinary RAG reply would masquerade as a successful
+    inspection of Memory that does not exist (`spec:397-401`).
+    """
+    from backend.orchestration.conversation_orchestrator import (
+        INSPECT_UNAVAILABLE_REPLY,
+    )
+    from backend.orchestration.turn_models import TurnDisposition
+
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    outcome = orchestrator.handle_turn(
+        message="bạn nhớ gì về tôi?",
+        conversation_id=None,
+        principal=DEFAULT_PRINCIPAL,
+    )
+
+    assert not rag.calls, "inspect was answered by the RAG path"
+    assert outcome.reply == INSPECT_UNAVAILABLE_REPLY
+    assert outcome.reply != GENERATED_REPLY
+    assert outcome.citations == []
+    assert outcome.disposition is TurnDisposition.INCOMPLETE
+    assert outcome.conversation.persisted is True
+
+
+def test_an_ordinary_query_still_uses_the_rag_path(rag, journal):
+    """The control for the test above: the inspect branch must not swallow queries."""
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    outcome = orchestrator.handle_turn(
+        message=USER_MESSAGE,
+        conversation_id=None,
+        principal=DEFAULT_PRINCIPAL,
+    )
+
+    assert rag.calls
+    assert outcome.reply == GENERATED_REPLY
+
+
+def test_a_dialogue_state_invariant_failure_is_not_a_user_validation_error(rag, journal):
+    """A mixed-conversation window is a server-side invariant failure, not user input.
+
+    `ConversationValidationError` is mapped to HTTP 422 by the chat route, so
+    letting it escape would answer a bug in our own composition with a
+    client-error status.
+    """
+    from backend.conversations.models import ConversationValidationError
+    from backend.conversations.repository import ConversationRepositoryError
+
+    class _MixedConversationWindow(FakeConversationService):
+        def get_recent_messages_before(
+            self, conversation_id, owner_user_id=OWNER, before_sequence=None, limit=50
+        ):
+            def _row(sequence, conversation, role, content, source):
+                return Message(
+                    message_id=generate_message_id(),
+                    conversation_id=conversation,
+                    sequence=sequence,
+                    role=role,
+                    content=content,
+                    source=source,
+                    created_at=utc_now(),
+                    status=MessageStatus.COMPLETE,
+                )
+
+            return (
+                _row(1, "cv_one", MessageRole.USER, "a", MessageSource.UI),
+                _row(2, "cv_two", MessageRole.ASSISTANT, "b", MessageSource.MODEL),
+            )
+
+    conversations = _MixedConversationWindow(journal)
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag, conversation_service_provider=lambda: conversations
+    )
+
+    with pytest.raises(ConversationRepositoryError) as excinfo:
+        orchestrator.handle_turn(
+            message=USER_MESSAGE,
+            conversation_id=CONVERSATION,
+            principal=DEFAULT_PRINCIPAL,
+        )
+
+    assert not isinstance(excinfo.value, ConversationValidationError), (
+        "this would surface to the user as a 422"
+    )
+    assert "fail_turn" in journal
+    assert not rag.calls

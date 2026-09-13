@@ -572,7 +572,19 @@ class ConversationService:
 
         Raises:
             ConversationNotFoundError: The conversation does not exist or is foreign.
+            ConversationValidationError: The window is outside the governed bound.
         """
+        # The bound is part of this seam's contract, so it is enforced here as
+        # well as in the PostgreSQL adapter: a permissive adapter must not be able
+        # to widen the window, and `DEFAULT_HISTORY_LIMIT` is the governed
+        # maximum rather than a suggestion. A larger request is refused rather
+        # than clamped, so a caller cannot believe it read more than it did.
+        if not 1 <= limit <= DEFAULT_HISTORY_LIMIT:
+            raise ConversationValidationError(
+                "The recent-dialogue window must be between 1 and "
+                f"{DEFAULT_HISTORY_LIMIT} rows."
+            )
+
         self._require_conversation_for_owner(conversation_id, owner_user_id)
         return tuple(
             self._conversations.get_recent_messages_before(

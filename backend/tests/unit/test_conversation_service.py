@@ -1091,3 +1091,29 @@ def test_recent_messages_is_owner_scoped_and_fails_closed(service, repository):
 def test_recent_messages_rejects_an_unknown_conversation(service):
     with pytest.raises(ConversationNotFoundError):
         service.get_recent_messages_before("cv_absent", DEFAULT_OWNER, before_sequence=1)
+
+
+@pytest.mark.parametrize("limit", [0, 51, 200, 1000])
+def test_recent_messages_never_exceeds_the_governed_window(service, limit):
+    """The bound belongs to the seam's contract, not to one adapter's good behaviour.
+
+    Enforced at the service as well as in the PostgreSQL adapter so a permissive
+    adapter cannot widen the window.
+    """
+    conversation = _seeded_conversation(service)
+
+    with pytest.raises(ConversationValidationError):
+        service.get_recent_messages_before(
+            conversation.conversation_id, DEFAULT_OWNER, before_sequence=10, limit=limit
+        )
+
+
+def test_recent_messages_accepts_the_governed_boundary_values(service, repository):
+    conversation = _seeded_conversation(service)
+    _seed_history(repository, conversation, [1, 2, 3])
+
+    for limit in (1, 50):
+        recent = service.get_recent_messages_before(
+            conversation.conversation_id, DEFAULT_OWNER, before_sequence=4, limit=limit
+        )
+        assert len(recent) <= limit

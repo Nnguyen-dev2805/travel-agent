@@ -248,6 +248,7 @@ def test_the_understanding_reason_codes_are_closed():
         "quoted_speech_act",
         "negated_speech_act",
         "ambiguous_speech_act",
+        "mention_not_speech_act",
         "context_required",
         "context_missing",
         "inspect_capability_unavailable",

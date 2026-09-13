@@ -118,6 +118,53 @@ def _first_cue(tokens: list[str], cues: tuple[str, ...]) -> int:
     return min(present) if present else -1
 
 
+#: Frames that make a message a **question or a definition request** rather than
+#: a speech act. A memory verb inside one of these is a mention of the word, not
+#: the user issuing a command: `Should I remember to bring a passport?` and
+#: `xóa nghĩa là gì?` must never authorize anything. The question mark is
+#: checked as a character as well, because a question does not always carry one
+#: of these phrases.
+_INTERROGATIVE_MARKERS = (
+    "should i",
+    "can you",
+    "could you",
+    "do you",
+    "did you",
+    "would you",
+    "what",
+    "why",
+    "how",
+    "when",
+    "who",
+    "which",
+    "is there",
+    "are there",
+    "tại sao",
+    "vì sao",
+    "thế nào",
+    "làm sao",
+    "làm thế nào",
+    "nghĩa là",
+    "là gì",
+    "có nên",
+    "khi nào",
+    "bao giờ",
+    "ở đâu",
+)
+
+
+def _is_question(message: str, tokens: list[str]) -> bool:
+    """Whether the message asks something rather than issuing a speech act.
+
+    Over-matching is the safe direction: a real command that reads like a
+    question is refused rather than authorized, and refusing proposes no
+    mutation.
+    """
+    if "?" in message:
+        return True
+    return _first_cue(tokens, _INTERROGATIVE_MARKERS) >= 0
+
+
 def _without_quoted_spans(message: str) -> str:
     """The message with every quoted span removed.
 
@@ -207,7 +254,26 @@ class TurnUnderstanding:
                 ),
             )
 
-        # 3. High-precision explicit rules, one pass over the closed vocabularies.
+        # 3. A cue inside a question or a definition request is a mention of the
+        #    word, not the user issuing a command. This runs after inspect — a
+        #    memory question is exactly what inspect is for — and before the
+        #    durable families, because a command must never be inferred from a
+        #    cue word's presence alone.
+        #
+        #    The reason is only reported when a durable cue was actually present:
+        #    an ordinary question with no memory cue has nothing to explain and
+        #    stays `NO_EXPLICIT_SIGNAL`.
+        durable_cue_present = any(
+            _first_cue(tokens, cues) >= 0
+            for cues in (_REMEMBER_CUES, _CORRECT_CUES, _FORGET_CUES)
+        )
+        if durable_cue_present and _is_question(message, tokens):
+            return TurnUnderstandingResult(
+                interaction_mode=InteractionMode.NORMAL_QUERY,
+                reason_codes=(UnderstandingReason.MENTION_NOT_SPEECH_ACT,),
+            )
+
+        # 4. High-precision explicit rules, one pass over the closed vocabularies.
         durable: list[tuple[InteractionMode, int, str]] = []
         for mode, cues in (
             (InteractionMode.EXPLICIT_REMEMBER, _REMEMBER_CUES),
@@ -241,7 +307,7 @@ class TurnUnderstanding:
                 reason_codes=(UnderstandingReason.DETERMINISTIC_MATCH,),
             )
 
-        # 4. Context-dependent cues: meaningless without something to point at,
+        # 5. Context-dependent cues: meaningless without something to point at,
         #    which is why the resolver cannot own them.
         if (
             _first_cue(tokens, _CONTINUATION_CUES) >= 0
@@ -250,7 +316,17 @@ class TurnUnderstanding:
         ):
             return self._resolve_against_state(tokens, state)
 
-        # 5. Deterministic escalation: an ordinary query claims nothing.
+        # 6. A reply to a question the assistant asked is context-dependent even
+        #    when it contains no cue phrase at all. Deriving the pending question
+        #    from the structural state is what makes clarification and goal
+        #    semantics general rather than three hard-coded phrases.
+        if state.latest_assistant_turn is not None and _is_question(
+            state.latest_assistant_turn.content,
+            _tokens(state.latest_assistant_turn.content),
+        ):
+            return self._resolve_against_state(tokens, state)
+
+        # 7. Deterministic escalation: an ordinary query claims nothing.
         return TurnUnderstandingResult(
             interaction_mode=InteractionMode.NORMAL_QUERY,
             reason_codes=(UnderstandingReason.NO_EXPLICIT_SIGNAL,),
@@ -299,11 +375,21 @@ class TurnUnderstanding:
                 overrides = (dimension,)
                 temporal_context = dimension
 
+        # A question left open by the assistant is the pending clarification this
+        # message may be answering, and the last user turn is the active goal of
+        # the conversation. Both are read out of structure; neither is a field the
+        # resolver owns.
+        answers_pending_clarification = _is_question(
+            prior_answer.content, _tokens(prior_answer.content)
+        )
+
         return TurnUnderstandingResult(
             interaction_mode=InteractionMode.NORMAL_QUERY,
             topics=topics,
             entities=entities,
             current_overrides=overrides,
             temporal_context=temporal_context,
+            current_goal=prior_user.content,
+            answers_pending_clarification=answers_pending_clarification,
             reason_codes=(UnderstandingReason.CONTEXT_REQUIRED,),
         )

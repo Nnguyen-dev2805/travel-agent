@@ -39,26 +39,39 @@ grounding-required set for this stage, and none has been adopted here.
 
 | Metric | Definition | Result | Gate |
 | --- | --- | --- | --- |
-| Intent precision | durable actions correctly recognized ÷ durable actions proposed | — | `INCONCLUSIVE` |
-| Intent recall | durable actions correctly recognized ÷ durable actions expected | — | `INCONCLUSIVE` |
-| Durable-action false-positive rate | durable actions proposed where none was expected ÷ durable actions proposed | — | `INCONCLUSIVE` |
+| Interaction-mode accuracy | turns whose observed mode **exactly equals** the expected mode ÷ all evaluated turns | — | `INCONCLUSIVE` |
+| Intent precision | durable actions **exactly correct** ÷ durable actions proposed | — | `INCONCLUSIVE` |
+| Intent recall | durable actions **exactly correct** ÷ durable actions expected | — | `INCONCLUSIVE` |
+| Durable-action false-positive rate | durable actions proposed that are **not exactly correct** ÷ durable actions proposed | — | `INCONCLUSIVE` |
 | Clarification correctness | turns whose `needs_clarification` flag matched expectation ÷ all evaluated turns | — | `INCONCLUSIVE` |
 | Context-mode accuracy | turns whose proposed context mode matched the grounding requirement ÷ all evaluated turns | — | `INCONCLUSIVE` |
 | **False-`NONE` rate** | grounding-required queries proposed as `NONE` ÷ all approved grounding-required fixtures | — | **`INCONCLUSIVE`** |
 
+**Correctness is exact, not "both durable".** `expected EXPLICIT_REMEMBER` with
+`observed EXPLICIT_FORGET` is a mistake: it counts as neither a true positive nor
+an accurate reading, and it counts against the durable-action false-positive
+rate. Scoring it as correct was a defect of the first version of this harness.
+
+**A set must be approved and sufficient.** The metrics take an
+`ApprovedFixtureSet` declaration — an identity and a required grounding-required
+count — and conclude only when the evaluated set matches it and meets
+`MIN_APPROVED_GROUNDING_FIXTURES` (20). A perfect handful of examples invented at
+the call site is ad-hoc evidence and reports `INCONCLUSIVE`.
+
 **Recorded run (2026-09-13):**
 
 ```text
-compute_stage1_metrics([])
+compute_stage1_metrics([], approved=ApprovedFixtureSet('stage1-understanding-v0.1', 20))
   state                     = inconclusive
   reason                    = no evaluated fixtures were supplied
-  evaluated                 = 0
-  intent_precision          = None
-  intent_recall             = None
-  durable_action_false_positive_rate = None
-  clarification_correctness = None
-  context_mode_accuracy     = None
-  false_none_rate           = None
+  all rates                 = None
+  planner_enforcement_permitted = False
+
+compute_stage1_metrics([one perfect example], approved=None)
+  state                     = inconclusive
+  reason                    = no approved fixture set was declared, so these
+                              examples are ad-hoc evidence and cannot conclude
+                              the gate
   planner_enforcement_permitted = False
 ```
 
@@ -91,20 +104,19 @@ false-`NONE` — so an inconclusive set yields `False` rather than a default
 approval. Enabling enforcement requires an owner-approved fixture set that makes
 the gate conclusive; that is Task 10, not Task 4.
 
-### Known gap: the flag is recorded but not yet wired
+### The flag is wired, and enforcement is still off
 
-`CONTEXT_PLANNER_ENFORCEMENT_ENABLED` is declared and defaults to `False`, but
-**no production code reads it yet.** `ConversationOrchestrator` may not import
-`backend.app` (an existing dependency-boundary test forbids it), so the planner
-arrives by constructor injection and defaults to the shadow one. The composition
-root — `backend/app/runtime_container.py` — does not pass a planner, and that
-file is outside Task 4's declared file list.
+`CONTEXT_PLANNER_ENFORCEMENT_ENABLED` is declared, defaults to `False`, and is now
+**read by production**: `RuntimeContainer.conversation_orchestrator` derives the
+injected `ContextPlanner` from it. The orchestrator itself may not import
+`backend.app` (an existing dependency-boundary test forbids it), which is why the
+planner is injected rather than read in place.
 
-The gap is in the safe direction: enforcement cannot turn on by accident, and
-`False` is what the gate requires here anyway. Closing it is a one-line change at
-the composition root, which should be approved rather than folded into this task.
-Until then the flag is an explicit, documented rollout switch rather than an
-active one.
+Wiring the flag **clarifies** the contract; it does not enable authoritative
+planner execution. With the default in place a `NONE` proposal is still not
+adopted, the effective source plan stays the `RAG_ONLY` baseline, and
+`ContextPlan.is_shadow` is `True`. Authoritative planner execution remains Task
+10 and still requires a conclusive zero-false-`NONE` gate.
 
 ## 4. Stage-1 execution invariant (not a metric)
 
@@ -117,6 +129,11 @@ execution. This is verified by test, not by a rate:
 | The effective mode stays the `RAG_ONLY` baseline while enforcement is off | `backend/tests/unit/orchestration/test_context_planner.py::test_enforcement_off_keeps_the_baseline_for_every_reading` |
 | `TurnUnderstanding` owns semantic interpretation, not `DialogueStateResolver` | `backend/tests/unit/orchestration/test_turn_understanding.py::test_the_same_cue_resolves_once_prior_context_exists` and `::test_the_resolver_contributes_no_semantics_of_its_own` |
 | Model output alone cannot authorize a durable action | `backend/tests/unit/orchestration/test_action_router.py::test_only_the_deterministic_reason_authorizes` |
+| A question or mention never authorizes a durable action | `backend/tests/unit/orchestration/test_turn_understanding.py::test_a_question_or_mention_never_authorizes_a_durable_action` |
+| `explicit_inspect` returns a controlled unavailable outcome, not an ordinary RAG answer | `backend/tests/unit/test_conversation_orchestrator.py::test_inspect_returns_a_controlled_unavailable_outcome` |
+| An internal dialogue-state invariant failure is not a user-facing 422 | `backend/tests/unit/test_conversation_orchestrator.py::test_a_dialogue_state_invariant_failure_is_not_a_user_validation_error` |
+| The recent-dialogue window never exceeds `DEFAULT_HISTORY_LIMIT` | `backend/tests/unit/test_conversation_service.py::test_recent_messages_never_exceeds_the_governed_window` |
+| The rollout flag reaches the planner from the composition root | `backend/tests/unit/test_context_planner_wiring.py::test_the_composition_root_derives_the_planner_from_the_setting` |
 
 ## 5. Zero-tolerance failures relevant to this stage
 

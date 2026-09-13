@@ -39,6 +39,16 @@ class ContextPlanner:
         """
         self._enforcement_enabled = enforcement_enabled
 
+    @property
+    def enforcement_enabled(self) -> bool:
+        """Whether this planner's proposal is authoritative.
+
+        Exposed so the composition root's wiring is inspectable: an inert rollout
+        flag is indistinguishable from a working one unless the gate state can be
+        read back. `False` means every plan is shadow evidence.
+        """
+        return self._enforcement_enabled
+
     def plan(self, understanding: TurnUnderstandingResult) -> ContextPlan:
         """Return the proposed and effective context modes for one turn.
 

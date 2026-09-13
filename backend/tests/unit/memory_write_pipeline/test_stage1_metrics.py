@@ -1,30 +1,39 @@
-"""Task 4: Stage-1 understanding/action metrics and the planner rollout gate.
+"""Task 4 review fix 2: the Stage-1 gate must be evidence-based and exact.
 
-`spec:873-875` requires the understanding/action layer to report intent
-precision/recall, a durable-action false-positive rate, and clarification
-correctness. `plan v0.7:482-493` adds context-mode evaluation and the
-**false-`NONE` rate**, and makes the last one a hard gate: zero false-`NONE` on a
-conclusive approved fixture set before planner enforcement may be enabled.
+Three defects this file pins:
 
-The rule these tests exist to protect is `spec:915`: **missing required evidence
-is `INCONCLUSIVE`, never `PASS`**. A metric that cannot be computed must say so,
-because an absent number silently read as zero is how a rollout gate gets
-satisfied by having no data.
+1. **Exact interaction-mode correctness was not measured.** A reading that
+   proposed the *wrong* durable action counted as correct, so `expected REMEMBER,
+   observed FORGET` scored as a true positive. Correctness is now exact equality.
+2. **Ad-hoc fixtures could conclude the gate.** A single example, or a handful
+   invented at the call site, made the state `CONCLUSIVE`. A fixture set now has
+   to be *declared approved* and *sufficient*, and the evaluated set has to match
+   that declaration.
+3. **`spec:915`** — missing required evidence is `INCONCLUSIVE`, never `PASS`.
 
 No test here touches a database, a model, HTTP, or the network.
 """
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from backend.memory.write_pipeline.evaluation.stage1_metrics import (
+    MIN_APPROVED_GROUNDING_FIXTURES,
+    ApprovedFixtureSet,
     GateState,
     StageOneExample,
     compute_stage1_metrics,
     planner_enforcement_permitted,
 )
 from backend.orchestration.turn_models import ContextMode, InteractionMode
+
+APPROVED = ApprovedFixtureSet(
+    fixture_set_id="stage1-understanding-v0.1",
+    grounding_required_count=MIN_APPROVED_GROUNDING_FIXTURES,
+)
 
 
 def _example(
@@ -46,169 +55,181 @@ def _example(
     )
 
 
-def test_a_perfect_fixture_set_is_conclusive():
-    metrics = compute_stage1_metrics(
-        [
-            _example(),
-            _example(
-                expected=InteractionMode.EXPLICIT_REMEMBER,
-                observed=InteractionMode.EXPLICIT_REMEMBER,
-            ),
-        ]
-    )
-
-    assert metrics.state is GateState.CONCLUSIVE
-    assert metrics.false_none_rate == 0.0
-    assert metrics.intent_precision == 1.0
-    assert metrics.intent_recall == 1.0
+def _approved_set(overrides: dict[int, StageOneExample] | None = None):
+    """A set that matches `APPROVED` exactly, all normal queries by default."""
+    overrides = overrides or {}
+    return [
+        overrides.get(index, _example())
+        for index in range(MIN_APPROVED_GROUNDING_FIXTURES)
+    ]
 
 
-def test_precision_is_undefined_when_nothing_was_predicted_positive():
-    """`None`, not `0.0` and not `1.0`.
-
-    A set with no durable prediction has no precision: reporting zero would read
-    as total failure and reporting one as perfection, and both are inventions.
-    """
-    metrics = compute_stage1_metrics([_example(), _example()])
-
-    assert metrics.intent_precision is None
-    assert metrics.durable_action_false_positive_rate is None
-    assert metrics.false_none_rate == 0.0
+# ---------------------------------------------------------------------------
+# Evidence sufficiency
+# ---------------------------------------------------------------------------
 
 
-def test_no_fixtures_is_inconclusive_not_a_pass():
-    """The rule that matters: absence of evidence is not evidence of quality."""
-    metrics = compute_stage1_metrics([])
+def test_no_fixtures_is_inconclusive():
+    metrics = compute_stage1_metrics([], approved=APPROVED)
 
     assert metrics.state is GateState.INCONCLUSIVE
     assert metrics.false_none_rate is None
-    assert metrics.intent_precision is None
+    assert planner_enforcement_permitted(metrics) is False
 
 
-def test_a_set_without_grounding_required_fixtures_is_inconclusive():
-    """The false-`NONE` denominator must not be empty for the gate to conclude."""
-    metrics = compute_stage1_metrics([_example(grounding_required=False)])
+def test_undeclared_fixtures_are_inconclusive_however_good_they_look():
+    """Ad-hoc examples cannot make the gate conclusive by being perfect."""
+    metrics = compute_stage1_metrics(_approved_set(), approved=None)
 
     assert metrics.state is GateState.INCONCLUSIVE
-    assert metrics.false_none_rate is None
-    assert "grounding" in metrics.reason
+    assert "approved" in metrics.reason
+    assert planner_enforcement_permitted(metrics) is False
 
 
-def test_a_grounding_required_query_proposed_none_is_a_false_none():
+def test_a_single_fixture_cannot_conclude_the_gate():
     metrics = compute_stage1_metrics(
-        [_example(grounding_required=True, proposed=ContextMode.NONE)]
+        [_example()],
+        approved=ApprovedFixtureSet(fixture_set_id="ad-hoc", grounding_required_count=1),
     )
+
+    assert metrics.state is GateState.INCONCLUSIVE
+    assert planner_enforcement_permitted(metrics) is False
+
+
+def test_a_declared_set_below_the_sufficiency_floor_is_inconclusive():
+    metrics = compute_stage1_metrics(
+        [_example() for _ in range(3)],
+        approved=ApprovedFixtureSet(fixture_set_id="tiny", grounding_required_count=3),
+    )
+
+    assert metrics.state is GateState.INCONCLUSIVE
+    assert "sufficien" in metrics.reason or "floor" in metrics.reason
+
+
+def test_an_evaluated_set_that_does_not_match_the_approved_set_is_inconclusive():
+    """Partial or substituted evidence is not the approved evidence."""
+    metrics = compute_stage1_metrics(
+        [_example() for _ in range(MIN_APPROVED_GROUNDING_FIXTURES - 1)],
+        approved=APPROVED,
+    )
+
+    assert metrics.state is GateState.INCONCLUSIVE
+    assert planner_enforcement_permitted(metrics) is False
+
+
+def test_a_matching_sufficient_approved_set_concludes():
+    metrics = compute_stage1_metrics(_approved_set(), approved=APPROVED)
 
     assert metrics.state is GateState.CONCLUSIVE
-    assert metrics.false_none_rate == 1.0
-
-
-def test_a_clarification_turn_proposed_none_is_not_a_false_none():
-    """A turn that only asks does not answer, so it needs no grounding."""
-    metrics = compute_stage1_metrics(
-        [
-            _example(),
-            _example(
-                expected=InteractionMode.AMBIGUOUS,
-                observed=InteractionMode.AMBIGUOUS,
-                grounding_required=False,
-                proposed=ContextMode.NONE,
-                expected_clarification=True,
-                observed_clarification=True,
-            ),
-        ]
-    )
-
     assert metrics.false_none_rate == 0.0
-
-
-def test_intent_precision_and_recall_are_computed_from_the_confusion():
-    metrics = compute_stage1_metrics(
-        [
-            # one true positive
-            _example(
-                expected=InteractionMode.EXPLICIT_REMEMBER,
-                observed=InteractionMode.EXPLICIT_REMEMBER,
-            ),
-            # one false positive: predicted an action that was not there
-            _example(
-                expected=InteractionMode.NORMAL_QUERY,
-                observed=InteractionMode.EXPLICIT_FORGET,
-            ),
-            # one false negative: missed an action
-            _example(
-                expected=InteractionMode.EXPLICIT_FORGET,
-                observed=InteractionMode.NORMAL_QUERY,
-            ),
-        ]
-    )
-
-    assert metrics.intent_precision == pytest.approx(0.5)
-    assert metrics.intent_recall == pytest.approx(0.5)
-
-
-def test_the_durable_action_false_positive_rate_counts_only_durable_modes():
-    metrics = compute_stage1_metrics(
-        [
-            _example(),
-            _example(
-                expected=InteractionMode.NORMAL_QUERY,
-                observed=InteractionMode.EXPLICIT_REMEMBER,
-            ),
-        ]
-    )
-
-    assert metrics.durable_action_false_positive_rate == pytest.approx(1.0)
-
-
-def test_clarification_correctness_tracks_the_flag():
-    metrics = compute_stage1_metrics(
-        [
-            _example(expected_clarification=True, observed_clarification=True),
-            _example(expected_clarification=False, observed_clarification=False),
-            _example(expected_clarification=True, observed_clarification=False),
-        ]
-    )
-
-    assert metrics.clarification_correctness == pytest.approx(2 / 3)
-
-
-def test_context_mode_accuracy_tracks_the_proposal():
-    metrics = compute_stage1_metrics(
-        [
-            _example(grounding_required=True, proposed=ContextMode.RAG_ONLY),
-            _example(grounding_required=True, proposed=ContextMode.NONE),
-        ]
-    )
-
-    assert metrics.context_mode_accuracy == pytest.approx(0.5)
-
-
-def test_enforcement_is_denied_while_the_gate_is_inconclusive():
-    metrics = compute_stage1_metrics([])
-
-    assert planner_enforcement_permitted(metrics) is False
-
-
-def test_enforcement_is_denied_while_any_false_none_exists():
-    metrics = compute_stage1_metrics(
-        [_example(grounding_required=True, proposed=ContextMode.NONE)]
-    )
-
-    assert metrics.false_none_rate == 1.0
-    assert planner_enforcement_permitted(metrics) is False
-
-
-def test_enforcement_is_permitted_only_on_a_conclusive_zero_false_none_set():
-    metrics = compute_stage1_metrics([_example(), _example()])
-
+    assert metrics.interaction_mode_accuracy == 1.0
     assert planner_enforcement_permitted(metrics) is True
 
 
-def test_the_metrics_are_frozen():
-    import dataclasses
+# ---------------------------------------------------------------------------
+# Exact interaction-mode correctness
+# ---------------------------------------------------------------------------
 
-    metrics = compute_stage1_metrics([_example()])
+
+def test_the_wrong_durable_action_is_not_a_true_positive():
+    """`expected REMEMBER, observed FORGET` is a mistake, not a success."""
+    examples = _approved_set(
+        {
+            0: _example(
+                expected=InteractionMode.EXPLICIT_REMEMBER,
+                observed=InteractionMode.EXPLICIT_FORGET,
+            ),
+            1: _example(
+                expected=InteractionMode.EXPLICIT_REMEMBER,
+                observed=InteractionMode.EXPLICIT_REMEMBER,
+            ),
+        }
+    )
+
+    metrics = compute_stage1_metrics(examples, approved=APPROVED)
+
+    # One exact match out of two durable expectations.
+    assert metrics.intent_recall == pytest.approx(0.5)
+    # Both were proposed as durable; only one was the right one.
+    assert metrics.intent_precision == pytest.approx(0.5)
+    assert metrics.durable_action_false_positive_rate == pytest.approx(0.5)
+    assert metrics.interaction_mode_accuracy < 1.0
+
+
+def test_interaction_mode_accuracy_counts_exact_matches_only():
+    examples = _approved_set(
+        {
+            0: _example(observed=InteractionMode.EXPLICIT_REMEMBER),
+            1: _example(observed=InteractionMode.AMBIGUOUS),
+        }
+    )
+
+    metrics = compute_stage1_metrics(examples, approved=APPROVED)
+
+    expected = (MIN_APPROVED_GROUNDING_FIXTURES - 2) / MIN_APPROVED_GROUNDING_FIXTURES
+    assert metrics.interaction_mode_accuracy == pytest.approx(expected)
+
+
+def test_rates_are_none_when_their_denominator_is_empty():
+    """A number over nothing is an invention; `None` says so."""
+    metrics = compute_stage1_metrics(_approved_set(), approved=APPROVED)
+
+    assert metrics.intent_precision is None
+    assert metrics.intent_recall is None
+    assert metrics.durable_action_false_positive_rate is None
+
+
+# ---------------------------------------------------------------------------
+# The false-NONE gate
+# ---------------------------------------------------------------------------
+
+
+def test_a_grounding_required_query_proposed_none_is_a_false_none():
+    examples = _approved_set({0: _example(proposed=ContextMode.NONE)})
+
+    metrics = compute_stage1_metrics(examples, approved=APPROVED)
+
+    assert metrics.false_none_rate == pytest.approx(
+        1 / MIN_APPROVED_GROUNDING_FIXTURES
+    )
+    assert planner_enforcement_permitted(metrics) is False
+
+
+def test_a_clarification_turn_proposed_none_is_not_a_false_none():
+    """A turn that only asks does not answer, so it needs no grounding.
+
+    The set carries the approved 20 grounding-required fixtures plus one
+    clarification turn, which is outside the false-`NONE` denominator.
+    """
+    examples = _approved_set() + [
+        _example(
+            expected=InteractionMode.AMBIGUOUS,
+            observed=InteractionMode.AMBIGUOUS,
+            grounding_required=False,
+            proposed=ContextMode.NONE,
+            expected_clarification=True,
+            observed_clarification=True,
+        )
+    ]
+
+    metrics = compute_stage1_metrics(examples, approved=APPROVED)
+
+    assert metrics.state is GateState.CONCLUSIVE
+    assert metrics.false_none_rate == 0.0
+    assert planner_enforcement_permitted(metrics) is True
+
+
+def test_enforcement_is_denied_while_the_gate_is_inconclusive():
+    assert planner_enforcement_permitted(
+        compute_stage1_metrics([], approved=APPROVED)
+    ) is False
+    assert planner_enforcement_permitted(
+        compute_stage1_metrics(_approved_set(), approved=None)
+    ) is False
+
+
+def test_the_metrics_are_frozen():
+    metrics = compute_stage1_metrics(_approved_set(), approved=APPROVED)
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         metrics.state = GateState.INCONCLUSIVE  # type: ignore[misc]

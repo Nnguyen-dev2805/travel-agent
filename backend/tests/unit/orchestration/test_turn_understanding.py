@@ -392,3 +392,119 @@ def test_a_quoted_second_cue_does_not_create_a_conflict():
 
     assert result.interaction_mode is InteractionMode.EXPLICIT_REMEMBER
     assert UnderstandingReason.AMBIGUOUS_SPEECH_ACT not in result.reason_codes
+
+
+# ---------------------------------------------------------------------------
+# A question or a mention is not a speech act (review fix 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Should I remember to bring a passport?",
+        "Can you remember what I said?",
+        "Why do people forget things?",
+        "quên mang hộ chiếu thì làm sao?",
+        "xóa nghĩa là gì?",
+    ],
+)
+def test_a_question_or_mention_never_authorizes_a_durable_action(message):
+    """A cue word appearing in a question is not the user issuing a command.
+
+    Precision is the whole point of this layer: a false positive here would
+    authorize a durable write from a question about Memory.
+    """
+    result = _understand(message)
+
+    assert result.interaction_mode not in DURABLE_ACTION_MODES
+    assert UnderstandingReason.MENTION_NOT_SPEECH_ACT in result.reason_codes
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Should I remember to bring a passport?",
+        "quên mang hộ chiếu thì làm sao?",
+        "xóa nghĩa là gì?",
+    ],
+)
+def test_a_question_never_reaches_the_gate_as_an_action(message):
+    """The gate must never be asked to authorize a question."""
+    from backend.orchestration.action_router import ActionRouter
+    from backend.orchestration.turn_models import RoutingDecision
+
+    decision = ActionRouter().route(_understand(message))
+
+    assert decision is not RoutingDecision.EXPLICIT_MEMORY_ACTION
+
+
+def test_an_imperative_command_is_still_recognised():
+    """The question gate must not swallow real commands."""
+    for message, expected in (
+        ("nhớ là tôi thích cà phê muối", InteractionMode.EXPLICIT_REMEMBER),
+        ("ghi nhớ giúp tôi: tôi thích ghế cửa sổ", InteractionMode.EXPLICIT_REMEMBER),
+        ("quên chuyện cà phê đi", InteractionMode.EXPLICIT_FORGET),
+        ("forget my seat preference", InteractionMode.EXPLICIT_FORGET),
+    ):
+        result = _understand(message)
+        assert result.interaction_mode is expected, message
+
+
+# ---------------------------------------------------------------------------
+# Context-dependent replies, not only the three cue phrases (review fix 3)
+# ---------------------------------------------------------------------------
+
+
+def _state_ending_in_a_question() -> DialogueState:
+    return RESOLVER.resolve(
+        [
+            _message(1, MessageRole.USER, "Gợi ý lịch trình Đà Nẵng"),
+            _message(2, MessageRole.ASSISTANT, "Bạn muốn đi mấy ngày?"),
+        ]
+    )
+
+
+def test_a_reply_to_a_pending_clarification_is_resolved_against_it():
+    """Any reply, not just a hard-coded cue phrase, resolves against the question.
+
+    The pending question is derived from the structural state — the last
+    delivered assistant turn asked something — so no semantic field had to move
+    into `DialogueState`.
+    """
+    result = UNDERSTANDING.understand("3 ngày", _state_ending_in_a_question())
+
+    assert result.answers_pending_clarification is True
+    assert result.current_goal, "the active goal must be carried"
+    assert UnderstandingReason.CONTEXT_REQUIRED in result.reason_codes
+
+
+def test_a_reply_after_a_statement_is_not_a_clarification_answer():
+    state = RESOLVER.resolve(
+        [
+            _message(1, MessageRole.USER, "Gợi ý lịch trình Đà Nẵng"),
+            _message(2, MessageRole.ASSISTANT, "Ngày 1: Bà Nà Hills."),
+        ]
+    )
+
+    result = UNDERSTANDING.understand("cảm ơn", state)
+
+    assert result.answers_pending_clarification is False
+
+
+def test_a_cue_phrase_still_wins_over_the_pending_clarification_reading():
+    """A real speech act is not demoted to "answering a question"."""
+    result = UNDERSTANDING.understand(
+        "nhớ là tôi thích cà phê muối", _state_ending_in_a_question()
+    )
+
+    assert result.interaction_mode is InteractionMode.EXPLICIT_REMEMBER
+    assert result.answers_pending_clarification is False
+
+
+def test_the_current_goal_is_derived_from_the_conversation_not_the_message():
+    state = _state_ending_in_a_question()
+
+    result = UNDERSTANDING.understand("3 ngày", state)
+
+    assert result.current_goal == state.latest_user_turn.content
