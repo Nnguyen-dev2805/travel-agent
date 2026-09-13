@@ -146,12 +146,12 @@ def chat_endpoint(
     except HTTPException:
         raise
     except CrossOwnerAccessError as error:
-        logger.info("chat.turn miss failure_class=conversation_not_found")
+        logger.info("chat.turn miss reason_code=conversation_not_found")
         raise HTTPException(
             status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
         ) from error
     except ConversationNotFoundError as error:
-        logger.info("chat.turn miss failure_class=conversation_not_found")
+        logger.info("chat.turn miss reason_code=conversation_not_found")
         raise HTTPException(
             status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
         ) from error
@@ -164,7 +164,10 @@ def chat_endpoint(
             status_code=500, detail=_CONVERSATION_STORAGE_DETAIL
         ) from error
     except ConversationValidationError as error:
-        logger.info("chat.turn rejected failure_class=validation")
+        # `reason_code`, not `failure_class`: a validation outcome is a domain
+        # result, and `failure_class` names an exception class only. The two
+        # sites below that pass `type(error).__name__` keep the other label.
+        logger.info("chat.turn rejected reason_code=validation")
         raise HTTPException(status_code=422, detail=str(error)) from error
     except ValueError as ve:
         emit_event(

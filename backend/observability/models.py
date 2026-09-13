@@ -8,6 +8,7 @@ can depend on it without creating cycles.
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -19,6 +20,20 @@ EVENT_ID_PREFIX = "ev_"
 
 MAX_COUNTERS = 16
 MAX_COUNTER_STRING_LENGTH = 200
+
+# Governed shapes for the two free-text operational codes. `failure_class` names
+# an exception class; `reason_code` is a bounded machine code. Both are logged
+# verbatim, so the shape is the control that keeps content out and redaction is
+# only a second line of defence behind it.
+#
+# `\Z`, not `$`: `$` also matches immediately before a trailing newline, so
+# `"RuntimeError\n"` would pass a rule whose whole purpose is "identifier only".
+#
+# The shape cannot tell an exception class from a snake-case domain outcome —
+# `conversation_not_found` satisfies both patterns. Which label a call site uses
+# is a call-site decision, not something this rule enforces.
+FAILURE_CLASS_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
+REASON_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z")
 
 
 class ObservabilityValidationError(Exception):
@@ -107,6 +122,26 @@ def _require_text(value: Any, field_name: str) -> str:
             f"Observability field '{field_name}' must be a non-empty string."
         )
     return value
+
+
+def _require_shape(value: Any, field_name: str, pattern: re.Pattern[str]) -> str:
+    """Validate one bounded operational code against its governed shape.
+
+    Deliberately separate from `_require_text`. That helper is shared with
+    `ReadinessComponent.reason_code` and every identity field, and the shape rule
+    is scoped to the `OperationalEvent` boundary, so folding the check into the
+    shared helper would silently constrain readiness too.
+
+    The message names the expected shape and never repeats the value: the value
+    is rejected precisely because it may be content, so echoing it into the
+    exception would recreate the leak the rule exists to close.
+    """
+    text = _require_text(value, field_name)
+    if pattern.match(text) is None:
+        raise ObservabilityValidationError(
+            f"Observability field '{field_name}' must match {pattern.pattern}."
+        )
+    return text
 
 
 def _require_identity(value: Any, field_name: str, prefix: str) -> str:
@@ -309,13 +344,15 @@ class OperationalEvent:
             object.__setattr__(
                 self,
                 "failure_class",
-                _require_text(self.failure_class, "failure_class"),
+                _require_shape(
+                    self.failure_class, "failure_class", FAILURE_CLASS_PATTERN
+                ),
             )
         if self.reason_code is not None:
             object.__setattr__(
                 self,
                 "reason_code",
-                _require_text(self.reason_code, "reason_code"),
+                _require_shape(self.reason_code, "reason_code", REASON_CODE_PATTERN),
             )
         object.__setattr__(
             self,
@@ -405,8 +442,10 @@ class ReadinessSnapshot:
 
 __all__ = [
     "EVENT_ID_PREFIX",
+    "FAILURE_CLASS_PATTERN",
     "MAX_COUNTERS",
     "MAX_COUNTER_STRING_LENGTH",
+    "REASON_CODE_PATTERN",
     "REQUEST_ID_PREFIX",
     "EventComponent",
     "EventName",

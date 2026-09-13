@@ -121,3 +121,96 @@ def test_result_is_json_serializable_plain_data():
     import json
 
     assert json.loads(json.dumps(cleaned)) == cleaned
+
+
+@pytest.mark.parametrize(
+    "secret_key",
+    [
+        "access_token",
+        "refresh_token",
+        "session_id",
+        "client_secret",
+        "id_token",
+        "x-api-key",
+        "x_api_key",
+        "xApiKey",
+        "XApiKey",
+        "XAPIKey",
+        "X-API-KEY",
+        "APIKey",
+        "AccessToken",
+        "ACCESS_TOKEN",
+        "RefreshToken",
+        "SessionId",
+    ],
+)
+def test_one_secret_key_is_redacted_in_every_spelling(secret_key):
+    """The same logical key must redact however the caller spelled it.
+
+    A secret field name is a qualifier plus a secret noun, and callers write the
+    pair as `x_api_key`, `x-api-key`, `xApiKey`, `XApiKey` or `XAPIKey`. Matching
+    only some spellings is a privacy bypass with a hole shaped like a style
+    choice — worse than no rule, because the rule looks like it works.
+
+    `counters` is where this bites: it is the only open mapping in the payload, so
+    it is the only place a caller-chosen key reaches the log.
+    """
+    cleaned = sanitize_event_fields({"counters": {secret_key: "NEVER_LOG_SENTINEL"}})
+
+    assert cleaned["counters"] == {secret_key: "[REDACTED]"}
+
+
+def test_key_normalization_does_not_redact_safe_diagnostic_keys():
+    """Token equality, not substring matching, is what prevents over-redaction.
+
+    A substring test on `auth` would redact `author`; whole-token comparison does
+    not. The keys here are the ones the emission boundary actually carries, the
+    counter sets the runtime emits, and the near-misses a widened rule would
+    plausibly swallow. Split across two payloads because `counters` is bounded to
+    16 entries.
+    """
+    runtime_keys = {
+        "author": "someone",
+        "method": "GET",
+        "path": "/api/v1/chat",
+        "status_code": 200,
+        "writes": 2,
+        "citations": 3,
+        "memory_selected": 0,
+        "persisted": True,
+        "components": 6,
+        "request_id": "rq_" + "a" * 32,
+    }
+    near_misses = {
+        "authentication_mode": "bearer",
+        "api_version": "v1",
+        "secretary": "someone",
+        "tokens_used": 4,
+        "tokenizer": "bge-m3",
+        "keynote": "opening",
+        "monkey": "patch",
+        "access_level": "read",
+        "sessionization": "off",
+    }
+
+    assert sanitize_event_fields({"counters": runtime_keys})["counters"] == runtime_keys
+    assert sanitize_event_fields({"counters": near_misses})["counters"] == near_misses
+
+
+def test_only_secret_like_classification_is_normalized():
+    """`message_id` is an identifier; `message` is content. Only one is narrowed.
+
+    Normalizing the forbidden and content sets as well would redact every
+    governed identifier whose last token appears in them — `message_id` would
+    disappear from every event — so those two sets keep exact matching.
+    """
+    cleaned = sanitize_event_fields(
+        {
+            "message_id": "ms_probe",
+            "counters": {"message": "NEVER_LOG_SENTINEL", "message_id": "ms_probe"},
+        }
+    )
+
+    assert cleaned["message_id"] == "ms_probe"
+    assert cleaned["counters"]["message"] == "[REDACTED]"
+    assert cleaned["counters"]["message_id"] == "ms_probe"

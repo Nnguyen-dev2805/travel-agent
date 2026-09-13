@@ -150,3 +150,97 @@ def test_readiness_snapshot_holds_safe_components():
             reason_code="credential_missing",
             details={},
         )
+
+
+def test_failure_class_must_be_an_exception_class_identifier():
+    """`failure_class` names an exception class, never a message.
+
+    The field is logged verbatim, so anything accepted here reaches the log. The
+    shape admits an identifier only: no spaces, no punctuation, at most 64
+    characters.
+    """
+    assert _event(failure_class="ProviderTimeoutError").failure_class == (
+        "ProviderTimeoutError"
+    )
+    assert _event(failure_class="_PrivateError").failure_class == "_PrivateError"
+    assert _event(failure_class="a" * 64).failure_class == "a" * 64
+
+    for rejected in (
+        "",
+        "not found",
+        "Validation Failed",
+        "has-dash",
+        "1StartsWithDigit",
+        "a" * 65,
+        "RuntimeError\n",
+        "user said: my passport number is X1234567",
+    ):
+        with pytest.raises(ObservabilityValidationError):
+            _event(failure_class=rejected)
+
+
+def test_reason_code_must_be_a_bounded_machine_code():
+    """`reason_code` is a lower snake-case machine code, not a sentence."""
+    assert _event(reason_code="provider_timeout").reason_code == "provider_timeout"
+    assert _event(reason_code="a").reason_code == "a"
+    assert _event(reason_code="a" * 64).reason_code == "a" * 64
+
+    for rejected in (
+        "",
+        "Validation",
+        "Validation Failed",
+        "has-dash",
+        "1bad",
+        "a" * 65,
+        "ok\n",
+        "user said hello",
+    ):
+        with pytest.raises(ObservabilityValidationError):
+            _event(reason_code=rejected)
+
+
+def test_the_shape_rule_cannot_police_domain_literals():
+    """Documented limitation: a snake-case domain outcome passes the shape.
+
+    `conversation_not_found` is a legitimate *shape* but the wrong *label* for
+    `failure_class`. The rule exists to keep content out, not to distinguish an
+    exception class from a domain outcome — that distinction is made at the
+    call sites, so a reader must not expect the validator to enforce it.
+    """
+    assert _event(failure_class="conversation_not_found").failure_class == (
+        "conversation_not_found"
+    )
+
+
+def test_shape_rejection_does_not_echo_the_rejected_value():
+    """A rejected value must not travel back out through the error message.
+
+    The field is shape-checked precisely because it can carry content, so
+    repeating the value in the exception would recreate the leak the rule closes.
+    """
+    secret = "user said: my passport number is X1234567"
+
+    with pytest.raises(ObservabilityValidationError) as reason_error:
+        _event(reason_code=secret)
+    with pytest.raises(ObservabilityValidationError) as class_error:
+        _event(failure_class=secret)
+
+    assert secret not in str(reason_error.value)
+    assert secret not in str(class_error.value)
+
+
+def test_the_shape_rule_does_not_govern_readiness_reason_codes():
+    """The rule is scoped to the `OperationalEvent` boundary, not to readiness.
+
+    `ReadinessComponent.reason_code` shares `_require_text` with the event fields
+    but is its own vocabulary. Pinning the boundary here is what stops a later
+    refactor from moving the validator into the shared helper and silently
+    constraining readiness.
+    """
+    component = ReadinessComponent(
+        name="app",
+        status=ReadinessStatus.READY,
+        reason_code="Readiness Code",
+    )
+
+    assert component.reason_code == "Readiness Code"

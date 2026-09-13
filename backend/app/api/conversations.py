@@ -61,7 +61,10 @@ def create_conversation(
             title=request.title,
         )
     except ConversationValidationError as error:
-        logger.info("conversation.create rejected failure_class=validation")
+        # `reason_code`, not `failure_class`: these are domain outcomes, and
+        # `failure_class` names an exception class only. Every site that passes
+        # `type(error).__name__` keeps the other label.
+        logger.info("conversation.create rejected reason_code=validation")
         raise HTTPException(status_code=422, detail=str(error)) from error
     except ConversationRepositoryError as error:
         logger.error(
@@ -116,14 +119,14 @@ def get_conversation(
             conversation_id, principal.owner_user_id
         )
     except ConversationValidationError as error:
-        logger.info("conversation.get rejected failure_class=validation")
+        logger.info("conversation.get rejected reason_code=validation")
         raise HTTPException(status_code=422, detail=str(error)) from error
     except ConversationRepositoryError as error:
         logger.error("conversation.get failed failure_class=%s", type(error).__name__)
         raise HTTPException(status_code=500, detail=_STORAGE_ERROR_DETAIL) from error
 
     if conversation is None:
-        logger.info("conversation.get miss failure_class=not_found")
+        logger.info("conversation.get miss reason_code=not_found")
         raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
 
     logger.info("conversation.get ok conversation_id=%s", conversation.conversation_id)
@@ -157,10 +160,10 @@ def list_messages(
         )
         messages = service.list_messages(query, owner_user_id=principal.owner_user_id)
     except ConversationValidationError as error:
-        logger.info("conversation.history rejected failure_class=validation")
+        logger.info("conversation.history rejected reason_code=validation")
         raise HTTPException(status_code=422, detail=str(error)) from error
     except ConversationNotFoundError as error:
-        logger.info("conversation.history miss failure_class=not_found")
+        logger.info("conversation.history miss reason_code=not_found")
         raise HTTPException(
             status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL
         ) from error
@@ -197,10 +200,10 @@ def delete_conversation(
     try:
         service.delete_conversation(conversation_id, principal.owner_user_id)
     except ConversationNotFoundError:
-        logger.info("conversation.delete miss failure_class=not_found")
+        logger.info("conversation.delete miss reason_code=not_found")
         raise HTTPException(status_code=404, detail=_CONVERSATION_NOT_FOUND_DETAIL)
     except ConversationValidationError as error:
-        logger.info("conversation.delete rejected failure_class=validation")
+        logger.info("conversation.delete rejected reason_code=validation")
         raise HTTPException(status_code=422, detail=str(error)) from error
     except ConversationRepositoryError as error:
         logger.error(

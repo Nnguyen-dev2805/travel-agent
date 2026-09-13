@@ -244,11 +244,11 @@ the first segment after `backend.memory`, not every later segment. Thus
 `backend.memory.evaluation.*` may remain forbidden while
 `backend.memory.write_pipeline.evaluation.*` remains valid retained code.
 
-- [ ] Add RED mutation tests proving `backend.memory.lifecycle` is currently
+- [x] Add RED mutation tests proving `backend.memory.lifecycle` is currently
   misclassified as legacy while planted legacy imports are still detected in
   both supported syntactic forms: `import backend.memory.service` and
   `from backend.memory import service`.
-- [ ] Replace the blanket `"memory" in mod_parts` rule with a closed legacy
+- [x] Replace the blanket `"memory" in mod_parts` rule with a closed legacy
   **root-module** denylist covering removed roots such as `service`,
   `sqlite_repository`, `repository`, `retrieval`, `promotion`, `policy`,
   `extraction`, `evaluation`, and the removed Memory-control/public-route
@@ -256,18 +256,18 @@ the first segment after `backend.memory`, not every later segment. Thus
   segment after `backend.memory`; handle `from backend.memory import <legacy_root>`
   explicitly. Do not use `"policy" in mod_parts`, `"evaluation" in mod_parts`,
   or a per-module allowlist of the new architecture.
-- [ ] Add regression assertions that retained
+- [x] Add regression assertions that retained
   `backend.memory.write_pipeline.policy` and
   `backend.memory.write_pipeline.evaluation.runner` are allowed while the
   corresponding removed root forms remain rejected.
-- [ ] Preserve the derived package scan and existing closed `APPROVED_ROUTES`;
+- [x] Preserve the derived package scan and existing closed `APPROVED_ROUTES`;
   no route is added by this task.
-- [ ] Rename/update the sentinel docstring and test wording so the executable
+- [x] Rename/update the sentinel docstring and test wording so the executable
   invariant says “legacy Memory command/service surfaces never return” rather
   than “all `backend.memory` outside `write_pipeline` is forbidden.”
-- [ ] Re-run the boundary suite. The new-architecture mutation is GREEN and the
+- [x] Re-run the boundary suite. The new-architecture mutation is GREEN and the
   planted legacy import still makes the guard RED when mutation-tested.
-- [ ] Review checkpoint: this task changes only the meaning of the stale
+- [x] Review checkpoint: this task changes only the meaning of the stale
   sentinel; it creates no product Memory behavior.
 
 ## Task 2: Stage 1 Prerequisite — Operational Telemetry Hardening
@@ -289,16 +289,16 @@ domain boundary and may project their enum `.value` into operational telemetry.
 Neither operational field may contain exception messages or user content.
 Redaction is a second line of defense.
 
-- [ ] Write RED tests rejecting content-bearing `failure_class`/`reason_code`
+- [x] Write RED tests rejecting content-bearing `failure_class`/`reason_code`
   values, accepting representative exception class names and snake-case reason
   codes, and redacting normalized secret keys including `access_token`,
   `refresh_token`, `x-api-key`/`x_api_key`, and `session_id`.
-- [ ] Inventory the existing raw-log call sites that use
+- [x] Inventory the existing raw-log call sites that use
   `failure_class=validation`, `failure_class=not_found`, or
   `failure_class=conversation_not_found`; reclassify those domain outcomes as
   `reason_code=<closed_code>` while keeping real exception classes as
   `type(error).__name__`. Do not convert exception classes into one global enum.
-- [ ] Inventory every **operational** `emit_event(..., reason_code=<variable>)`
+- [x] Inventory every **operational** `emit_event(..., reason_code=<variable>)`
   producer and prove its value source is bounded by the new shape rule. Current
   variable producers include the API request completion path and readiness
   helpers; the RAG generation path already emits a closed literal. Treat
@@ -306,19 +306,19 @@ Redaction is a second line of defense.
   persisted Memory audit/idempotency columns, not `OperationalEvent` inputs.
   They are outside this telemetry-shape change and must not be rewritten merely
   to satisfy the operational regex.
-- [ ] Add dedicated shape validators for `failure_class` and `reason_code` at
+- [x] Add dedicated shape validators for `failure_class` and `reason_code` at
   the `OperationalEvent` boundary. Keep raw exception text and `str(error)` out
   of structured events.
-- [ ] Keep this task out of Memory persistence semantics: do not rewrite the
+- [x] Keep this task out of Memory persistence semantics: do not rewrite the
   existing shadow audit value `<decision_reason>|resolved_<operation>`, Memory
   event/idempotency schema, or `MemoryChangeSet.reason` unless a separate
   approved persistence change later requires it.
-- [ ] Normalize secret-like field names before classification, then retain the
+- [x] Normalize secret-like field names before classification, then retain the
   existing token/path patterns only as defense in depth. Do not add a growing
   regex catalogue as the primary privacy mechanism.
-- [ ] Re-run focused observability/API tests and confirm existing safe IDs,
+- [x] Re-run focused observability/API tests and confirm existing safe IDs,
   durations, counters, and governed reason codes still survive sanitization.
-- [ ] Review checkpoint: no new Memory tracing may be enabled until this task is
+- [x] Review checkpoint: no new Memory tracing may be enabled until this task is
   GREEN; this is a prerequisite, not a final-stage cleanup.
 
 ## Task 3: Stage 1 Contracts and Ephemeral Dialogue State

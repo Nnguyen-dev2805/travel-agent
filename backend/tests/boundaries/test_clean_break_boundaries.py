@@ -10,7 +10,8 @@ Governed by:
 
 These static and runtime boundary tests act as sentinels ensuring:
 1. No SQLite or schema-registry imports exist in mounted backend code.
-2. No workspaces, planner, or legacy memory imports exist in mounted backend code.
+2. No workspaces, planner, or removed legacy Memory surface imports exist in
+   mounted backend code.
 3. Legacy configuration options (APP_DB_PATH, WORKSPACE_DB_PATH, AUTH_REQUIRED) are removed.
 4. Only approved routes are mounted, and no route surface that `openapi()` cannot
    enumerate is mounted at all.
@@ -95,21 +96,71 @@ def _relative(py_file: Path) -> Path:
         return py_file
 
 
+def _module_package_parts(py_file: Path) -> list[str]:
+    """The importing module's own package, as dotted parts.
+
+    A relative import carries no absolute prefix, so it can only be resolved
+    against the package of the file that writes it. `backend/` is an implicit
+    namespace package with no `__init__.py`, so the anchor is `BACKEND_ROOT` plus
+    the `backend` segment — not the repository root: a probe tree created under
+    the repository (an in-repo `--basetemp`, which this repository's own test
+    recipe uses) would otherwise be resolved as `.workbuddy-ai.tmp...backend...`
+    and never match anything.
+
+    Outside the backend package the outermost directory holding an `__init__.py`
+    is the root instead, which is how a planted probe tree resolves.
+    """
+    resolved = py_file.resolve()
+    try:
+        return ["backend", *resolved.relative_to(BACKEND_ROOT).parts[:-1]]
+    except ValueError:
+        parts: list[str] = []
+        directory = resolved.parent
+        while (directory / "__init__.py").is_file():
+            parts.insert(0, directory.name)
+            directory = directory.parent
+        return parts
+
+
+def _resolve_import_module(module: str, level: int, package_parts: list[str]) -> str:
+    """Resolve one `ImportFrom` to an absolute dotted module path.
+
+    `level` follows `ast.ImportFrom.level`: 1 is the importing file's own
+    package, 2 its parent, and 0 is already absolute. A level that climbs past
+    the package root cannot be resolved and is returned unchanged, which leaves
+    the absolute-path rules to reject or ignore it on its own merits.
+    """
+    if not level:
+        return module
+    keep = len(package_parts) - level + 1
+    if keep < 0:
+        return module
+    base = package_parts[:keep]
+    return ".".join(base + ([module] if module else []))
+
+
 def _scan_imports(py_file: Path) -> list[tuple[int, str, str]]:
-    """Return list of (lineno, module, imported_symbol) for all imports in a Python file."""
+    """Return list of (lineno, module, imported_symbol) for all imports in a Python file.
+
+    Relative imports are resolved to absolute dotted paths, so every rule below
+    sees one canonical module string regardless of how the import was written.
+    """
     try:
         content = py_file.read_text(encoding="utf-8")
         tree = ast.parse(content, filename=str(py_file))
     except Exception as e:
         pytest.fail(f"Failed to parse AST for {py_file}: {e}")
 
+    package_parts = _module_package_parts(py_file)
     imports: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 imports.append((node.lineno, alias.name, ""))
         elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
+            module = _resolve_import_module(
+                node.module or "", node.level, package_parts
+            )
             for alias in node.names:
                 imports.append((node.lineno, module, alias.name))
     return imports
@@ -225,12 +276,56 @@ def test_readiness_sqlite_access_is_read_only():
         )
 
 
+# Frozen legacy Memory roots removed by the 2026-09-10 clean break. This set is
+# CLOSED: a removed module never returns, while the approved target architecture
+# adds new modules directly under `backend/memory/` that are not legacy. Do not
+# extend this set to make a new module pass — root-scoping below is what keeps
+# retained code out of it.
+_LEGACY_MEMORY_ROOTS = frozenset(
+    {
+        "evaluation",
+        "extraction",
+        "models",
+        "policy",
+        "promotion",
+        "repository",
+        "retrieval",
+        "service",
+        "sqlite_repository",
+    }
+)
+
+# Frozen legacy Memory surfaces that never lived under `backend.memory`, so the
+# root-scoped match cannot see them: the removed Memory API/schema routes and the
+# removed orchestrator-side Memory context.
+_LEGACY_MEMORY_SURFACES = frozenset(
+    {
+        "backend.app.api.memory",
+        "backend.app.api.memory_controls",
+        "backend.app.schemas.memory",
+        "backend.app.schemas.memory_controls",
+        "backend.orchestration.memory_context",
+    }
+)
+
+# Descendants of a removed surface are rejected too. The removed modules were
+# files, but nothing stops a later change from making one a package, and a
+# reappearing `backend.app.api.memory.sub` would otherwise be invisible.
+_LEGACY_MEMORY_SURFACE_PREFIXES = tuple(
+    f"{surface}." for surface in _LEGACY_MEMORY_SURFACES
+)
+
+
 def _workspace_violations(packages: list[Path] | None = None) -> list[str]:
     """Forbidden workspaces / planner / legacy-memory imports.
 
-    The retained memory write pipeline is the only permitted `backend.memory`
-    module. Accepting an explicit package list lets a test plant a violation in
-    a temporary tree and assert it is reported.
+    Legacy Memory is a **closed set of removed roots**, not "everything under
+    `backend.memory` outside `write_pipeline`". The approved target architecture
+    adds new modules directly under `backend/memory/`, so the blanket rule this
+    replaced made that architecture unbuildable.
+
+    Accepting an explicit package list lets a test plant a violation in a
+    temporary tree and assert it is reported.
     """
     violations: list[str] = []
     targets = _backend_packages() if packages is None else packages
@@ -252,27 +347,50 @@ def _workspace_violations(packages: list[Path] | None = None) -> list[str]:
                 )
                 continue
 
-            if (
-                "memory" in mod_parts
-                or "memory_controls" in mod_parts
-                or symbol in ("memory", "memory_controls")
+            # Checked before the root-scoped match because these surfaces are not
+            # under `backend.memory`. Both the module path and the module-plus-
+            # symbol form are tested, so `from backend.app.api import
+            # memory_controls` — which names the removed module in the symbol —
+            # is caught alongside `import backend.app.api.memory_controls`.
+            # Descendants count, so a package reappearing in place of a removed
+            # module is still rejected.
+            candidates = (module, f"{module}.{symbol}")
+            if any(
+                candidate in _LEGACY_MEMORY_SURFACES
+                or candidate.startswith(_LEGACY_MEMORY_SURFACE_PREFIXES)
+                for candidate in candidates
             ):
-                if module == "backend.memory.write_pipeline" or module.startswith(
-                    "backend.memory.write_pipeline."
-                ):
-                    continue
                 violations.append(
-                    f"{rel_path}:{lineno} imports legacy memory ({module}.{symbol})"
+                    f"{rel_path}:{lineno} imports removed Memory surface "
+                    f"({module}.{symbol})"
                 )
+                continue
+
+            # Root-scoped: only the first segment after `backend.memory` decides,
+            # so retained `write_pipeline.policy` and `write_pipeline.evaluation`
+            # are never matched by name. For `from backend.memory import <root>`
+            # the module path stops at `backend.memory`, so the removed root is
+            # the imported symbol instead. Relative imports arrive here already
+            # resolved to absolute paths by `_scan_imports`.
+            if mod_parts[:2] == ["backend", "memory"]:
+                legacy_root = mod_parts[2] if len(mod_parts) > 2 else symbol
+                if legacy_root in _LEGACY_MEMORY_ROOTS:
+                    violations.append(
+                        f"{rel_path}:{lineno} imports legacy memory ({module}.{symbol})"
+                    )
 
     return violations
 
 
 def test_no_workspace_or_planner_or_legacy_memory_imports():
-    """Verify that no mounted backend module imports workspaces, planner, or legacy memory.
+    """Verify that no mounted backend module imports workspaces, planner, or removed legacy Memory.
 
-    Per ADR 0018 & ADR 0020, Workspace, Planner, and legacy Memory surfaces are removed.
-    The only allowed memory module is backend.memory.write_pipeline.
+    Per ADR 0018 & ADR 0020, Workspace, Planner, and the public Memory surfaces
+    are removed. The invariant is that the removed legacy Memory command,
+    service, repository, retrieval, promotion, extraction and evaluation
+    surfaces never return — **not** that every `backend.memory.*` module is
+    forbidden. The approved target architecture adds new modules under
+    `backend/memory/`, and `write_pipeline/` remains retained code.
     """
     violations = _workspace_violations()
 
@@ -601,11 +719,38 @@ def test_the_scan_reports_a_violation_it_is_given(tmp_path):
 
 
 def test_the_scan_reports_a_planted_legacy_memory_import(tmp_path):
+    """The scan must report a removed legacy root, not merely find nothing.
+
+    The planted name is a real removed root (`backend/memory/service.py` was
+    deleted by the clean break). A fictional name would be rejected by nothing
+    and would make the closed-set claim false.
+    """
     package = tmp_path / "planted_package"
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "offender.py").write_text(
-        "from backend.memory import legacy_store\n", encoding="utf-8"
+        "from backend.memory import service\n", encoding="utf-8"
+    )
+
+    violations = _workspace_violations([package])
+
+    assert len(violations) == 1, violations
+    assert "legacy memory" in violations[0]
+
+
+@pytest.mark.parametrize("legacy_root", sorted(_LEGACY_MEMORY_ROOTS))
+def test_every_frozen_legacy_root_is_rejected(tmp_path, legacy_root):
+    """Every name in the closed set must be load-bearing.
+
+    Parametrized over the set itself, so deleting a name turns exactly one case
+    RED instead of leaving the suite green. `models` is the case that matters
+    most: the approved plan's prose lists only eight roots and omits it, so this
+    case is the only thing pinning the ninth.
+    """
+    package = _planted_package(
+        tmp_path,
+        f"root_{legacy_root}",
+        f"from backend.memory import {legacy_root}\n",
     )
 
     violations = _workspace_violations([package])
@@ -615,7 +760,13 @@ def test_the_scan_reports_a_planted_legacy_memory_import(tmp_path):
 
 
 def test_the_write_pipeline_remains_the_permitted_memory_module(tmp_path):
-    """The narrow exception must survive the widened scope."""
+    """Retained `write_pipeline` is permitted because it is not a legacy root.
+
+    This is no longer a "narrow exception" to a blanket ban — the ban is gone.
+    `write_pipeline` is simply absent from the closed legacy-root set, and
+    root-scoping keeps its nested `policy`/`evaluation` modules from being
+    matched by name.
+    """
     package = tmp_path / "planted_package"
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
@@ -624,6 +775,203 @@ def test_the_write_pipeline_remains_the_permitted_memory_module(tmp_path):
     )
 
     assert _workspace_violations([package]) == []
+
+
+def _planted_package(tmp_path, name: str, source: str) -> Path:
+    """One throwaway package holding one planted module, outside the repository."""
+    package = tmp_path / name
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "offender.py").write_text(source, encoding="utf-8")
+    return package
+
+
+def test_a_new_architecture_module_under_the_memory_root_is_not_legacy(tmp_path):
+    """The guard rejects removed legacy roots, not every `backend.memory.*` module.
+
+    The approved target architecture puts new modules directly under
+    `backend/memory/` — `lifecycle`, `read_engine`, `source_handling`,
+    `explicit_actions`. Equating every `backend.memory.*` import with legacy
+    Memory makes that architecture unbuildable, which is the defect this
+    refinement exists to fix.
+    """
+    package = _planted_package(
+        tmp_path,
+        "new_architecture",
+        "from backend.memory.lifecycle import MemoryLifecyclePolicy\n",
+    )
+
+    assert _workspace_violations([package]) == []
+
+
+def test_the_scan_reports_both_legacy_memory_import_forms(tmp_path):
+    """Both syntactic forms stay rejected after the rule is narrowed.
+
+    `import backend.memory.service` carries the removed root in the module path.
+    `from backend.memory import service` stops the module path at
+    `backend.memory` and carries the root in the imported symbol instead, so a
+    rule that only reads a path segment silently misses the second form.
+    """
+    package = _planted_package(
+        tmp_path,
+        "both_forms",
+        "import backend.memory.service\nfrom backend.memory import service\n",
+    )
+
+    violations = _workspace_violations([package])
+
+    assert len(violations) == 2, violations
+    assert all("legacy memory" in violation for violation in violations), violations
+
+
+def test_a_retained_nested_module_is_permitted_while_its_removed_root_is_not(tmp_path):
+    """Root-scoping must never match a retained module by name.
+
+    `write_pipeline/policy.py` and `write_pipeline/evaluation/` are retained code
+    (ADR 0020 preserves both), while `backend/memory/policy.py` and
+    `backend/memory/evaluation/` were removed. A rule that matches every segment
+    bans the retained pair; reading only the first segment after `backend.memory`
+    keeps the removed roots rejected without touching retained code.
+    """
+    retained = _planted_package(
+        tmp_path,
+        "retained",
+        "from backend.memory.write_pipeline.policy import decide_candidate\n"
+        "from backend.memory.write_pipeline.evaluation.runner import EvaluationRunner\n",
+    )
+    removed = _planted_package(
+        tmp_path,
+        "removed",
+        "from backend.memory.policy import decide_candidate\n"
+        "from backend.memory.evaluation.runner import EvaluationRunner\n",
+    )
+
+    assert _workspace_violations([retained]) == []
+    assert len(_workspace_violations([removed])) == 2
+
+
+def test_a_removed_memory_surface_outside_the_memory_root_is_rejected(tmp_path):
+    """Every frozen removed surface is caught, in both import forms.
+
+    They never lived under `backend.memory`, so root-scoping cannot see them and
+    they need their own closed set. Each surface is named here so that deleting
+    one from the set turns this test RED instead of silently passing.
+    """
+    package = _planted_package(
+        tmp_path,
+        "removed_surfaces",
+        "from backend.app.api.memory import router\n"
+        "from backend.app.api import memory_controls\n"
+        "from backend.app.schemas.memory import MemoryResponse\n"
+        "from backend.app.schemas.memory_controls import MemoryControl\n"
+        "from backend.orchestration.memory_context import MemoryContext\n",
+    )
+
+    violations = _workspace_violations([package])
+
+    assert len(violations) == 5, violations
+
+
+def _planted_tree(tmp_path, files: dict[str, str]) -> Path:
+    """A throwaway tree that mirrors the repository package layout.
+
+    A relative import resolves against the importing file's own package, so a
+    flat directory cannot exercise one: the probe has to reproduce the package
+    chain (`backend/app/api/...`) for the resolution to mean anything.
+    """
+    root = tmp_path / "mirror"
+    for relative, source in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8")
+    return root
+
+
+def test_relative_imports_to_a_removed_legacy_root_are_rejected(tmp_path):
+    """A relative import must not reach a removed root by a shorter path.
+
+    `from ..memory import service` inside `backend/conversations/` resolves to
+    `backend.memory.service`, and `from .service import X` inside `backend/memory/`
+    resolves to that same removed module. `ast.ImportFrom.level` carries the
+    difference, and while it was dropped these arrived with no `backend.` prefix
+    and escaped every absolute-path rule.
+    """
+    tree = _planted_tree(
+        tmp_path,
+        {
+            "backend/__init__.py": "",
+            "backend/memory/__init__.py": "",
+            "backend/memory/offender.py": "from .service import MemoryService\n",
+            "backend/conversations/__init__.py": "",
+            "backend/conversations/offender.py": "from ..memory import service\n",
+        },
+    )
+
+    violations = _workspace_violations([tree])
+
+    assert len(violations) == 2, violations
+    assert all("legacy memory" in violation for violation in violations), violations
+
+
+def test_a_relative_import_to_the_retained_memory_package_is_permitted(tmp_path):
+    """Resolving the level must not turn every relative `memory` import into a hit.
+
+    `from ..memory import lifecycle` inside `backend/conversations/` resolves to
+    `backend.memory.lifecycle` — the retained package, and exactly the form the
+    approved architecture uses to reach its new modules.
+    """
+    tree = _planted_tree(
+        tmp_path,
+        {
+            "backend/__init__.py": "",
+            "backend/conversations/__init__.py": "",
+            "backend/conversations/allowed.py": "from ..memory import lifecycle\n",
+        },
+    )
+
+    assert _workspace_violations([tree]) == []
+
+
+def test_relative_imports_to_removed_memory_surfaces_are_rejected(tmp_path):
+    """The removed route modules are reachable relatively from inside their package.
+
+    `from .memory import router` inside `backend/app/api/` resolves to the removed
+    `backend.app.api.memory`, while `from . import memory_controls` names the
+    removed module in the imported symbol rather than in the module path.
+    """
+    tree = _planted_tree(
+        tmp_path,
+        {
+            "backend/__init__.py": "",
+            "backend/app/__init__.py": "",
+            "backend/app/api/__init__.py": "",
+            "backend/app/api/offender.py": (
+                "from .memory import router\nfrom . import memory_controls\n"
+            ),
+        },
+    )
+
+    violations = _workspace_violations([tree])
+
+    assert len(violations) == 2, violations
+
+
+def test_descendants_of_a_removed_memory_surface_are_rejected(tmp_path):
+    """A package reappearing where a removed module stood must still be caught.
+
+    Exact module matching misses `backend.app.api.memory.sub`. The removed module
+    was a file, but nothing stops a later change from making it a package.
+    """
+    package = _planted_package(
+        tmp_path,
+        "surface_descendants",
+        "from backend.app.api.memory.sub import MemoryRow\n"
+        "from backend.orchestration.memory_context.deep import MemoryContext\n",
+    )
+
+    violations = _workspace_violations([package])
+
+    assert len(violations) == 2, violations
 
 
 def test_a_mount_is_rejected_because_openapi_cannot_see_it():
