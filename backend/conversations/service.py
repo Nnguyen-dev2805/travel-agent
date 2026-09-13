@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 
 from backend.conversations.models import (
+    DEFAULT_HISTORY_LIMIT,
     Conversation,
     ConversationCreate,
     ConversationRetentionState,
@@ -547,6 +548,38 @@ class ConversationService:
                 after_sequence,
                 limit,
                 until_sequence,
+            )
+        )
+
+    def get_recent_messages_before(
+        self,
+        conversation_id: str,
+        owner_user_id: str,
+        before_sequence: int,
+        limit: int = DEFAULT_HISTORY_LIMIT,
+    ) -> tuple[Message, ...]:
+        """Return the bounded recent-dialogue window preceding one turn.
+
+        The newest `limit` messages with `sequence < before_sequence`, in
+        ascending transcript order. This is the read path a turn uses to
+        reconstruct dialogue context: the caller passes the sequence of the turn
+        it is about to process, so the current turn is never part of its own
+        history and a first turn resolves an empty window.
+
+        Owner-scoped like every other read: a missing or foreign conversation
+        fails closed with `ConversationNotFoundError` rather than returning
+        another owner's rows.
+
+        Raises:
+            ConversationNotFoundError: The conversation does not exist or is foreign.
+        """
+        self._require_conversation_for_owner(conversation_id, owner_user_id)
+        return tuple(
+            self._conversations.get_recent_messages_before(
+                conversation_id,
+                owner_user_id,
+                before_sequence,
+                limit,
             )
         )
 

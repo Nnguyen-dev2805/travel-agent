@@ -108,6 +108,28 @@ class FakeConversationService:
             title=title,
         )
 
+    def get_recent_messages_before(
+        self,
+        conversation_id: str,
+        owner_user_id: str = OWNER,
+        before_sequence: int | None = None,
+        limit: int = 50,
+    ) -> tuple[Message, ...]:
+        """The bounded recent-dialogue window over the turns this double recorded.
+
+        Journalled, so a test can prove the read happens before generation rather
+        than after.
+        """
+        self._journal.append("get_recent_messages_before")
+        eligible = [
+            message
+            for message in self.appended
+            if message.conversation_id == conversation_id
+            and (before_sequence is None or message.sequence < before_sequence)
+        ]
+        eligible.sort(key=lambda message: message.sequence)
+        return tuple(eligible[-limit:])
+
     def create_conversation_with_initial_turn(
         self,
         owner_user_id: str = OWNER,
@@ -346,6 +368,7 @@ def test_first_turn_without_conversation_id_auto_creates_conversation(
     assert journal == [
         "create_conversation",
         "append_user",
+        "get_recent_messages_before",
         "generate_answer",
         "complete_turn",
     ]
@@ -389,7 +412,15 @@ def test_user_turn_is_persisted_before_generation(orchestrator, journal):
         principal=DEFAULT_PRINCIPAL,
     )
 
-    assert journal == ["append_user", "generate_answer", "complete_turn"]
+    # The recent-dialogue read now sits between phase one and generation: the
+    # turn's own rows must be committed before its context is reconstructed, and
+    # the read happens before generation so the state is available to it.
+    assert journal == [
+        "append_user",
+        "get_recent_messages_before",
+        "generate_answer",
+        "complete_turn",
+    ]
 
 
 def test_persisted_user_turn_carries_the_governed_role_and_source(
@@ -522,7 +553,12 @@ def test_generation_failure_propagates_and_records_a_failed_turn(
         MessageStatus.FAILED,
     ]
     assert conversations.appended[1].content == ""
-    assert journal == ["append_user", "generate_answer", "fail_turn"]
+    assert journal == [
+        "append_user",
+        "get_recent_messages_before",
+        "generate_answer",
+        "fail_turn",
+    ]
     # The failure carries the conversation id so a first-turn failure can tell
     # the client which conversation to continue (defect C2).
     assert excinfo.value.conversation_id == CONVERSATION
@@ -658,6 +694,16 @@ class _AuthConversations:
     def __init__(self):
         self.appended: list = []
 
+    def get_recent_messages_before(
+        self,
+        conversation_id: str,
+        owner_user_id: str = "owner_a",
+        before_sequence: int | None = None,
+        limit: int = 50,
+    ) -> tuple:
+        """No prior dialogue in these fixtures; the auth assertions do not need it."""
+        return ()
+
     def get_conversation(self, conversation_id: str, owner_user_id: str):
         from types import SimpleNamespace
 
@@ -689,9 +735,11 @@ class _AuthConversations:
         """Allocate the user row and the pending reply slot together."""
         from types import SimpleNamespace
 
-        user = SimpleNamespace(message_id="ms_user", conversation_id=conversation_id)
+        user = SimpleNamespace(
+            message_id="ms_user", conversation_id=conversation_id, sequence=1
+        )
         pending = SimpleNamespace(
-            message_id="ms_pending", conversation_id=conversation_id
+            message_id="ms_pending", conversation_id=conversation_id, sequence=2
         )
         self.appended.append(user)
         return user, pending
@@ -946,3 +994,148 @@ def test_the_control_a_completed_turn_is_still_reported_as_persisted(rag, journa
 
     assert outcome.conversation.persisted is True
     assert outcome.reply == GENERATED_REPLY
+
+
+# 13. Task 4: Stage-1 understanding / routing / planning is wired but shadow-only.
+
+
+#: An ambiguous speech act, so the planner proposes `NONE` rather than `RAG_ONLY`.
+AMBIGUOUS_MESSAGE = "nhớ là tôi thích cà phê nhưng cũng quên"
+
+#: An obvious explicit remember, which the gate corroborates and routes to the
+#: Memory branch — where Stage 1 still has no handler.
+REMEMBER_MESSAGE = "nhớ là tôi thích cà phê muối"
+
+
+def _stage_one_orchestrator(rag, journal, **kwargs):
+    conversations = FakeConversationService(journal)
+    return ConversationOrchestrator(
+        rag_service=rag,
+        conversation_service_provider=lambda: conversations,
+        **kwargs,
+    )
+
+
+def test_a_stage_one_none_proposal_still_executes_the_rag_generation_path(rag, journal):
+    """The load-bearing Stage-1 rollout assertion (`plan v0.7:478-480`).
+
+    An ambiguous reading makes the planner propose `NONE`. If that proposal were
+    authoritative, retrieval would be skipped and the turn would answer without
+    grounding — on the authority of a component that has not passed its hard
+    gate. While `CONTEXT_PLANNER_ENFORCEMENT_ENABLED` is false the existing RAG
+    path must run exactly as before.
+    """
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    outcome = orchestrator.handle_turn(
+        message=AMBIGUOUS_MESSAGE,
+        conversation_id=None,
+        principal=DEFAULT_PRINCIPAL,
+    )
+
+    assert rag.calls, "the RAG generation path was skipped by a shadow proposal"
+    assert "generate_answer" in journal
+    assert outcome.reply == GENERATED_REPLY
+    assert outcome.conversation.persisted is True
+
+
+def test_the_recent_dialogue_window_is_read_before_generation(rag, journal):
+    """Context is reconstructed from committed turns, then generation runs."""
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    orchestrator.handle_turn(
+        message=USER_MESSAGE, conversation_id=None, principal=DEFAULT_PRINCIPAL
+    )
+
+    assert "get_recent_messages_before" in journal
+    assert journal.index("get_recent_messages_before") < journal.index("generate_answer")
+
+
+def test_the_outcome_carries_an_internal_disposition(rag, journal):
+    """`TurnOutcome` gains the disposition without changing the Chat schema."""
+    from backend.orchestration.turn_models import TurnDisposition
+
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    outcome = orchestrator.handle_turn(
+        message=USER_MESSAGE, conversation_id=None, principal=DEFAULT_PRINCIPAL
+    )
+
+    assert outcome.disposition is TurnDisposition.ANSWERED
+
+
+def test_a_recognized_explicit_action_still_answers_normally_in_stage_one(rag, journal):
+    """Task 4 proves understanding quality; it does not execute a mutation.
+
+    The remember is recognized and the gate corroborates it, but the handler that
+    would write Memory is Task 8. Stage 1 must therefore keep the normal answer
+    path and write nothing.
+    """
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    outcome = orchestrator.handle_turn(
+        message=REMEMBER_MESSAGE,
+        conversation_id=None,
+        principal=DEFAULT_PRINCIPAL,
+    )
+
+    assert outcome.reply == GENERATED_REPLY
+    assert outcome.memory is None, "Stage 1 has no Memory mutation surface"
+
+
+def test_an_enforcing_planner_is_injectable_without_changing_the_default(rag, journal):
+    """The rollout gate is a composition-root decision, so it must be injectable.
+
+    The orchestrator cannot read settings itself — `backend.app` is a forbidden
+    direct import for this module — so the composition root passes the planner.
+    Injecting one must not change the shadow default for callers that do not.
+    """
+    from backend.orchestration.context_planner import ContextPlanner
+
+    conversations = FakeConversationService(journal)
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag,
+        conversation_service_provider=lambda: conversations,
+        context_planner=ContextPlanner(enforcement_enabled=True),
+    )
+
+    outcome = orchestrator.handle_turn(
+        message=AMBIGUOUS_MESSAGE,
+        conversation_id=None,
+        principal=DEFAULT_PRINCIPAL,
+    )
+
+    # Even with enforcement on, Stage 1 still answers through the existing path:
+    # the planner has no Memory source to switch to, and Task 10 owns execution.
+    assert outcome.reply == GENERATED_REPLY
+    assert rag.calls
+
+
+def test_a_context_read_failure_fails_the_turn_instead_of_stranding_it(rag, journal):
+    """The Stage-1 read must sit inside the turn's failure handler.
+
+    A storage error while reconstructing context is a failure of this turn. Left
+    outside the handler it would skip `_fail_turn` and strand the `PENDING`
+    assistant row this turn had just written, which is exactly the orphan the
+    two-phase design exists to prevent.
+    """
+    from backend.conversations.repository import ConversationStorageError
+
+    class _FailingWindow(FakeConversationService):
+        def get_recent_messages_before(self, *args, **kwargs):
+            raise ConversationStorageError("window read failed")
+
+    conversations = _FailingWindow(journal)
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag, conversation_service_provider=lambda: conversations
+    )
+
+    with pytest.raises(ConversationStorageError):
+        orchestrator.handle_turn(
+            message=USER_MESSAGE,
+            conversation_id=CONVERSATION,
+            principal=DEFAULT_PRINCIPAL,
+        )
+
+    assert "fail_turn" in journal, "the pending assistant row was stranded"
+    assert not rag.calls, "generation ran for a turn that had already failed"

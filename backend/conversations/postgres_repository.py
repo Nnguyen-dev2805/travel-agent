@@ -42,6 +42,7 @@ from sqlalchemy.engine import Engine
 from backend.memory.write_pipeline.uow import FenceReason
 
 from backend.conversations.models import (
+    DEFAULT_HISTORY_LIMIT,
     Conversation,
     ConversationRetentionState,
     ConversationValidationError,
@@ -1059,6 +1060,47 @@ class PostgresConversationRepository:
         except sa_exc.SQLAlchemyError as error:
             raise ConversationStorageError("Could not list message records.") from error
         return tuple(self._row_to_message(row) for row in rows)
+
+    def get_recent_messages_before(
+        self,
+        conversation_id: str,
+        owner_user_id: str,
+        before_sequence: int,
+        limit: int = DEFAULT_HISTORY_LIMIT,
+    ) -> tuple[Message, ...]:
+        """Return the newest `limit` messages before `before_sequence`, ascending.
+
+        Descending order is what makes the limit mean "the latest N". Ordering
+        ascending and then limiting would apply the limit to the oldest eligible
+        rows, which is the opposite of the contract; the result is therefore
+        reversed back into transcript order before it leaves this method, so
+        callers never see the storage-side ordering.
+
+        `before_sequence` is exclusive, and the window is positional — no
+        arithmetic over sequence values, which are not dense.
+        """
+        if limit < 1:
+            raise ConversationValidationError(
+                "The recent-message window must request at least one row."
+            )
+        try:
+            with tenant_transaction(self._engine, owner_user_id) as connection:
+                rows = (
+                    connection.execute(
+                        select(messages_table)
+                        .where(messages_table.c.conversation_id == conversation_id)
+                        .where(messages_table.c.sequence < before_sequence)
+                        .order_by(messages_table.c.sequence.desc())
+                        .limit(limit)
+                    )
+                    .mappings()
+                    .fetchall()
+                )
+        except sa_exc.SQLAlchemyError as error:
+            raise ConversationStorageError(
+                "Could not read the recent message window."
+            ) from error
+        return tuple(self._row_to_message(row) for row in reversed(rows))
 
     def _row_to_conversation(self, row) -> Conversation:
         """Map one stored conversation row to its contract, failing closed."""

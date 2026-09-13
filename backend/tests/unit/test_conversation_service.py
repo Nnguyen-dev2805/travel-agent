@@ -31,6 +31,8 @@ from backend.conversations.models import (
     MessageSource,
     MessageStatus,
     TraceVisibility,
+    generate_message_id,
+    utc_now,
 )
 from backend.conversations.repository import (
     ConversationAlreadyExistsError,
@@ -262,6 +264,33 @@ class FakeConversationRepository:
         ]
         selected.sort(key=lambda stored: stored.sequence)
         return tuple(selected[:limit])
+
+    def get_recent_messages_before(
+        self,
+        conversation_id: str,
+        owner_user_id: str | None = None,
+        before_sequence: int | None = None,
+        limit: int = 50,
+    ) -> tuple[Message, ...]:
+        """The bounded recent-dialogue window: newest `limit` rows, ascending.
+
+        A faithful second implementation of the seam's contract, not a copy of
+        `list_messages`: eligibility is `sequence < before_sequence` (exclusive)
+        and the NEWEST rows win, while the returned order is still transcript
+        order. Slicing `[-limit:]` off an ascending list is what expresses that,
+        and it makes no assumption about sequence density.
+        """
+        self.calls.append(
+            ("get_recent_messages_before", conversation_id, before_sequence, limit)
+        )
+        eligible = [
+            stored
+            for stored in self.messages
+            if stored.conversation_id == conversation_id
+            and (before_sequence is None or stored.sequence < before_sequence)
+        ]
+        eligible.sort(key=lambda stored: stored.sequence)
+        return tuple(eligible[-limit:])
 
 
 @pytest.fixture
@@ -927,3 +956,138 @@ def test_importing_the_service_loads_no_forbidden_module():
     assert offending == set(), (
         f"importing the conversation service loaded forbidden modules: {offending}"
     )
+
+
+# 9. Task 4: the bounded recent-dialogue window.
+#
+# `get_recent_messages_before` exists because `list_messages` orders ascending
+# before applying `LIMIT`: on a conversation longer than the window that returns
+# the OLDEST rows in the range, not the newest (`plan v0.7:413-425`).
+
+
+def _recent_message(
+    conversation_id: str,
+    sequence: int,
+    role: MessageRole = MessageRole.USER,
+) -> Message:
+    return Message(
+        message_id=generate_message_id(),
+        conversation_id=conversation_id,
+        sequence=sequence,
+        role=role,
+        content=f"turn {sequence}",
+        source=MessageSource.UI if role is MessageRole.USER else MessageSource.MODEL,
+        trace_visibility=TraceVisibility.EXCLUDED,
+        created_at=utc_now(),
+        status=MessageStatus.COMPLETE,
+    )
+
+
+def _seed_history(repository, conversation, sequences) -> None:
+    for sequence in sequences:
+        repository.messages.append(
+            _recent_message(conversation.conversation_id, sequence)
+        )
+
+
+def test_recent_messages_returns_transcript_order(service, repository):
+    conversation = _seeded_conversation(service)
+    _seed_history(repository, conversation, [1, 2, 3, 4, 5])
+
+    recent = service.get_recent_messages_before(
+        conversation.conversation_id, DEFAULT_OWNER, before_sequence=6, limit=3
+    )
+
+    assert [message.sequence for message in recent] == [3, 4, 5]
+
+
+def test_recent_messages_excludes_the_current_turn_exclusively(service, repository):
+    """`before_sequence` is exclusive, so the just-persisted turn is absent."""
+    conversation = _seeded_conversation(service)
+    _seed_history(repository, conversation, [1, 2, 3])
+
+    recent = service.get_recent_messages_before(
+        conversation.conversation_id, DEFAULT_OWNER, before_sequence=3, limit=50
+    )
+
+    assert [message.sequence for message in recent] == [1, 2]
+
+
+def test_a_first_turn_resolves_an_empty_previous_window(service, repository):
+    """The first persisted user message is at sequence 1, so nothing precedes it."""
+    conversation = _seeded_conversation(service)
+    _seed_history(repository, conversation, [1])
+
+    recent = service.get_recent_messages_before(
+        conversation.conversation_id, DEFAULT_OWNER, before_sequence=1
+    )
+
+    assert recent == ()
+
+
+def test_a_long_history_returns_the_newest_window_not_the_oldest(
+    service, repository
+):
+    """The defect this seam exists to prevent.
+
+    With 60 eligible rows and a 50-row window, reusing the ascending range read
+    would return sequences 1..50. The window must be the newest 50, and still
+    ascending.
+    """
+    conversation = _seeded_conversation(service)
+    _seed_history(repository, conversation, range(1, 61))
+
+    recent = service.get_recent_messages_before(
+        conversation.conversation_id, DEFAULT_OWNER, before_sequence=61
+    )
+
+    assert len(recent) == 50
+    assert [message.sequence for message in recent] == list(range(11, 61))
+    assert recent == tuple(sorted(recent, key=lambda message: message.sequence))
+
+
+def test_sparse_sequences_are_not_derived_by_arithmetic(service, repository):
+    """Sequence numbers are not dense; the window is positional, not arithmetic.
+
+    A conversation whose rows are 5, 40, 41, 900 must not be windowed by
+    computing `before_sequence - limit`.
+    """
+    conversation = _seeded_conversation(service)
+    _seed_history(repository, conversation, [5, 40, 41, 900])
+
+    recent = service.get_recent_messages_before(
+        conversation.conversation_id, DEFAULT_OWNER, before_sequence=901, limit=2
+    )
+
+    assert [message.sequence for message in recent] == [41, 900]
+
+
+def test_recent_messages_defaults_to_the_governed_history_limit(service, repository):
+    conversation = _seeded_conversation(service)
+
+    service.get_recent_messages_before(
+        conversation.conversation_id, DEFAULT_OWNER, before_sequence=10
+    )
+
+    assert (
+        "get_recent_messages_before",
+        conversation.conversation_id,
+        10,
+        50,
+    ) in repository.calls
+
+
+def test_recent_messages_is_owner_scoped_and_fails_closed(service, repository):
+    """A foreign conversation reads as absent, exactly like every other path."""
+    conversation = _seeded_conversation(service, owner_user_id=DEFAULT_OWNER)
+    _seed_history(repository, conversation, [1, 2])
+
+    with pytest.raises(ConversationNotFoundError):
+        service.get_recent_messages_before(
+            conversation.conversation_id, "someone-else", before_sequence=3
+        )
+
+
+def test_recent_messages_rejects_an_unknown_conversation(service):
+    with pytest.raises(ConversationNotFoundError):
+        service.get_recent_messages_before("cv_absent", DEFAULT_OWNER, before_sequence=1)

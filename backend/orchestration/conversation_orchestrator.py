@@ -34,6 +34,11 @@ from backend.observability.models import (
     EventName,
     EventResult,
 )
+from backend.orchestration.action_router import ActionRouter
+from backend.orchestration.context_planner import ContextPlanner
+from backend.orchestration.dialogue_state import DialogueStateResolver
+from backend.orchestration.turn_models import RoutingDecision, TurnDisposition
+from backend.orchestration.turn_understanding import TurnUnderstanding
 
 if TYPE_CHECKING:  # pragma: no cover
     from backend.conversations.service import ConversationService
@@ -69,13 +74,19 @@ class TurnPersistence:
 
 @dataclass(frozen=True)
 class TurnOutcome:
-    """The result of one chat turn."""
+    """The result of one chat turn.
+
+    `disposition` is the internal reasoning outcome (ADR 0023 / `spec:332-363`).
+    It stays on this aggregate and is never added to the public Chat response
+    schema (`spec:360-363`).
+    """
 
     reply: str
     model: str
     citations: List[Dict[str, Any]]
     conversation: Optional[TurnPersistence] = None
     memory: Optional[Any] = None
+    disposition: Optional[TurnDisposition] = None
 
 
 class ConversationOrchestrator:
@@ -87,12 +98,21 @@ class ConversationOrchestrator:
         conversation_service_provider: Callable[[], "ConversationService"],
         top_k: int = DEFAULT_TOP_K,
         outbox_enabled: bool = False,
+        context_planner: Optional[ContextPlanner] = None,
         **_ignored: Any,
     ) -> None:
         self._rag_service = rag_service
         self._conversation_service_provider = conversation_service_provider
         self._top_k = top_k
         self._outbox_enabled = outbox_enabled
+        self._dialogue_state = DialogueStateResolver()
+        self._understanding = TurnUnderstanding()
+        self._router = ActionRouter()
+        # The rollout gate is a composition-root decision: this module may not
+        # import `backend.app`, so the planner arrives injected and defaults to
+        # the shadow-only one. That default is the safe one — enforcement may only
+        # be switched on after the zero-false-`NONE` gate is conclusive.
+        self._planner = context_planner if context_planner is not None else ContextPlanner()
 
     def handle_turn(
         self,
@@ -172,8 +192,42 @@ class ConversationOrchestrator:
         # Phase one is committed: the user message and a pending assistant row
         # exist together, allocated under one parent-row lock, so turn adjacency
         # holds even when a concurrent turn commits in between (ADR 0023).
-        # Generation runs outside any transaction.
+
+        # Everything from here to the terminal transition runs inside the failure
+        # handler. Context reconstruction is included on purpose: a storage error
+        # while reading the recent window is a failure of this turn, and leaving
+        # it outside the `try` would skip `_fail_turn` and strand the pending
+        # assistant row it just wrote.
         try:
+            # Stage-1 context reconstruction, before generation and outside any
+            # transaction. The window is bounded and read with `before_sequence`
+            # set to this turn's own user message, so the current turn is never
+            # part of its own history and a first turn resolves an empty state
+            # (`plan v0.7:413-425`).
+            recent_turns = conversations.get_recent_messages_before(
+                conversation_id,
+                owner_user_id,
+                before_sequence=user_message.sequence,
+            )
+            dialogue_state = self._dialogue_state.resolve(recent_turns)
+            understanding = self._understanding.understand(message, dialogue_state)
+            route = self._router.route(understanding)
+            context_plan = self._planner.plan(understanding)
+
+            # Shadow evidence only: the proposal is recorded, and the effective
+            # mode stays the RAG-only baseline while enforcement is off. Nothing
+            # below consults `context_plan.effective` to decide whether to
+            # retrieve.
+            logger.info(
+                "chat.turn understood interaction_mode=%s route=%s "
+                "proposed_context=%s effective_context=%s",
+                understanding.interaction_mode.value,
+                route.value,
+                context_plan.proposed.value,
+                context_plan.effective.value,
+            )
+
+            # Generation runs outside any transaction.
             generated = self._generate(message)
         except Exception as error:
             # Phase two: record the failure rather than leaving an orphan turn.
@@ -268,7 +322,30 @@ class ConversationOrchestrator:
                 persisted=True,
             ),
             memory=None,
+            disposition=self._disposition_for(route),
         )
+
+    @staticmethod
+    def _disposition_for(route: RoutingDecision) -> TurnDisposition:
+        """The honest reasoning outcome for a turn that did answer.
+
+        Neither non-normal route achieved what the user asked. Stage 1 recognizes
+        an explicit Memory action but cannot execute it — the handler is Task 8 —
+        and it answers an ambiguous reading with an ordinary reply rather than
+        asking a focused clarification. Reporting `ANSWERED` for either would be a
+        false success (`spec:396-398`), so both report `INCOMPLETE`.
+
+        `NEEDS_CLARIFICATION` is deliberately not produced yet: the spec pairs it
+        with an assistant message that actually asks a clarification
+        (`spec:347-350`), and Stage 1 does not generate one. It becomes reachable
+        when a stage does.
+
+        `EXECUTION_FAILED` is not returned here either: this method is only
+        reached when generation and the terminal transition both succeeded.
+        """
+        if route is RoutingDecision.NORMAL_QUERY:
+            return TurnDisposition.ANSWERED
+        return TurnDisposition.INCOMPLETE
 
     def _fail_turn(
         self,

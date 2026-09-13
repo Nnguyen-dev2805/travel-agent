@@ -17,6 +17,7 @@ No test here touches a database, a model, HTTP, or the network.
 from __future__ import annotations
 
 import ast
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,14 @@ import pytest
 from backend.app.schemas.chat import ChatResponse
 from backend.conversations.models import MessageStatus
 from backend.orchestration.turn_models import (
+    ContextMode,
+    ContextPlan,
+    ExplicitIntentDecision,
+    InteractionMode,
+    RoutingDecision,
     TurnDisposition,
+    TurnUnderstandingResult,
+    UnderstandingReason,
     disposition_is_valid,
 )
 
@@ -168,3 +176,114 @@ def test_turn_models_reaches_no_storage_model_or_web_framework():
         for banned in forbidden
         if module == banned or module.startswith(f"{banned}.")
     ], imported
+
+
+# ---------------------------------------------------------------------------
+# Task 4 contracts — the closed vocabularies and result types the Stage-1
+# understanding / routing / planning flow is built from.
+# ---------------------------------------------------------------------------
+
+
+def test_interaction_mode_is_the_closed_spec_vocabulary():
+    """`spec:306-308` fixes the six values; a seventh is a new approved mode."""
+    assert {member.value for member in InteractionMode} == {
+        "normal_query",
+        "explicit_remember",
+        "explicit_correct",
+        "explicit_forget",
+        "explicit_inspect",
+        "ambiguous",
+    }
+
+
+def test_routing_decision_is_the_closed_spec_vocabulary():
+    """`spec:370-372` fixes the three branches."""
+    assert {member.value for member in RoutingDecision} == {
+        "normal_query",
+        "explicit_memory_action",
+        "needs_clarification",
+    }
+
+
+def test_context_mode_exposes_all_four_values():
+    """The vocabulary is complete from Stage 1 even though only two are reachable.
+
+    `ADR 0039:54-66` — the planner exposes `none|rag_only|memory_only|both`, but
+    only `none|rag_only` are reachable until governed Memory Read exists.
+    """
+    assert {member.value for member in ContextMode} == {
+        "none",
+        "rag_only",
+        "memory_only",
+        "both",
+    }
+
+
+def test_understanding_result_defaults_to_no_semantic_claims():
+    """An ordinary query asserts nothing; the defaults must say so."""
+    result = TurnUnderstandingResult(interaction_mode=InteractionMode.NORMAL_QUERY)
+
+    assert result.topics == ()
+    assert result.entities == ()
+    assert result.current_assertions == ()
+    assert result.current_overrides == ()
+    assert result.memory_namespaces_needed == ()
+    assert result.temporal_context is None
+    assert result.needs_clarification is False
+    assert result.reason_codes == ()
+
+
+def test_understanding_result_is_frozen():
+    result = TurnUnderstandingResult(interaction_mode=InteractionMode.NORMAL_QUERY)
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.needs_clarification = True  # type: ignore[misc]
+
+
+def test_the_understanding_reason_codes_are_closed():
+    """Free text cannot become a reason code; the vocabulary is the control."""
+    assert {member.value for member in UnderstandingReason} == {
+        "no_explicit_signal",
+        "deterministic_match",
+        "quoted_speech_act",
+        "negated_speech_act",
+        "ambiguous_speech_act",
+        "context_required",
+        "context_missing",
+        "inspect_capability_unavailable",
+        "parser_failed_closed",
+    }
+
+
+def test_explicit_intent_decision_requires_an_authorization_flag():
+    """The gate decides; there is no "maybe" that a caller could read as yes."""
+    decision = ExplicitIntentDecision(
+        authorized=True,
+        reason_code=UnderstandingReason.DETERMINISTIC_MATCH,
+    )
+
+    assert decision.authorized is True
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        decision.authorized = False  # type: ignore[misc]
+
+
+def test_a_context_plan_separates_the_proposal_from_the_effective_mode():
+    """The shadow-rollout invariant has to be representable, not implied.
+
+    `plan v0.7:444-450` — the planner proposes, but while enforcement is disabled
+    the effective normal-query source plan stays the existing `RAG_ONLY` baseline.
+    """
+    plan = ContextPlan(proposed=ContextMode.NONE, effective=ContextMode.RAG_ONLY)
+
+    assert plan.proposed is ContextMode.NONE
+    assert plan.effective is ContextMode.RAG_ONLY
+    assert plan.is_shadow is True
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        plan.effective = ContextMode.NONE  # type: ignore[misc]
+
+
+def test_an_enforced_plan_is_not_shadow():
+    plan = ContextPlan(proposed=ContextMode.RAG_ONLY, effective=ContextMode.RAG_ONLY)
+
+    assert plan.is_shadow is False

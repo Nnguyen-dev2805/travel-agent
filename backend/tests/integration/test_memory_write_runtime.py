@@ -356,6 +356,20 @@ def test_chat_non_blocking_and_outbox_capture():
                 for i, (m, mid) in enumerate(self.messages)
             )
 
+        def get_recent_messages_before(
+            self,
+            conversation_id: str,
+            owner_user_id: str | None = None,
+            before_sequence: int | None = None,
+            limit: int = 50,
+        ):
+            """Newest `limit` rows before `before_sequence`, ascending."""
+            return tuple(
+                message
+                for message in self.list_messages(conversation_id)
+                if before_sequence is None or message.sequence < before_sequence
+            )[-limit:]
+
     conv_repo = InMemoryConvRepo()
 
     conv_service = ConversationService(conv_repo)

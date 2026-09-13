@@ -130,6 +130,15 @@ class Settings(BaseModel):
     MEMORY_SHADOW_EXTRACT_ENABLED: bool = _env_flag(
         "MEMORY_SHADOW_EXTRACT_ENABLED", False
     )
+    # Stage-1 context-planner rollout gate. While this is false the planner still
+    # proposes a context plan, but the effective normal-query source plan stays
+    # the existing RAG-only baseline, so a proposal of `NONE` cannot skip
+    # retrieval (plan v0.7:444-450). Enforcement may only be enabled after the
+    # zero-false-`NONE` hard gate is conclusive on an approved fixture set; that
+    # is Task 10, not Task 4.
+    CONTEXT_PLANNER_ENFORCEMENT_ENABLED: bool = _env_flag(
+        "CONTEXT_PLANNER_ENFORCEMENT_ENABLED", False
+    )
     # The age at which a claimable outbox event means the Memory worker is not
     # draining, in seconds. Readiness reports DEGRADED beyond it.
     #

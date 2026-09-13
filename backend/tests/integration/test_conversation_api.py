@@ -157,6 +157,23 @@ class InMemoryConversationRepository:
         selected.sort(key=lambda m: m.sequence)
         return tuple(selected[:limit])
 
+    def get_recent_messages_before(
+        self,
+        conversation_id: str,
+        owner_user_id: str | None = None,
+        before_sequence: int | None = None,
+        limit: int = 50,
+    ) -> tuple[Message, ...]:
+        """The bounded recent-dialogue window: newest `limit`, ascending."""
+        eligible = [
+            msg
+            for msg in self.messages
+            if msg.conversation_id == conversation_id
+            and (before_sequence is None or msg.sequence < before_sequence)
+        ]
+        eligible.sort(key=lambda m: m.sequence)
+        return tuple(eligible[-limit:])
+
 
 @pytest.fixture(autouse=True)
 def configure_auth_tokens(monkeypatch):

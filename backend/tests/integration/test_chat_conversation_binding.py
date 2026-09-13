@@ -308,6 +308,23 @@ class InMemoryConversationRepository:
         selected.sort(key=lambda m: m.sequence)
         return tuple(selected[:limit])
 
+    def get_recent_messages_before(
+        self,
+        conversation_id: str,
+        owner_user_id: str | None = None,
+        before_sequence: int | None = None,
+        limit: int = 50,
+    ) -> tuple[Message, ...]:
+        """The bounded recent-dialogue window: newest `limit`, ascending."""
+        eligible = [
+            msg
+            for msg in self.messages
+            if msg.conversation_id == conversation_id
+            and (before_sequence is None or msg.sequence < before_sequence)
+        ]
+        eligible.sort(key=lambda m: m.sequence)
+        return tuple(eligible[-limit:])
+
 
 class RoleFailingRepository:
     """Conversation repository proxy that fails writes for one role."""
@@ -377,6 +394,17 @@ class RoleFailingRepository:
     ):
         return self._inner.list_messages(
             conversation_id, owner_user_id, after_sequence, limit, until_sequence
+        )
+
+    def get_recent_messages_before(
+        self,
+        conversation_id,
+        owner_user_id=None,
+        before_sequence=None,
+        limit=50,
+    ):
+        return self._inner.get_recent_messages_before(
+            conversation_id, owner_user_id, before_sequence, limit
         )
 
     def append_message(

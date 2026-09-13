@@ -221,3 +221,84 @@ def test_fence_rejects_foreign_owner_row():
     connection2 = _FakeConnection([_FakeResult(row=None), _FakeResult(row=None)])
     with pytest.raises(FencedWriteError):
         uow_cls._check_fence(connection2, _fence(), "owner_a")
+
+
+class _RowsResult:
+    """A result whose `.mappings().fetchall()` yields rows in the given order."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def mappings(self):
+        return self
+
+    def fetchall(self):
+        return self._rows
+
+
+def _message_row(sequence: int) -> dict:
+    return {
+        "message_id": f"ms_{sequence:032d}",
+        "conversation_id": "cv_unit_1",
+        "sequence": sequence,
+        "role": "user",
+        "content": f"turn {sequence}",
+        "source": "ui",
+        "trace_visibility": "excluded",
+        "created_at": utc_now(),
+        "status": "complete",
+    }
+
+
+def test_recent_messages_selects_the_newest_rows_and_returns_them_ascending():
+    """`list_messages` cannot be reused: it orders ascending before `LIMIT`.
+
+    On a conversation longer than the window, `ORDER BY sequence ASC LIMIT n`
+    returns the OLDEST rows in the range. The dedicated seam must select the
+    newest rows and then hand back transcript order, because `DialogueState`
+    and its callers read turns in sequence order (`plan v0.7:413-425`).
+    """
+    # The first two results belong to tenant binding inside `tenant_transaction`.
+    connection = _FakeConnection(
+        [
+            _FakeResult(),
+            _FakeResult(),
+            _RowsResult([_message_row(9), _message_row(8), _message_row(7)]),
+        ]
+    )
+    repo = PostgresConversationRepository(_FakeEngine(connection))
+
+    result = repo.get_recent_messages_before("cv_unit_1", "owner_a", 10, 3)
+
+    sql = connection.statements[-1]
+    assert "DESC" in sql, sql
+    assert "LIMIT" in sql, sql
+    assert [message.sequence for message in result] == [7, 8, 9]
+
+
+def test_recent_messages_bounds_the_window_exclusively_from_above():
+    """`before_sequence` is exclusive, so the current turn is never included."""
+    connection = _FakeConnection([_FakeResult(), _FakeResult(), _RowsResult([])])
+    repo = PostgresConversationRepository(_FakeEngine(connection))
+
+    repo.get_recent_messages_before("cv_unit_1", "owner_a", 10, 3)
+
+    sql = connection.statements[-1]
+    assert "messages.sequence <" in sql, sql
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_recent_messages_rejects_a_non_positive_window(limit):
+    """A negative limit reaches PostgreSQL as `LIMIT -1` and surfaces as a storage error.
+
+    Validating here turns a confusing backend failure into a contract violation
+    at the boundary that knows the rule.
+    """
+    from backend.conversations.models import ConversationValidationError
+
+    connection = _FakeConnection([])
+    repo = PostgresConversationRepository(_FakeEngine(connection))
+
+    with pytest.raises(ConversationValidationError):
+        repo.get_recent_messages_before("cv_unit_1", "owner_a", 10, limit)
+    assert connection.statements == []
