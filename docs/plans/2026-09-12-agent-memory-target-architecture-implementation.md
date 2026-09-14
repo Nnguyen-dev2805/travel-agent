@@ -25,14 +25,14 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Plan version | 0.13 — Task-7 boundary-contract clarification for transaction-aware store and coordinator request/result types |
+| Plan version | 0.14 — Task-9 authoritative unresolved-conflict state and read-projection clarification |
 | Date | 2026-09-12 |
 | Last amended | 2026-09-14 |
 | Specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.7, Approved 2026-09-14 |
 | Required ADRs | ADR 0036, 0037, 0038, 0039, 0040 — Accepted 2026-09-12 |
 | Execution owner | Coding agent under repository-owner instruction |
 | Decision owner | Repository owner |
-| Approval | Repository owner approved plan v0.13 on 2026-09-14 as a Task-7 boundary-contract clarification; spec v0.7 and ADR-level architecture remain unchanged. |
+| Approval | Repository owner approved plan v0.14 on 2026-09-14 as a Task-9 persistence/read-contract clarification; spec v0.7 and ADR-level architecture remain unchanged. |
 | Scope | Stages 1–7 of the target architecture, with independent rollout gates and evidence-based stop conditions |
 | Verification | Task-local CORE tests gate architectural progression. Deferred hardening remains mandatory before final production-readiness proof, including required PostgreSQL integration tests without required skips, exhaustive ADR validation where specified, evaluation gates, full backend suite, frontend regression suite, `compileall`, `git diff --check`, and exact change-set review. |
 
@@ -82,7 +82,7 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
     counts are allowed; raw messages, Memory values, evidence, exception text,
     and secrets are not. Redaction remains defense in depth rather than the
     primary privacy boundary.
-17. The current Alembic head is `20260912_02`. If it differs when execution
+17. The current Task-9 execution head is `20260914_01`. If it differs when execution
     starts, stop and revise migration identifiers/dependencies before editing.
 18. Rollback never clears revoke/suppression state, reactivates superseded or
     revoked versions, restores SQLite, or treats a projection as truth.
@@ -1104,8 +1104,12 @@ class ExplicitMemoryActionHandler:
 ## Task 9: Stage 3 Semantic Memory Read Engine
 
 **Files:** Create `backend/memory/read_models.py`,
-`backend/memory/read_engine.py`, and `backend/memory/postgres_store.py`; add
-read-engine unit and RLS integration tests.
+`backend/memory/read_engine.py`, and `backend/memory/postgres_store.py`; modify
+`backend/memory/write_pipeline/postgres.py`,
+`backend/memory/commit_coordinators.py`, `backend/storage/postgres.py`, and the
+PostgreSQL migration/integration tests; create the next Alembic revision after
+`20260914_01` for assertion conflict state; add read-engine unit and RLS
+integration tests.
 
 ```python
 class MemoryStore(Protocol):
@@ -1115,16 +1119,84 @@ class MemoryReadEngine:
     def select(self, request: MemoryReadRequest) -> MemorySelection: ...
 ```
 
-- [ ] RED truth table rejects deleted, revoked, expired, stale-generation,
+**Task-9 closed contracts:**
+
+1. `MemoryReadRequest.max_selected` defaults to `8`, validates inclusively in
+   `1..8`, rejects booleans/non-integers, and cannot exceed the eight-key
+   registry-v2 cap. After lifecycle,
+   precedence, and conflict filtering, selection order is exactly
+   `valid_from DESC -> canonical_key ASC -> version_id ASC`. Task 9 adds no
+   ML/vector score.
+2. `StoredMemoryRow` carries physical lifecycle facts only. The version row
+   supplies `retention_mode`, `expires_at`, `status`, sensitivity, and the
+   **stamped** suppression generation; the assertion row supplies
+   `canonical_key`, scope, scope ID, the **current** suppression generation, and
+   the authoritative unresolved-conflict flag. Database strings are converted
+   back to the closed enums, and set-valued JSON arrays are reconstructed as
+   immutable tuples before the row reaches `MemoryReadEngine`.
+   `PostgresMemoryStore` may join/project source/conversation validity facts but
+   never returns `is_readable` or another eligibility verdict.
+   `MemoryReadEngine` alone builds `LifecycleFacts` and calls
+   `MemoryLifecyclePolicy.evaluate(READ, ...)`.
+3. `MemoryReadRequest.requested_keys` is a validated tuple of registry-v2
+   canonical keys. Relevance is exact membership only; Task 9 does not parse
+   user text, keyword-match, or derive keys from `TurnUnderstandingResult`.
+   An empty requested-key tuple produces abstention. Task 10 owns application
+   planning from turns to requested keys.
+4. `MemorySelection` exposes only selected structured records
+   (`version_id`, `canonical_key`, `normalized_value`, `scope`, `scope_id`,
+   `authority`, `valid_from`) and one closed abstention reason. It exposes no
+   raw evidence/source text or per-row rejection trace. Observability uses
+   aggregate counters/logs outside this result contract.
+5. A conversation-scoped record may override a user-scoped record only for the
+   same canonical key and the request's current conversation. It never mutates
+   or deletes the user-scoped record.
+
+**Authoritative unresolved-conflict state:**
+
+- Current conflict state is an assertion property, not an inference from
+  historical `memory_events`, `memory_outbox`, or `memory_decisions`. Add
+  `memory_assertions.has_unresolved_conflict BOOLEAN NOT NULL DEFAULT FALSE` in
+  the Task-9 migration. Historical rows backfill to `FALSE`; no history scan is
+  used to guess current state.
+- Applying `MemoryOperation.PENDING_CONFLICT` sets the flag to `TRUE` for that
+  assertion in the same transaction that persists the pending-conflict write
+  evidence/event state. A failed transaction exposes neither side.
+- Background/inferred paths never clear this flag. A successful
+  `ExplicitMemoryTurnCommit` may clear it in the same transaction only when the
+  same assertion receives an authoritative explicit resolution through
+  `ADD`, `REINFORCE`, `SUPERSEDE`, or `REVOKE`. `NOOP` and
+  `PENDING_CONFLICT` never clear it.
+- `PostgresMemoryStore` projects the boolean unchanged as a physical fact.
+  `MemoryReadEngine` owns the semantic consequence: if any storage-scoped row
+  for a requested canonical key is marked unresolved, the engine suppresses
+  the **whole key** before conversation/user precedence and ranking. If no key
+  remains, it abstains.
+- The conflict flag is deliberately the only new persistence state for this
+  concern. Do not add a conflict table, conflict event-sourcing reducer, vector
+  projection, or read-time reconstruction from history in Task 9.
+
+- [x] RED truth table rejects deleted, revoked, expired, stale-generation,
   invalid-source, sensitivity-blocked, unresolved-conflict, and foreign-owner rows.
-- [ ] Implement exact structured semantic lookup first; no full-text/pgvector.
-- [ ] Keep `MemoryStore` limited to physical/tenant predicates;
+- [x] RED PostgreSQL tests prove `PENDING_CONFLICT` sets the assertion flag,
+  explicit authoritative resolution clears it atomically, background work cannot
+  clear it, and rollback leaves the prior flag unchanged.
+- [x] RED store tests prove `canonical_key` and current generation come from the
+  assertion row, stamped generation comes from the version row, enums are typed,
+  and set values are reconstructed as tuples.
+- [x] Implement exact structured semantic lookup first; no full-text/pgvector.
+- [x] Keep `MemoryStore` limited to physical/tenant predicates;
   `MemoryLifecyclePolicy` owns semantic eligibility.
-- [ ] Implement relevance -> response precedence -> conflict exclusion -> ranking
+- [x] Implement relevance -> response precedence -> conflict exclusion -> ranking
   -> bounded selection/abstention in `MemoryReadEngine`.
-- [ ] Fixtures prove unrelated query abstention and conversation override over
-  user-scoped soft preference without mutation.
-- [ ] Review: RAG imports no Memory module; Memory Read imports no RAG package.
+- [x] `MemoryReadEngine` owns an injected `MemoryStore` and exposes the approved
+  `select(request)` interface; callers do not pass preloaded rows or evaluation
+  timestamps through the public API.
+- [x] Fixtures prove unrelated query abstention and conversation override over
+  user-scoped soft preference without mutation, whole-key conflict suppression,
+  deterministic ordering, and a real eight-item cap.
+- [x] PostgreSQL integration proves owner/RLS isolation with zero required skips.
+- [x] Review: RAG imports no Memory module; Memory Read imports no RAG package.
 
 ## Task 10: Stage 3 Context Planning, Memory Use, and Explicit Inspect
 
@@ -1600,8 +1672,16 @@ source-handling, deletion-epoch, idempotency, CAS, and worker-fence authorities.
 No new `turn_id`, execution mode, persistence operation, or transaction layer is
 introduced.
 
-Spec v0.7 plus this exact plan v0.13 are the current approved execution authority
-for the remaining staged Agent Memory program. Plan v0.13 supersedes v0.12 as
+Plan version 0.14 was **Approved on 2026-09-14 by the repository owner**. It changes only Task 9: current unresolved
+conflict becomes an assertion-level PostgreSQL fact, `PENDING_CONFLICT` sets it,
+only an authoritative explicit resolution may clear it, and the read adapter
+projects that fact without reconstructing current state from history. It also
+freezes the physical projection sources needed by the existing Task-9 read
+contract. No new Memory family, retrieval mode, vector dependency, or ADR-level
+authority is introduced.
+
+Spec v0.7 plus this exact plan v0.14 are the current approved execution authority
+for the remaining staged Agent Memory program. Plan v0.14 supersedes v0.13 as
 current execution authority.
 Task checkbox state is execution evidence only; it does not replace task review,
 verification, or repository-owner change-set review.

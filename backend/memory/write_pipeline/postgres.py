@@ -19,6 +19,7 @@ from typing import Any
 
 from sqlalchemy import (
     ARRAY,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -43,6 +44,7 @@ from backend.memory.lifecycle import (
 from backend.memory.source_handling import SourceHandlingRecord
 from backend.memory.write_pipeline.models import (
     AssertionIdentity,
+    Authority,
     DecisionOutcome,
     MemoryChangeSet,
     MemoryDecisionDraft,
@@ -118,6 +120,7 @@ assertions_table = Table(
         nullable=False,
         server_default=text("1"),
     ),
+    Column("has_unresolved_conflict", Boolean(), nullable=False, server_default=text("false")),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
@@ -167,6 +170,7 @@ evidence_table = Table(
     Column("display_text", Text(), nullable=False),
     Column("authority", Text(), nullable=False),
     Column("observed_at", DateTime(timezone=True), nullable=False),
+    Column("invalidated_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
@@ -792,11 +796,28 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork, MemoryWriteStore):
             superseded = ()
             reference = change.reference_version_id
         elif operation in (MemoryOperation.PENDING_CONFLICT, MemoryOperation.NOOP):
+            if operation is MemoryOperation.PENDING_CONFLICT:
+                connection.execute(assertions_table.update().where(assertions_table.c.assertion_id == assertion_id).values(has_unresolved_conflict=True))
             version_id = None
             superseded = ()
             reference = None
         else:  # pragma: no cover - closed operation vocabulary
             raise MemoryWriteError("An unknown memory operation cannot be applied.")
+        is_authoritative_explicit = fence is None and (
+            change.new_version is None
+            or change.new_version.authority in (Authority.EXPLICIT_SAVE, Authority.EXPLICIT_STATEMENT)
+        )
+        if is_authoritative_explicit and operation in (
+            MemoryOperation.ADD,
+            MemoryOperation.REINFORCE,
+            MemoryOperation.SUPERSEDE,
+            MemoryOperation.REVOKE,
+        ):
+            connection.execute(
+                assertions_table.update()
+                .where(assertions_table.c.assertion_id == assertion_id)
+                .values(has_unresolved_conflict=False)
+            )
 
         for item in evidence:
             if item.owner_user_id != owner:
