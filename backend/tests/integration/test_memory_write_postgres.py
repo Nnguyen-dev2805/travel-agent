@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import pytest
 import sqlalchemy as sa
 
+from backend.memory.lifecycle import SourceValidity
 from backend.tests.integration.pg_dsn import migration_dsn, require
 
 MOMENT = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
@@ -525,7 +526,10 @@ def test_concurrent_writers_yield_one_winner(uow, clean):
                 (
                     "ok",
                     worker.apply_memory_change(
-                        change, _principal(), idempotency_key=f"key-race-{suffix}"
+                        change,
+                        _principal(),
+                        idempotency_key=f"key-race-{suffix}",
+                        source_validity=SourceValidity.VALID,
                     ),
                 )
             )
@@ -593,7 +597,10 @@ def test_concurrent_first_touch_yields_one_winner(uow, clean):
                 outcome["result"] = (
                     "ok",
                     worker.apply_memory_change(
-                        change, _principal(), idempotency_key="key-race-first"
+                        change,
+                        _principal(),
+                        idempotency_key="key-race-first",
+                        source_validity=SourceValidity.VALID,
                     ),
                 )
             except Exception as error:  # surfaced below; never swallowed
@@ -770,6 +777,7 @@ def test_fenced_write_rejected_after_conversation_delete(uow, clean):
         decision=_decided(candidate),
         idempotency_key="key-fence-first",
         fence=fence,
+        source_validity=SourceValidity.VALID,
     )
     assert result.version_id is not None
 
@@ -813,6 +821,7 @@ def test_fenced_write_rejected_after_conversation_delete(uow, clean):
             decision=_decided(rival),
             idempotency_key="key-fence-stale",
             fence=fence,
+            source_validity=SourceValidity.VALID,
         )
     assert _counts(clean) == before
 

@@ -284,3 +284,9 @@ class ConversationRepository(Protocol):
         because stored sequences are not dense.
         """
         ...
+
+    def get_turn_outbox_id(
+        self, conversation_id: str, message_id: str, owner_user_id: str
+    ) -> str | None:
+        """Return the authoritative outbox_id allocated for this turn, if any."""
+        ...

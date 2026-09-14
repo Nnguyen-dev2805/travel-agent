@@ -325,6 +325,11 @@ class InMemoryConversationRepository:
         eligible.sort(key=lambda m: m.sequence)
         return tuple(eligible[-limit:])
 
+    def get_turn_outbox_id(
+        self, conversation_id: str, message_id: str, owner_user_id: str
+    ) -> str | None:
+        return None
+
 
 class RoleFailingRepository:
     """Conversation repository proxy that fails writes for one role."""
@@ -406,6 +411,9 @@ class RoleFailingRepository:
         return self._inner.get_recent_messages_before(
             conversation_id, owner_user_id, before_sequence, limit
         )
+
+    def get_turn_outbox_id(self, conversation_id, message_id, owner_user_id):
+        return self._inner.get_turn_outbox_id(conversation_id, message_id, owner_user_id)
 
     def append_message(
         self,

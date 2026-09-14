@@ -95,6 +95,8 @@ class FakeConversationService:
         self._known = set(known_conversations)
         self.appended: list[Message] = []
         self.failures: dict[MessageRole, Exception] = {}
+        self.outbox_events: list[tuple[str, str, Any]] = []
+        self.outbox_by_turn: dict[tuple[str, str], str] = {}
 
     def create_conversation(self, owner_user_id: str = OWNER, title: str | None = None):
         from types import SimpleNamespace
@@ -179,6 +181,9 @@ class FakeConversationService:
             status=MessageStatus.PENDING,
         )
         self.appended.extend((stored, pending))
+        if outbox_event is not None:
+            self.outbox_events.append((new_id, stored.message_id, outbox_event))
+            self.outbox_by_turn[(new_id, stored.message_id)] = f"outbox_{stored.message_id}"
         return conv, stored, pending
 
     def append_turn(
@@ -218,7 +223,19 @@ class FakeConversationService:
             status=MessageStatus.PENDING,
         )
         self.appended.extend((user, pending))
+        if outbox_event is not None:
+            self.outbox_events.append((conversation_id, user.message_id, outbox_event))
+            self.outbox_by_turn[(conversation_id, user.message_id)] = f"outbox_{user.message_id}"
         return user, pending
+
+    def get_turn_outbox_id(
+        self,
+        conversation_id: str,
+        message_id: str,
+        owner_user_id: str = OWNER,
+    ) -> str | None:
+        self._journal.append("get_turn_outbox_id")
+        return self.outbox_by_turn.get((conversation_id, message_id))
 
     def complete_turn(
         self,
@@ -1439,3 +1456,454 @@ def test_an_unknown_reading_fails_closed():
 
     with pytest.raises(ValueError):
         _source_handling_reason_for("future_mode")
+
+
+# ---------------------------------------------------------------------------
+# Task 8: Stage 2 Explicit Memory Turns & Orchestrator Integration
+# ---------------------------------------------------------------------------
+
+
+def test_outbox_intent_created_when_explicit_actions_enabled_even_if_outbox_disabled(
+    rag, conversations, journal
+):
+    """Owner Correction 1: Outbox intent created when explicit_actions_enabled OR outbox_enabled."""
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag,
+        conversation_service_provider=lambda: conversations,
+        outbox_enabled=False,
+        explicit_actions_enabled=True,
+    )
+    orchestrator.handle_turn(
+        message="Hello",
+        conversation_id=CONVERSATION,
+        principal=DEFAULT_PRINCIPAL,
+    )
+    assert len(conversations.outbox_events) == 1
+    conv_id, msg_id, outbox_intent = conversations.outbox_events[0]
+    assert outbox_intent.event_type == "memory.extract.conversation_range"
+
+
+def test_explicit_actions_disabled_runs_baseline_rag(rag, conversations, journal):
+    """When explicit actions are disabled, explicit interaction mode runs baseline RAG."""
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag,
+        conversation_service_provider=lambda: conversations,
+        outbox_enabled=False,
+        explicit_actions_enabled=False,
+    )
+    outcome = orchestrator.handle_turn(
+        message="Nhớ là tôi thích khách sạn yên tĩnh",
+        conversation_id=CONVERSATION,
+        principal=DEFAULT_PRINCIPAL,
+    )
+    assert "generate_answer" in journal
+    assert "complete_turn" in journal
+    assert outcome.reply == GENERATED_REPLY
+
+
+def test_explicit_actions_inspect_returns_unavailable_and_records_noop(
+    rag, conversations, journal
+):
+    """EXPLICIT_INSPECT returns unavailable reply, records EXPLICIT_NOOP source handling."""
+    from backend.memory.source_handling import SourceHandlingOutcome, SourceHandlingRecord
+    from backend.orchestration.conversation_orchestrator import INSPECT_UNAVAILABLE_REPLY
+
+    recorded_records: list[SourceHandlingRecord] = []
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag,
+        conversation_service_provider=lambda: conversations,
+        outbox_enabled=False,
+        explicit_actions_enabled=True,
+        source_handling_recorder=lambda owner, rec: recorded_records.append(rec) or True,
+    )
+
+    outcome = orchestrator.handle_turn(
+        message="Xem ký ức của tôi",
+        conversation_id=CONVERSATION,
+        principal=DEFAULT_PRINCIPAL,
+    )
+
+    assert outcome.reply == INSPECT_UNAVAILABLE_REPLY
+    assert "complete_turn" in journal
+    assert "generate_answer" not in journal
+    assert len(recorded_records) == 1
+    assert recorded_records[0].outcome is SourceHandlingOutcome.EXPLICIT_NOOP
+
+
+def test_explicit_actions_clarification_records_refused_and_completes_turn(
+    rag, conversations, journal
+):
+    """Ambiguous or invalid explicit turn yields clarification and records EXPLICIT_REFUSED."""
+    from backend.memory.explicit_actions import (
+        ExplicitMemoryActionHandler,
+        ExplicitMemoryProposal,
+        ProposalOutcome,
+    )
+    from backend.memory.source_handling import SourceHandlingOutcome, SourceHandlingReason, SourceHandlingRecord
+
+    recorded_records: list[SourceHandlingRecord] = []
+
+    class FakeHandler:
+        def propose(self, understanding, state, *, owner_user_id: str, **kwargs):
+            return ExplicitMemoryProposal(
+                outcome=ProposalOutcome.CLARIFICATION,
+                clarification_prompt="Bạn có thể nói rõ hơn không?",
+                reason="ambiguous",
+            )
+
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag,
+        conversation_service_provider=lambda: conversations,
+        outbox_enabled=False,
+        explicit_actions_enabled=True,
+        explicit_action_handler=FakeHandler(),
+        source_handling_recorder=lambda owner, rec: recorded_records.append(rec) or True,
+    )
+
+    outcome = orchestrator.handle_turn(
+        message="Hãy nhớ cho tôi",
+        conversation_id=CONVERSATION,
+        principal=DEFAULT_PRINCIPAL,
+    )
+
+    assert outcome.reply == "Bạn có thể nói rõ hơn không?"
+    assert "complete_turn" in journal
+    assert "generate_answer" not in journal
+    assert len(recorded_records) == 1
+    assert recorded_records[0].outcome is SourceHandlingOutcome.EXPLICIT_REFUSED
+    assert recorded_records[0].reason_code is SourceHandlingReason.AMBIGUOUS_INTENT
+
+
+def test_explicit_actions_mutation_commits_via_coordinator_without_complete_turn(
+    rag, conversations, journal
+):
+    """Mutating explicit turn commits via coordinator and DOES NOT call complete_turn."""
+    from backend.memory.explicit_actions import (
+        ExplicitMemoryProposal,
+        ProposalOutcome,
+    )
+    from backend.memory.commit_coordinators import (
+        ExplicitMemoryCommitRequest,
+        ExplicitMemoryCommitResult,
+    )
+    from backend.memory.write_pipeline.models import (
+        MemoryChangeSet,
+        MemoryOperation,
+    )
+    from backend.memory.write_pipeline.uow import MemoryWriteResult
+    from backend.memory.source_handling import SourceHandlingOutcome
+
+    captured_requests: list[ExplicitMemoryCommitRequest] = []
+
+    class FakeCoordinator:
+        def commit(self, request: ExplicitMemoryCommitRequest):
+            journal.append("coordinator_commit")
+            captured_requests.append(request)
+            return ExplicitMemoryCommitResult(
+                memory=MemoryWriteResult(
+                    operation=MemoryOperation.ADD,
+                    version_id="ver_1",
+                    superseded_version_ids=(),
+                    reference_version_id=None,
+                    decision_id=None,
+                    reason="test_add",
+                ),
+                transition=TransitionResult(
+                    message=Message(
+                        message_id=request.assistant_message_id,
+                        conversation_id=request.conversation_id,
+                        sequence=2,
+                        role=MessageRole.ASSISTANT,
+                        content=request.acknowledgement_text,
+                        source=MessageSource.MODEL,
+                        trace_visibility=TraceVisibility.EXCLUDED,
+                        created_at=utc_now(),
+                        status=MessageStatus.COMPLETE,
+                    ),
+                    applied=True,
+                ),
+            )
+
+    change = MemoryChangeSet(
+        operation=MemoryOperation.ADD,
+        identity=None,
+        new_version=None,
+        superseded_version_ids=(),
+        reference_version_id=None,
+        reason="test_add",
+    )
+
+    class FakeHandler:
+        def propose(self, understanding, state, *, owner_user_id: str, **kwargs):
+            return ExplicitMemoryProposal(
+                outcome=ProposalOutcome.MUTATION,
+                canonical_key="travel.preference.hotel_atmosphere",
+                change=change,
+                expected_version_id=None,
+                acknowledgement_text="Đã lưu sở thích khách sạn yên tĩnh!",
+                reason="mutation",
+            )
+
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag,
+        conversation_service_provider=lambda: conversations,
+        outbox_enabled=False,
+        explicit_actions_enabled=True,
+        explicit_action_handler=FakeHandler(),
+        explicit_memory_commit=FakeCoordinator(),
+    )
+
+    outcome = orchestrator.handle_turn(
+        message="Nhớ là tôi thích khách sạn yên tĩnh",
+        conversation_id=CONVERSATION,
+        principal=DEFAULT_PRINCIPAL,
+    )
+
+    assert outcome.reply == "Đã lưu sở thích khách sạn yên tĩnh!"
+    assert "coordinator_commit" in journal
+    assert "complete_turn" not in journal, "Orchestrator MUST NOT call complete_turn for coordinator commits"
+    assert len(captured_requests) == 1
+    req = captured_requests[0]
+    assert req.idempotency_key.startswith("exp_")
+    assert req.source_handling_record.source_outbox_id.startswith("outbox_")
+    assert req.source_handling_record.outcome is SourceHandlingOutcome.EXPLICIT_APPLIED
+
+
+def test_explicit_actions_stale_version_retries_once_and_succeeds(
+    rag, conversations, journal
+):
+    """On StaleVersionError, orchestrator re-reads snapshot and retries commit once."""
+    from backend.memory.commit_coordinators import (
+        ExplicitMemoryCommitRequest,
+        ExplicitMemoryCommitResult,
+    )
+    from backend.memory.explicit_actions import (
+        ExplicitMemoryProposal,
+        ProposalOutcome,
+    )
+    from backend.memory.write_pipeline.models import (
+        MemoryChangeSet,
+        MemoryOperation,
+    )
+    from backend.memory.write_pipeline.uow import MemoryWriteResult, StaleVersionError
+
+    attempts = 0
+
+    class RetryingCoordinator:
+        def commit(self, request: ExplicitMemoryCommitRequest):
+            nonlocal attempts
+            attempts += 1
+            journal.append("coordinator_commit")
+            if attempts == 1:
+                raise StaleVersionError("Version mismatch")
+            return ExplicitMemoryCommitResult(
+                memory=MemoryWriteResult(
+                    operation=MemoryOperation.SUPERSEDE,
+                    version_id="ver_2",
+                    superseded_version_ids=("ver_old",),
+                    reference_version_id=None,
+                    decision_id=None,
+                    reason="test_supersede",
+                ),
+                transition=TransitionResult(
+                    message=Message(
+                        message_id=request.assistant_message_id,
+                        conversation_id=request.conversation_id,
+                        sequence=2,
+                        role=MessageRole.ASSISTANT,
+                        content=request.acknowledgement_text,
+                        source=MessageSource.MODEL,
+                        trace_visibility=TraceVisibility.EXCLUDED,
+                        created_at=utc_now(),
+                        status=MessageStatus.COMPLETE,
+                    ),
+                    applied=True,
+                ),
+            )
+
+    class FakeHandler:
+        def propose(self, understanding, state, *, owner_user_id: str, **kwargs):
+            return ExplicitMemoryProposal(
+                outcome=ProposalOutcome.MUTATION,
+                canonical_key="travel.preference.hotel_atmosphere",
+                change=MemoryChangeSet(
+                    operation=MemoryOperation.SUPERSEDE,
+                    identity=None,
+                    new_version=None,
+                    superseded_version_ids=("ver_old",),
+                    reference_version_id=None,
+                    reason="test_supersede",
+                ),
+                expected_version_id="ver_old" if attempts == 0 else "ver_new",
+                acknowledgement_text="Đã cập nhật!",
+                reason="mutation",
+            )
+
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag,
+        conversation_service_provider=lambda: conversations,
+        outbox_enabled=False,
+        explicit_actions_enabled=True,
+        explicit_action_handler=FakeHandler(),
+        explicit_memory_commit=RetryingCoordinator(),
+    )
+
+    outcome = orchestrator.handle_turn(
+        message="Sửa lại là tôi thích khách sạn trung tâm",
+        conversation_id=CONVERSATION,
+        principal=DEFAULT_PRINCIPAL,
+    )
+
+    assert attempts == 2
+    assert outcome.reply == "Đã cập nhật!"
+    assert "complete_turn" not in journal
+
+
+def test_explicit_actions_stale_version_exhausted_fails_turn(
+    rag, conversations, journal
+):
+    """When StaleVersionError persists after retry, orchestrator fails turn cleanly."""
+    from backend.memory.commit_coordinators import ExplicitMemoryCommitRequest
+    from backend.memory.explicit_actions import (
+        ExplicitMemoryProposal,
+        ProposalOutcome,
+    )
+    from backend.memory.write_pipeline.models import (
+        MemoryChangeSet,
+        MemoryOperation,
+    )
+    from backend.memory.write_pipeline.uow import StaleVersionError
+
+    class AlwaysStaleCoordinator:
+        def commit(self, request: ExplicitMemoryCommitRequest):
+            journal.append("coordinator_commit")
+            raise StaleVersionError("Permanent conflict")
+
+    class FakeHandler:
+        def propose(self, understanding, state, *, owner_user_id: str, **kwargs):
+            return ExplicitMemoryProposal(
+                outcome=ProposalOutcome.MUTATION,
+                canonical_key="travel.preference.hotel_atmosphere",
+                change=MemoryChangeSet(
+                    operation=MemoryOperation.SUPERSEDE,
+                    identity=None,
+                    new_version=None,
+                    superseded_version_ids=(),
+                    reference_version_id=None,
+                    reason="test",
+                ),
+                expected_version_id="ver_old",
+                acknowledgement_text="Đã cập nhật!",
+                reason="mutation",
+            )
+
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag,
+        conversation_service_provider=lambda: conversations,
+        outbox_enabled=False,
+        explicit_actions_enabled=True,
+        explicit_action_handler=FakeHandler(),
+        explicit_memory_commit=AlwaysStaleCoordinator(),
+    )
+
+    with pytest.raises(StaleVersionError):
+        orchestrator.handle_turn(
+            message="Sửa lại là tôi thích khách sạn trung tâm",
+            conversation_id=CONVERSATION,
+            principal=DEFAULT_PRINCIPAL,
+        )
+
+    assert "fail_turn" in journal
+
+
+def test_explicit_actions_forget_commits_with_forget_applied_outcome(
+    rag, conversations, journal
+):
+    """Revoke explicit turn commits via coordinator with FORGET_APPLIED outcome."""
+    from backend.memory.explicit_actions import (
+        ExplicitMemoryProposal,
+        ProposalOutcome,
+    )
+    from backend.memory.commit_coordinators import (
+        ExplicitMemoryCommitRequest,
+        ExplicitMemoryCommitResult,
+    )
+    from backend.memory.write_pipeline.models import (
+        MemoryChangeSet,
+        MemoryOperation,
+    )
+    from backend.memory.write_pipeline.uow import MemoryWriteResult
+    from backend.memory.source_handling import SourceHandlingOutcome
+
+    captured_requests: list[ExplicitMemoryCommitRequest] = []
+
+    class FakeCoordinator:
+        def commit(self, request: ExplicitMemoryCommitRequest):
+            journal.append("coordinator_commit")
+            captured_requests.append(request)
+            return ExplicitMemoryCommitResult(
+                memory=MemoryWriteResult(
+                    operation=MemoryOperation.REVOKE,
+                    version_id=None,
+                    superseded_version_ids=("ver_1",),
+                    reference_version_id="ver_1",
+                    decision_id=None,
+                    reason="test_revoke",
+                ),
+                transition=TransitionResult(
+                    message=Message(
+                        message_id=request.assistant_message_id,
+                        conversation_id=request.conversation_id,
+                        sequence=2,
+                        role=MessageRole.ASSISTANT,
+                        content=request.acknowledgement_text,
+                        source=MessageSource.MODEL,
+                        trace_visibility=TraceVisibility.EXCLUDED,
+                        created_at=utc_now(),
+                        status=MessageStatus.COMPLETE,
+                    ),
+                    applied=True,
+                ),
+            )
+
+    change = MemoryChangeSet(
+        operation=MemoryOperation.REVOKE,
+        identity=None,
+        new_version=None,
+        superseded_version_ids=("ver_1",),
+        reference_version_id="ver_1",
+        reason="test_revoke",
+    )
+
+    class FakeHandler:
+        def propose(self, understanding, state, *, owner_user_id: str, **kwargs):
+            return ExplicitMemoryProposal(
+                outcome=ProposalOutcome.MUTATION,
+                canonical_key="travel.preference.hotel_atmosphere",
+                change=change,
+                expected_version_id="ver_1",
+                acknowledgement_text="Đã quên sở thích khách sạn yên tĩnh.",
+                reason="mutation",
+            )
+
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag,
+        conversation_service_provider=lambda: conversations,
+        outbox_enabled=False,
+        explicit_actions_enabled=True,
+        explicit_action_handler=FakeHandler(),
+        explicit_memory_commit=FakeCoordinator(),
+    )
+
+    outcome = orchestrator.handle_turn(
+        message="Quên sở thích khách sạn yên tĩnh đi",
+        conversation_id=CONVERSATION,
+        principal=DEFAULT_PRINCIPAL,
+    )
+
+    assert outcome.reply == "Đã quên sở thích khách sạn yên tĩnh."
+    assert "coordinator_commit" in journal
+    assert "complete_turn" not in journal
+    assert len(captured_requests) == 1
+    req = captured_requests[0]
+    assert req.source_handling_record.outcome is SourceHandlingOutcome.FORGET_APPLIED

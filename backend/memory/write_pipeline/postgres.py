@@ -329,7 +329,6 @@ def record_source_handling_on(
                 == record.source_outbox_id,
                 source_handling_table.c.family == record.family.value,
             )
-            .with_for_update()
         )
         .mappings()
         .fetchone()
@@ -1280,6 +1279,33 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork, MemoryWriteStore):
             set_tenant(connection, owner_user_id)
             require_tenant_context(connection)
             return pg_list_active_versions(connection, owner_user_id, canonical_key)
+
+    def get_assertion_generation(
+        self, owner_user_id: str, canonical_key: str
+    ) -> int:
+        """Return the current suppression_generation for one owner and canonical key.
+
+        Returns 1 if no assertion exists yet.
+        """
+        with transaction(self._engine) as connection:
+            set_tenant(connection, owner_user_id)
+            require_tenant_context(connection)
+            return pg_get_assertion_generation(connection, owner_user_id, canonical_key)
+
+
+def pg_get_assertion_generation(
+    connection: Connection, owner: str, canonical_key: str
+) -> int:
+    """Return the current suppression generation for one assertion, or 1 if absent."""
+    stmt = (
+        select(assertions_table.c.suppression_generation)
+        .where(
+            assertions_table.c.owner_user_id == owner,
+            assertions_table.c.canonical_key == canonical_key,
+        )
+    )
+    gen = connection.scalar(stmt)
+    return int(gen) if gen is not None else 1
 
 
 def pg_list_active_versions(

@@ -130,6 +130,9 @@ class Settings(BaseModel):
     MEMORY_SHADOW_EXTRACT_ENABLED: bool = _env_flag(
         "MEMORY_SHADOW_EXTRACT_ENABLED", False
     )
+    MEMORY_EXPLICIT_ACTIONS_ENABLED: bool = _env_flag(
+        "MEMORY_EXPLICIT_ACTIONS_ENABLED", False
+    )
     # Stage-1 context-planner rollout gate. While this is false the planner still
     # proposes a context plan, but the effective normal-query source plan stays
     # the existing RAG-only baseline, so a proposal of `NONE` cannot skip

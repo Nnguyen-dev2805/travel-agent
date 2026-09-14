@@ -174,6 +174,11 @@ class InMemoryConversationRepository:
         eligible.sort(key=lambda m: m.sequence)
         return tuple(eligible[-limit:])
 
+    def get_turn_outbox_id(
+        self, conversation_id: str, message_id: str, owner_user_id: str
+    ) -> str | None:
+        return None
+
 
 @pytest.fixture(autouse=True)
 def configure_auth_tokens(monkeypatch):

@@ -553,7 +553,7 @@ def test_migration_head_is_the_latest_revision(schema):
     # retention, revocation, suppression generation, and the append-only
     # source-handling authority table). See `test_postgres_migrations.py` for
     # the grant assertions.
-    assert ALEMBIC_HEAD == "20260912_03"
+    assert ALEMBIC_HEAD == "20260914_01"
 
 
 # 12. ADR 0030: claiming is serialised per conversation.

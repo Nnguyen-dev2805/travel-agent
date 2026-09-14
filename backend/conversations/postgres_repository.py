@@ -1077,6 +1077,20 @@ class PostgresConversationRepository:
             ) from error
         return tuple(self._row_to_message(row) for row in reversed(rows))
 
+    def get_turn_outbox_id(
+        self, conversation_id: str, message_id: str, owner_user_id: str
+    ) -> str | None:
+        """Return the authoritative outbox_id allocated for this turn, if any."""
+        try:
+            with tenant_transaction(self._engine, owner_user_id) as connection:
+                return find_turn_outbox_id_on(
+                    connection, conversation_id, message_id
+                )
+        except sa_exc.SQLAlchemyError as error:
+            raise ConversationStorageError(
+                "Could not retrieve turn outbox id."
+            ) from error
+
     def _row_to_conversation(self, row) -> Conversation:
         """Map one stored conversation row to its contract, failing closed."""
         retention = _require_vocabulary(
@@ -1347,3 +1361,16 @@ def transition_turn_on(
         raise ConversationStorageError(
             "Could not transition the conversation turn."
         ) from error
+
+
+def find_turn_outbox_id_on(
+    connection: Connection,
+    conversation_id: str,
+    user_message_id: str,
+) -> str | None:
+    """Return the authoritative outbox_id allocated for a turn on a connection."""
+    stmt = select(conversation_outbox_table.c.outbox_id).where(
+        conversation_outbox_table.c.conversation_id == conversation_id,
+        conversation_outbox_table.c.message_id == user_message_id,
+    )
+    return connection.scalar(stmt)

@@ -64,6 +64,7 @@ class FakeConversationRepository:
         self.remaining_sequence_conflicts = 0
         self.deletion_epochs: dict[str, int] = {}
         self.sabotage_after_get = False
+        self.outbox_by_turn: dict[tuple[str, str, str], str] = {}
 
     @property
     def writes(self) -> list[tuple]:
@@ -245,6 +246,12 @@ class FakeConversationRepository:
         )
         self.messages.append(stored)
         return stored
+
+    def get_turn_outbox_id(
+        self, conversation_id: str, message_id: str, owner_user_id: str
+    ) -> str | None:
+        self.calls.append(("get_turn_outbox_id", conversation_id, message_id, owner_user_id))
+        return self.outbox_by_turn.get((conversation_id, message_id, owner_user_id))
 
     def list_messages(
         self,
@@ -1117,3 +1124,21 @@ def test_recent_messages_accepts_the_governed_boundary_values(service, repositor
             conversation.conversation_id, DEFAULT_OWNER, before_sequence=4, limit=limit
         )
         assert len(recent) <= limit
+
+
+def test_get_turn_outbox_id_delegates_to_repository(service, repository):
+    repository.outbox_by_turn[("cv_123", "msg_456", DEFAULT_OWNER)] = "cout_abc"
+
+    outbox_id = service.get_turn_outbox_id("cv_123", "msg_456", DEFAULT_OWNER)
+
+    assert outbox_id == "cout_abc"
+    assert ("get_turn_outbox_id", "cv_123", "msg_456", DEFAULT_OWNER) in repository.calls
+
+
+def test_get_turn_outbox_id_validates_required_identifiers(service):
+    with pytest.raises(ConversationValidationError):
+        service.get_turn_outbox_id("   ", "msg_456", DEFAULT_OWNER)
+    with pytest.raises(ConversationValidationError):
+        service.get_turn_outbox_id("cv_123", "", DEFAULT_OWNER)
+    with pytest.raises(ConversationValidationError):
+        service.get_turn_outbox_id("cv_123", "msg_456", "  ")

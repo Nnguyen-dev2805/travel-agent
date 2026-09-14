@@ -24,6 +24,7 @@ from backend.conversations.models import (
     MessageRole,
     MessageSource,
     OutboxIntent,
+    utc_now,
 )
 from backend.conversations.repository import (
     ConversationGoneError,
@@ -31,8 +32,10 @@ from backend.conversations.repository import (
 )
 from backend.memory.source_handling import (
     MemoryFamily,
+    SourceHandlingOutcome,
     SourceHandlingProposal,
     SourceHandlingReason,
+    SourceHandlingRecord,
     propose_source_handling,
 )
 from backend.observability.events import emit_event
@@ -45,6 +48,7 @@ from backend.orchestration.action_router import ActionRouter
 from backend.orchestration.context_planner import ContextPlanner
 from backend.orchestration.dialogue_state import DialogueStateResolver
 from backend.orchestration.turn_models import (
+    DURABLE_ACTION_MODES,
     InteractionMode,
     RoutingDecision,
     TurnDisposition,
@@ -188,6 +192,10 @@ class ConversationOrchestrator:
         top_k: int = DEFAULT_TOP_K,
         outbox_enabled: bool = False,
         context_planner: Optional[ContextPlanner] = None,
+        explicit_actions_enabled: bool = False,
+        explicit_action_handler: Optional[Any] = None,
+        explicit_memory_commit: Optional[Any] = None,
+        source_handling_recorder: Optional[Callable[[str, Any], bool]] = None,
         **_ignored: Any,
     ) -> None:
         self._rag_service = rag_service
@@ -202,6 +210,10 @@ class ConversationOrchestrator:
         # the shadow-only one. That default is the safe one — enforcement may only
         # be switched on after the zero-false-`NONE` gate is conclusive.
         self._planner = context_planner if context_planner is not None else ContextPlanner()
+        self._explicit_actions_enabled = explicit_actions_enabled
+        self._explicit_action_handler = explicit_action_handler
+        self._explicit_memory_commit = explicit_memory_commit
+        self._source_handling_recorder = source_handling_recorder
 
     @property
     def context_planner(self) -> ContextPlanner:
@@ -230,7 +242,7 @@ class ConversationOrchestrator:
 
         if conversation_id is None:
             outbox_event = None
-            if self._outbox_enabled:
+            if self._outbox_enabled or self._explicit_actions_enabled:
                 outbox_event = OutboxIntent(
                     event_type=MEMORY_EXTRACT_EVENT_TYPE,
                     payload={},
@@ -266,7 +278,7 @@ class ConversationOrchestrator:
                 raise ConversationNotFoundError("The conversation does not exist.")
 
             outbox_event = None
-            if self._outbox_enabled:
+            if self._outbox_enabled or self._explicit_actions_enabled:
                 outbox_event = OutboxIntent(
                     event_type=MEMORY_EXTRACT_EVENT_TYPE,
                     payload={
@@ -363,6 +375,207 @@ class ConversationOrchestrator:
                     "model": INSPECT_UNAVAILABLE_MODEL,
                     "citations": [],
                 }
+                if self._explicit_actions_enabled and self._source_handling_recorder is not None:
+                    source_outbox_id = conversations.get_turn_outbox_id(
+                        conversation_id, user_message.message_id, owner_user_id
+                    )
+                    if source_outbox_id:
+                        sh_rec = SourceHandlingRecord(
+                            source_outbox_id=source_outbox_id,
+                            source_message_id=user_message.message_id,
+                            family=MemoryFamily.SEMANTIC,
+                            outcome=SourceHandlingOutcome.EXPLICIT_NOOP,
+                            reason_code=SourceHandlingReason.EXPLICIT_ACTION,
+                            recorded_at=utc_now(),
+                        )
+                        self._source_handling_recorder(owner_user_id, sh_rec)
+            elif (
+                self._explicit_actions_enabled
+                and self._explicit_action_handler is not None
+                and route is RoutingDecision.EXPLICIT_MEMORY_ACTION
+            ):
+                from backend.memory.explicit_actions import ProposalOutcome
+
+                proposal = self._explicit_action_handler.propose(
+                    understanding,
+                    dialogue_state,
+                    owner_user_id=owner_user_id,
+                    utterance=message,
+                    conversation_id=conversation_id,
+                )
+                source_outbox_id = conversations.get_turn_outbox_id(
+                    conversation_id, user_message.message_id, owner_user_id
+                )
+
+                if proposal.outcome is ProposalOutcome.NOOP:
+                    reply_text = (
+                        proposal.acknowledgement_text
+                        or "Đã ghi nhận yêu cầu của bạn."
+                    )
+                    generated = {
+                        "reply": reply_text,
+                        "model": "system",
+                        "citations": [],
+                    }
+                    if source_outbox_id and self._source_handling_recorder is not None:
+                        sh_rec = SourceHandlingRecord(
+                            source_outbox_id=source_outbox_id,
+                            source_message_id=user_message.message_id,
+                            family=MemoryFamily.SEMANTIC,
+                            outcome=SourceHandlingOutcome.EXPLICIT_NOOP,
+                            reason_code=SourceHandlingReason.EXPLICIT_ACTION,
+                            recorded_at=utc_now(),
+                        )
+                        self._source_handling_recorder(owner_user_id, sh_rec)
+
+                elif proposal.outcome is ProposalOutcome.CLARIFICATION:
+                    reply_text = (
+                        proposal.clarification_prompt
+                        or "Tôi chưa hiểu rõ yêu cầu của bạn. Bạn có thể nói rõ hơn không?"
+                    )
+                    generated = {
+                        "reply": reply_text,
+                        "model": "system",
+                        "citations": [],
+                    }
+                    if source_outbox_id and self._source_handling_recorder is not None:
+                        sh_rec = SourceHandlingRecord(
+                            source_outbox_id=source_outbox_id,
+                            source_message_id=user_message.message_id,
+                            family=MemoryFamily.SEMANTIC,
+                            outcome=SourceHandlingOutcome.EXPLICIT_REFUSED,
+                            reason_code=SourceHandlingReason.AMBIGUOUS_INTENT,
+                            recorded_at=utc_now(),
+                        )
+                        self._source_handling_recorder(owner_user_id, sh_rec)
+
+                elif proposal.outcome is ProposalOutcome.MUTATION:
+                    if proposal.change is None or self._explicit_memory_commit is None:
+                        raise RuntimeError(
+                            "Explicit memory mutation proposal missing change or commit coordinator."
+                        )
+                    if source_outbox_id is None:
+                        raise RuntimeError(
+                            "Authoritative source_outbox_id missing for explicit memory mutation turn."
+                        )
+
+                    from backend.security.models import AuthenticatedPrincipal, AuthMode
+                    from backend.memory.commit_coordinators import ExplicitMemoryCommitRequest
+                    from backend.memory.explicit_actions import explicit_semantic_idempotency_key
+                    from backend.memory.write_pipeline.models import (
+                        MemoryOperation,
+                        SourceValidity,
+                    )
+                    from backend.memory.write_pipeline.uow import StaleVersionError
+
+                    if isinstance(principal, AuthenticatedPrincipal):
+                        auth_principal = principal
+                    else:
+                        auth_principal = AuthenticatedPrincipal(
+                            owner_user_id=owner_user_id,
+                            auth_mode=AuthMode.AUTHENTICATED,
+                            credential_label=getattr(principal, "credential_label", "api") or "api",
+                        )
+
+                    def _build_commit_request(current_proposal):
+                        ch = current_proposal.change
+                        if (
+                            understanding.interaction_mode is InteractionMode.EXPLICIT_FORGET
+                            or ch.operation is MemoryOperation.REVOKE
+                        ):
+                            sh_outcome = SourceHandlingOutcome.FORGET_APPLIED
+                        else:
+                            sh_outcome = SourceHandlingOutcome.EXPLICIT_APPLIED
+                        sh_record = SourceHandlingRecord(
+                            source_outbox_id=source_outbox_id,
+                            source_message_id=user_message.message_id,
+                            family=MemoryFamily.SEMANTIC,
+                            outcome=sh_outcome,
+                            reason_code=SourceHandlingReason.EXPLICIT_ACTION,
+                            recorded_at=utc_now(),
+                        )
+                        if ch.new_version is not None:
+                            c_key = ch.new_version.canonical_key
+                            c_val = ch.new_version.normalized_value
+                        elif ch.superseded_version_ids:
+                            c_key = current_proposal.canonical_key or "unknown"
+                            c_val = "forget"
+                        else:
+                            c_key = current_proposal.canonical_key or "unknown"
+                            c_val = "unknown"
+
+                        idem_key = explicit_semantic_idempotency_key(
+                            owner_user_id=owner_user_id,
+                            source_message_id=user_message.message_id,
+                            canonical_key=c_key,
+                            operation=ch.operation.value,
+                            normalized_value=c_val,
+                            suppression_generation=current_proposal.suppression_generation,
+                        )
+                        expected_deletion_epoch = getattr(conversation, "deletion_epoch", 0)
+                        return ExplicitMemoryCommitRequest(
+                            principal=auth_principal,
+                            conversation_id=conversation_id,
+                            assistant_message_id=pending_message.message_id,
+                            expected_deletion_epoch=expected_deletion_epoch,
+                            acknowledgement_text=current_proposal.acknowledgement_text or "Đã lưu!",
+                            change=ch,
+                            evidence=(),
+                            decision=None,
+                            idempotency_key=idem_key,
+                            expected_version_id=current_proposal.expected_version_id,
+                            source_validity=SourceValidity.NOT_REQUIRED,
+                            source_handling_record=sh_record,
+                        )
+
+                    commit_request = _build_commit_request(proposal)
+                    try:
+                        commit_result = self._explicit_memory_commit.commit(commit_request)
+                    except StaleVersionError:
+                        logger.warning(
+                            "StaleVersionError on explicit turn; re-reading snapshot and retrying once."
+                        )
+                        recent_turns = conversations.get_recent_messages_before(
+                            conversation_id,
+                            owner_user_id,
+                            before_sequence=user_message.sequence,
+                        )
+                        fresh_state = self._dialogue_state.resolve(recent_turns)
+                        fresh_proposal = self._explicit_action_handler.propose(
+                            understanding,
+                            fresh_state,
+                            owner_user_id=owner_user_id,
+                            utterance=message,
+                            conversation_id=conversation_id,
+                        )
+                        if (
+                            fresh_proposal.outcome is not ProposalOutcome.MUTATION
+                            or fresh_proposal.change is None
+                        ):
+                            raise
+                        commit_request = _build_commit_request(fresh_proposal)
+                        commit_result = self._explicit_memory_commit.commit(commit_request)
+
+                    logger.info(
+                        "chat.turn explicit_memory_persisted conversation_id=%s user_message_id=%s "
+                        "assistant_message_id=%s persisted=%s",
+                        conversation_id,
+                        user_message.message_id,
+                        pending_message.message_id,
+                        True,
+                    )
+                    return TurnOutcome(
+                        reply=commit_request.acknowledgement_text,
+                        model="system",
+                        citations=[],
+                        conversation=TurnPersistence(
+                            conversation_id=conversation_id,
+                            user_message_id=user_message.message_id,
+                            assistant_message_id=pending_message.message_id,
+                            persisted=True,
+                        ),
+                        memory=commit_result.memory,
+                    )
             else:
                 # Generation runs outside any transaction. The plan is not
                 # consulted here: while enforcement is off, the effective source

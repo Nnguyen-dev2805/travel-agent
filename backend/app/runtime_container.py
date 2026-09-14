@@ -250,6 +250,7 @@ class RuntimeContainer:
         self,
         outbox_enabled: bool | None = None,
         rag_service: Any = None,
+        llm_provider: Any = None,
     ) -> ConversationOrchestrator:
         """Return the conversation orchestrator for chat turns."""
         resolved_outbox = (
@@ -258,6 +259,39 @@ class RuntimeContainer:
             else outbox_enabled
         )
         resolved_rag = rag_service if rag_service is not None else self.rag_service()
+        explicit_actions_enabled = bool(
+            getattr(self._settings, "MEMORY_EXPLICIT_ACTIONS_ENABLED", False)
+        )
+
+        explicit_action_handler = None
+        explicit_memory_commit = None
+        source_handling_recorder = None
+
+        if explicit_actions_enabled:
+            from backend.memory.commit_coordinators import ExplicitMemoryTurnCommit
+            from backend.memory.explicit_actions import ExplicitMemoryActionHandler
+            from backend.memory.write_pipeline.postgres import (
+                PostgresMemoryUnitOfWork,
+                record_source_handling,
+            )
+            from backend.memory.write_pipeline.provider import OpenAICompatibleProvider
+
+            uow = PostgresMemoryUnitOfWork(self.engine)
+            resolved_provider = (
+                llm_provider
+                if llm_provider is not None
+                else OpenAICompatibleProvider(settings=self._settings)
+            )
+            explicit_action_handler = ExplicitMemoryActionHandler(
+                active_version_provider=uow.get_active_versions,
+                generation_provider=uow.get_assertion_generation,
+                provider=resolved_provider,
+            )
+            explicit_memory_commit = ExplicitMemoryTurnCommit(engine=self.engine)
+            source_handling_recorder = lambda owner, record: record_source_handling(
+                self.engine, owner, record
+            )
+
         return ConversationOrchestrator(
             rag_service=resolved_rag,
             conversation_service_provider=self.conversation_service,
@@ -270,6 +304,10 @@ class RuntimeContainer:
             context_planner=ContextPlanner(
                 enforcement_enabled=self._settings.CONTEXT_PLANNER_ENFORCEMENT_ENABLED
             ),
+            explicit_actions_enabled=explicit_actions_enabled,
+            explicit_action_handler=explicit_action_handler,
+            explicit_memory_commit=explicit_memory_commit,
+            source_handling_recorder=source_handling_recorder,
         )
 
     def readiness_probe(self) -> PostgresReadinessProbe:

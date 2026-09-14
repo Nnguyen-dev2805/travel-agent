@@ -1351,6 +1351,20 @@ def test_the_runtime_role_grants_are_the_enumerated_minimum(fresh_db, pg_engine)
         # read and append a decision, never rewrite one.
         ("memory_source_handling", "SELECT"),
         ("memory_source_handling", "INSERT"),
+        # The explicit memory actions path (migration 20260914_01):
+        ("memory_assertions", "SELECT"),
+        ("memory_assertions", "INSERT"),
+        ("memory_assertions", "UPDATE"),
+        ("memory_versions", "SELECT"),
+        ("memory_versions", "INSERT"),
+        ("memory_versions", "UPDATE"),
+        ("memory_evidence", "INSERT"),
+        ("memory_decisions", "INSERT"),
+        ("memory_events", "INSERT"),
+        ("memory_outbox", "INSERT"),
+        ("memory_write_idempotency", "SELECT"),
+        ("memory_write_idempotency", "INSERT"),
+        ("memory_write_idempotency", "UPDATE"),
     }, f"unexpected runtime grant set: {sorted(granted)}"
 
 

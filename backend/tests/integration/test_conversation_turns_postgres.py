@@ -347,3 +347,28 @@ def test_concurrent_turns_preserve_adjacency(service, migrated):
     for user in [row for row in stored if row.role is MessageRole.USER]:
         following = next(row for row in stored if row.sequence == user.sequence + 1)
         assert following.role is MessageRole.ASSISTANT
+
+
+def test_get_turn_outbox_id_returns_allocated_outbox_id(service):
+    from backend.conversations.models import OutboxIntent
+
+    conversation_id = _empty_conversation(service)
+    user_msg, pending = service.append_turn(
+        conversation_id,
+        OWNER,
+        "remember something",
+        outbox_event=OutboxIntent(
+            event_type="memory.explicit",
+            payload={"action": "remember"},
+        ),
+    )
+
+    outbox_id = service.get_turn_outbox_id(conversation_id, user_msg.message_id, OWNER)
+    assert outbox_id is not None
+    assert outbox_id.startswith("cout_")
+
+    # Isolated owner check: another owner cannot see this turn's outbox_id
+    foreign_outbox_id = service.get_turn_outbox_id(
+        conversation_id, user_msg.message_id, OTHER_OWNER
+    )
+    assert foreign_outbox_id is None

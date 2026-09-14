@@ -116,6 +116,7 @@ class RecordingUoW:
         idempotency_key=None,
         expected_version_id=None,
         fence=None,
+        source_validity=None,
     ):
         self.applied_changes.append(
             {
@@ -125,6 +126,7 @@ class RecordingUoW:
                 "decision": decision,
                 "idempotency_key": idempotency_key,
                 "fence": fence,
+                "source_validity": source_validity,
             }
         )
         if change.new_version and change.new_version.status == VersionStatus.ACTIVE:

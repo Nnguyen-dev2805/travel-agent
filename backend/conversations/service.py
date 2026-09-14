@@ -466,6 +466,15 @@ class ConversationService:
                 "The conversation does not exist."
             ) from error
 
+    def get_turn_outbox_id(
+        self, conversation_id: str, message_id: str, owner_user_id: str
+    ) -> str | None:
+        """Return the authoritative outbox_id allocated for this turn, if any."""
+        identifier = require_text(conversation_id, "conversation_id")
+        message = require_text(message_id, "message_id")
+        owner = require_text(owner_user_id, "owner_user_id")
+        return self._conversations.get_turn_outbox_id(identifier, message, owner)
+
     def list_messages(
         self,
         query: MessageHistoryQuery,

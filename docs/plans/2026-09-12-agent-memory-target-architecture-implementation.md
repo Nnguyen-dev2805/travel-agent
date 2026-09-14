@@ -848,34 +848,34 @@ in-process set value.
   inconsistency into an idempotent user action. Repeated positive evidence must
   reach `SAME`/`COMPATIBLE` and reinforce there.
 
-- [ ] RED registry tests enumerate all eight keys, every allowed normalized
+- [x] RED registry tests enumerate all eight keys, every allowed normalized
   member, English/Vietnamese governed synonyms, single/set cardinality, scope,
   sensitivity floor, unknown-key rejection, unknown-member rejection, duplicate
   set-member collapse, and deterministic set ordering.
-- [ ] RED domain/resolver tests pin the set truth table: first-set `ADD`,
+- [x] RED domain/resolver tests pin the set truth table: first-set `ADD`,
   duplicate/subset `REINFORCE`, compatible member addition -> immutable
   union-`SUPERSEDE`, explicit full replacement -> `SUPERSEDE`, targeted member
   removal -> replacement `SUPERSEDE`, removal of the final member -> `REVOKE`,
   and contradictory same/overlapping-member classifier output -> fail-closed
   relation/value mismatch. Re-read after add/replace/remove must preserve typed
   tuple shape and stable ordering.
-- [ ] RED persistence round-trip tests prove JSON-array storage for sets,
+- [x] RED persistence round-trip tests prove JSON-array storage for sets,
   canonical textual representation, typed reconstruction on read, and no
   delimiter encoding or in-place update of an existing version payload.
-- [ ] RED domain tests prove expiry/source validity independence, revoke +
+- [x] RED domain tests prove expiry/source validity independence, revoke +
   generation advance, stale generation rejection, re-remember as a new
   generation, the closed `LifecycleReason` vocabulary/precedence, every row of
   the stage-required-facts matrix, and fail-closed unknown retention-assignment
   inputs.
-- [ ] RED lifecycle tests pin `SourceValidity.VALID | INVALID | NOT_REQUIRED`,
+- [x] RED lifecycle tests pin `SourceValidity.VALID | INVALID | NOT_REQUIRED`,
   prove that bound retention rejects missing/`NOT_REQUIRED` validity, that
   `INVALID` yields `SOURCE_INVALID`, and that `USER_DURABLE` value eligibility
   accepts `NOT_REQUIRED` without granting raw-source access.
-- [ ] RED migration tests assert exact columns/constraints/indexes, source record
+- [x] RED migration tests assert exact columns/constraints/indexes, source record
   uniqueness, append-only replay-vs-conflict behavior, RLS/ownership, least-
   privilege app/worker grants, conservative retention backfill, generation-1
   backfill/default/check constraint, and downgrade round-trip.
-- [ ] Implement `MemoryLifecyclePolicy` as the only lifecycle-rule owner; early
+- [x] Implement `MemoryLifecyclePolicy` as the only lifecycle-rule owner; early
   stages apply stage-appropriate rules without pretending a candidate is ACTIVE.
   Implement `RetentionAssignmentPolicy` beside it as the only initial
   retention-assignment owner. Unit tests must cover every `LifecycleStage`,
@@ -884,39 +884,39 @@ in-process set value.
   combinations, missing-required-fact fail-closed behavior,
   temporal/source/generation independence, and the rule that execution mode is
   not a policy input.
-- [ ] RED/write-store tests prove `REVOKE` generation advance is owned by the
+- [x] RED/write-store tests prove `REVOKE` generation advance is owned by the
   locked PostgreSQL write boundary rather than resolver/model output, that no
   `next_generation` field exists on `MemoryChangeSet`, and that
   `expected_version_id` CAS behavior remains distinct from
   `reference_version_id` semantic linkage.
-- [ ] Replace the registry's current hotel-only `is_known_key`, lookup, and
+- [x] Replace the registry's current hotel-only `is_known_key`, lookup, and
   normalization branches with data-driven `semantic-registry-v2` definitions.
   Existing `hotel_atmosphere` behavior is a regression baseline, not a special
   execution path.
-- [ ] Preserve currently-imported `HOTEL_ATMOSPHERE_*` compatibility constants
+- [x] Preserve currently-imported `HOTEL_ATMOSPHERE_*` compatibility constants
   as aliases into registry-v2 and add a regression test proving they resolve to
   the same governed definition/value data; no alias may retain separate
   normalization or execution logic.
-- [ ] Extend `Cardinality` with `SET`, change the normalized-value contracts
+- [x] Extend `Cardinality` with `SET`, change the normalized-value contracts
   consistently, and update stale single-only docstrings/comments in
   `models.py`, `registry.py`, and `resolver.py`; do not leave type annotations or
   comments implying every assertion is single-valued.
-- [ ] Keep resolver deterministic/side-effect-free and implement the set truth
+- [x] Keep resolver deterministic/side-effect-free and implement the set truth
   table above without adding `REMOVE_MEMBER` as a persistence operation. Model
   output cannot emit an authorized revoke, member removal, or set replacement by
   itself. Add `REVOKE` to persistence writing-operation handling for both
   cardinalities and verify generation advance is atomic with revocation.
-- [ ] Implement migration `20260912_03_agent_memory_lifecycle.py` exactly to the
+- [x] Implement migration `20260912_03_agent_memory_lifecycle.py` exactly to the
   Task-6 migration contract above. Advance head to `20260912_03` only if the
   preflight head is still `20260912_02`; update all non-historical executable
   head assertions/documentation that represent current runtime state.
-- [ ] Required PostgreSQL tests run without skips.
-- [ ] Treat the eight-key registry as one closed Stage-2 contract for this plan:
+- [x] Required PostgreSQL tests run without skips.
+- [x] Treat the eight-key registry as one closed Stage-2 contract for this plan:
   every key must pass its task-local registry/extraction/E2E evidence before
   Stage 2 exits. Do not silently drop a failing key during implementation;
   changing the approved eight-key P0 set requires a plan amendment. Task 11's
   inferred activation remains separately promoted per key/type.
-- [ ] Review: privacy deletion ledger remains distinct from product forget.
+- [x] Review: privacy deletion ledger remains distinct from product forget.
 
 ## Task 7: Stage 2 Transaction-Aware Stores and Dual Commit Coordinators
 
@@ -1005,29 +1005,29 @@ transaction.
 
 **CORE — required before Task 8:**
 
-- [ ] RED transaction-journal tests assert lock order `conversation -> memory`
+- [x] RED transaction-journal tests assert lock order `conversation -> memory`
   for explicit and `conversation -> outbox -> memory` for worker commits.
-- [ ] Extract caller-owned conversation primitives for tenant bind,
+- [x] Extract caller-owned conversation primitives for tenant bind,
   conversation/deletion-epoch lock, and guarded terminal transition; preserve
   existing `TransitionResult.applied` behavior.
-- [ ] Extract `MemoryWriteStore.apply_on(connection, ...)`; existing UoW may stay
+- [x] Extract `MemoryWriteStore.apply_on(connection, ...)`; existing UoW may stay
   as a facade but delegates to the same primitive.
-- [ ] Implement both coordinators. Explicit path never needs the outbox lease
+- [x] Implement both coordinators. Explicit path never needs the outbox lease
   fence; worker path validates it before Memory mutation.
-- [ ] Add one focused stale-snapshot test proving an explicit set replacement or
+- [x] Add one focused stale-snapshot test proving an explicit set replacement or
   member-forget carries the base `expected_version_id` and is rejected if that
   version changed before the locked write. Task 7 must surface the stale result;
   Task 8 owns bounded re-read/re-resolution of the user intent. No stale snapshot
   may overwrite a concurrently changed set.
-- [ ] Add one representative late-failure rollback test proving the explicit
+- [x] Add one representative late-failure rollback test proving the explicit
   coordinator owns one atomic transaction: a forced failure after prior Memory/
   idempotency/source-handling/ack work leaves no partial durable effect and no
   guarded terminal transition applied.
-- [ ] Run focused guard regressions for owner isolation, deletion epoch, stale
+- [x] Run focused guard regressions for owner isolation, deletion epoch, stale
   worker lease, duplicate idempotency, and guarded terminal transition. Reuse
   existing tests where they already prove the invariant; do not create a broad
   permutation matrix merely for Task-7 progression.
-- [ ] Review: neither coordinator bypasses domain guards with ad-hoc semantic SQL.
+- [x] Review: neither coordinator bypasses domain guards with ad-hoc semantic SQL.
 
 **DEFERRED HARDENING — does not block Task 8, but remains mandatory before
 Task 16/final production-readiness proof:**
@@ -1059,18 +1059,18 @@ class ExplicitMemoryActionHandler:
                 state: DialogueState) -> ExplicitMemoryProposal: ...
 ```
 
-- [ ] RED fixtures cover remember, correction, forget, re-remember,
+- [x] RED fixtures cover remember, correction, forget, re-remember,
   registry-invalid payload, prohibited secret, ambiguous intent, retry, set
   member addition, set replacement, targeted set-member forget, and whole-key
   forget.
-- [ ] RED extraction fixtures cover all eight registry-v2 keys in English and
+- [x] RED extraction fixtures cover all eight registry-v2 keys in English and
   Vietnamese, including multi-member set values, unsupported departure cities,
   unknown keys/values, and a mixed utterance that yields several independent
   governed candidates without collapsing them into `hotel_atmosphere`.
-- [ ] Implement deterministic gate -> one bounded structured parse when needed ->
+- [x] Implement deterministic gate -> one bounded structured parse when needed ->
   registry/sensitivity/policy -> deterministic resolver. Timeout/invalid output
   means no durable mutation.
-- [ ] For set-valued keys, keep speech-act authority deterministic: ordinary
+- [x] For set-valued keys, keep speech-act authority deterministic: ordinary
   positive remember statements propose member additions; explicit correction
   materializes a full desired replacement from the governed current snapshot;
   targeted forget removes only the named governed members from that snapshot;
@@ -1078,25 +1078,25 @@ class ExplicitMemoryActionHandler:
   member-forget request cannot be resolved to a complete deterministic desired
   snapshot, do not mutate and return the governed clarification/non-mutation
   outcome rather than guessing from model relation output.
-- [ ] Bind every set replacement/removal proposal to the `expected_version_id`
+- [x] Bind every set replacement/removal proposal to the `expected_version_id`
   of the active snapshot used to materialize it. `ExplicitMemoryTurnCommit`
   verifies that expectation under the Memory lock; stale state triggers bounded
   re-read/re-resolution, never blind retry of the old replacement snapshot.
-- [ ] Generalize `model_adapter.py` from its current hotel-only prompt/parser to
+- [x] Generalize `model_adapter.py` from its current hotel-only prompt/parser to
   emit only keys present in registry v2 and normalize through the registry. The
   model may propose raw labels, but only deterministic registry normalization can
   create durable normalized values.
-- [ ] Wire the explicit proposal through `ExplicitMemoryTurnCommit`; acknowledgement
+- [x] Wire the explicit proposal through `ExplicitMemoryTurnCommit`; acknowledgement
   is deterministic application copy, not a second free-form generation.
-- [ ] Add `MEMORY_EXPLICIT_ACTIONS_ENABLED=False` as an independent gate.
-- [ ] Keep the explicit-action gate default-off for broad rollout even after
+- [x] Add `MEMORY_EXPLICIT_ACTIONS_ENABLED=False` as an independent gate.
+- [x] Keep the explicit-action gate default-off for broad rollout even after
   this task passes. Controlled E2E/evaluation may enable it, but production-like
   write volume remains blocked until Task 11's `memory_outbox` bound is GREEN.
-- [ ] Keep inspect unavailable in this task.
-- [ ] E2E tests prove atomic ack/effect, idempotency, no resurrection,
+- [x] Keep inspect unavailable in this task.
+- [x] E2E tests prove atomic ack/effect, idempotency, no resurrection,
   cross-owner isolation, set add/correct/member-forget/whole-key-forget
   semantics, and no public Memory router/UI resurrection.
-- [ ] Review: Stage 2 is complete only after remember/correct/forget/re-remember
+- [x] Review: Stage 2 is complete only after remember/correct/forget/re-remember
   work across all eight governed keys as one explicit semantic-family vertical
   slice; a failing governed key blocks the stage rather than being silently
   omitted.
