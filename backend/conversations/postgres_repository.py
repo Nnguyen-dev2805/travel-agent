@@ -28,6 +28,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    and_,
     exc as sa_exc,
     func,
     or_,
@@ -39,7 +40,7 @@ from sqlalchemy.engine import Engine
 # The fence's refusal vocabulary (ADR 0033). Imported at module level rather than
 # lazily: the check functions return it on every refusal, so a lazy import would
 # only move the failure to the first fenced write.
-from backend.memory.write_pipeline.uow import FenceReason
+from backend.memory.write_pipeline.uow import FenceReason, FencedWriteError
 
 from backend.conversations.models import (
     DEFAULT_HISTORY_LIMIT,
@@ -75,6 +76,16 @@ from backend.storage.postgres import (
 logger = logging.getLogger("travel_agent_conversations")
 
 
+def bind_tenant_on(connection: Any, owner_user_id: str) -> None:
+    """Bind and verify app.tenant on a given connection.
+
+    Ensures every subsequent query on this connection runs under row-level
+    security for the owner.
+    """
+    set_tenant(connection, owner_user_id)
+    require_tenant_context(connection)
+
+
 @contextmanager
 def tenant_transaction(engine: Engine, owner_user_id: str) -> Iterator[Any]:
     """Yield one tenant-bound transaction for an owner-scoped operation.
@@ -84,8 +95,7 @@ def tenant_transaction(engine: Engine, owner_user_id: str) -> Iterator[Any]:
     owner the application predicate checks.
     """
     with transaction(engine) as connection:
-        set_tenant(connection, owner_user_id)
-        require_tenant_context(connection)
+        bind_tenant_on(connection, owner_user_id)
         yield connection
 
 
@@ -805,6 +815,26 @@ class PostgresConversationRepository:
             content="",
         )
 
+    def transition_turn_on(
+        self,
+        connection: Any,
+        conversation_id: str,
+        message_id: str,
+        owner_user_id: str,
+        *,
+        status: MessageStatus,
+        content: str,
+    ) -> TransitionResult:
+        """Single-row turn transition on a caller-owned connection, guarded by `status = 'pending'`."""
+        return transition_turn_on(
+            connection,
+            conversation_id,
+            message_id,
+            owner_user_id,
+            status=status,
+            content=content,
+        )
+
     def _transition_turn(
         self,
         conversation_id: str,
@@ -821,71 +851,15 @@ class PostgresConversationRepository:
         content and `status = 'failed'`, nor empty content and
         `status = 'complete'`. Whichever commits first wins.
         """
-        try:
-            with tenant_transaction(self._engine, owner_user_id) as connection:
-                self._require_active_conversation(
-                    connection, conversation_id, owner_user_id
-                )
-                updated = (
-                    connection.execute(
-                        messages_table.update()
-                        .where(
-                            messages_table.c.message_id == message_id,
-                            messages_table.c.conversation_id == conversation_id,
-                            messages_table.c.status == MessageStatus.PENDING.value,
-                        )
-                        .values(content=content, status=status.value)
-                        .returning(*messages_table.c)
-                    )
-                    .mappings()
-                    .fetchone()
-                )
-                if updated is not None:
-                    transitioned = self._row_to_message(updated)
-                    applied = True
-                else:
-                    # Already completed or failed: return the stored row
-                    # unchanged rather than overwriting it.
-                    stored = (
-                        connection.execute(
-                            select(messages_table).where(
-                                messages_table.c.message_id == message_id,
-                                messages_table.c.conversation_id == conversation_id,
-                            )
-                        )
-                        .mappings()
-                        .fetchone()
-                    )
-                    if stored is None:
-                        raise ConversationGoneError(
-                            "The assistant message does not exist in this "
-                            "conversation."
-                        )
-                    transitioned = self._row_to_message(stored)
-                    # Another writer moved this row first. The row is returned
-                    # unchanged, so it is the caller's only signal that the reply
-                    # it generated was *not* stored.
-                    applied = False
-
-                if transitioned.status is MessageStatus.COMPLETE:
-                    # ADR 0027: the turn is terminal, so its extraction event may
-                    # now be claimed. Released in the same transaction as the
-                    # status change, so "complete" and "released" cannot diverge.
-                    self._release_turn_outbox(
-                        connection, conversation_id, transitioned
-                    )
-
-                if transitioned.status is MessageStatus.FAILED:
-                    self._cancel_turn_outbox(
-                        connection, conversation_id, transitioned
-                    )
-                return TransitionResult(message=transitioned, applied=applied)
-        except (ConversationGoneError, ConversationStorageError):
-            raise
-        except sa_exc.SQLAlchemyError as error:
-            raise ConversationStorageError(
-                "Could not transition the conversation turn."
-            ) from error
+        with tenant_transaction(self._engine, owner_user_id) as connection:
+            return transition_turn_on(
+                connection,
+                conversation_id,
+                message_id,
+                owner_user_id,
+                status=status,
+                content=content,
+            )
 
     @staticmethod
     def _preceding_user_message_id(
@@ -1123,7 +1097,8 @@ class PostgresConversationRepository:
                 "Stored conversation record violates the conversation contract."
             ) from error
 
-    def _row_to_message(self, row) -> Message:
+    @staticmethod
+    def _row_to_message(row) -> Message:
         """Map one stored message row to its contract, failing closed."""
         resolved_role = _require_vocabulary(row["role"], "role", MessageRole)
         resolved_source = _require_vocabulary(row["source"], "source", MessageSource)
@@ -1189,6 +1164,24 @@ def check_conversation_fence(
     return True, None
 
 
+def lock_conversation_and_epoch(
+    connection: Any,
+    conversation_id: str,
+    expected_epoch: int,
+    owner_user_id: str | None = None,
+) -> None:
+    """Verify conversation status and deletion epoch under row lock (FOR UPDATE).
+
+    Raises FencedWriteError with a typed FenceReason if validation fails.
+    """
+    ok, reason = check_conversation_fence(
+        connection, conversation_id, expected_epoch, owner_user_id
+    )
+    if not ok:
+        assert reason is not None
+        raise FencedWriteError(reason)
+
+
 def check_outbox_lease(
     connection: Any,
     outbox_id: str,
@@ -1239,3 +1232,118 @@ def check_outbox_lease(
     if not row["lease_held"]:
         return False, FenceReason.LEASE_EXPIRED
     return True, None
+
+
+def mark_outbox_succeeded_on(
+    connection: Any,
+    outbox_id: str,
+    lease_owner: str,
+) -> bool:
+    """Mark an outbox event as succeeded on a caller-owned connection.
+
+    Transitions status from 'leased' to 'succeeded' and clears lease fields in
+    the same transaction as the caller's memory commit (ADR 0036).
+    """
+    stmt = (
+        conversation_outbox_table.update()
+        .where(
+            and_(
+                conversation_outbox_table.c.outbox_id == outbox_id,
+                conversation_outbox_table.c.status == "leased",
+                conversation_outbox_table.c.lease_owner == lease_owner,
+                or_(
+                    conversation_outbox_table.c.lease_until.is_(None),
+                    conversation_outbox_table.c.lease_until >= func.now(),
+                ),
+            )
+        )
+        .values(
+            status="succeeded",
+            lease_owner=None,
+            lease_until=None,
+            updated_at=func.now(),
+        )
+    )
+    res = connection.execute(stmt)
+    return res.rowcount > 0
+
+
+def transition_turn_on(
+    connection: Any,
+    conversation_id: str,
+    message_id: str,
+    owner_user_id: str,
+    *,
+    status: MessageStatus,
+    content: str,
+) -> TransitionResult:
+    """Single-row turn transition on a caller-owned connection, guarded by `status = 'pending'`.
+
+    Preserves guarded transition semantics: whichever commits first wins, and
+    applied=True is returned only when this call moves the row.
+    """
+    try:
+        bind_tenant_on(connection, owner_user_id)
+        PostgresConversationRepository._require_active_conversation(
+            connection, conversation_id, owner_user_id
+        )
+        updated = (
+            connection.execute(
+                messages_table.update()
+                .where(
+                    messages_table.c.message_id == message_id,
+                    messages_table.c.conversation_id == conversation_id,
+                    messages_table.c.status == MessageStatus.PENDING.value,
+                )
+                .values(content=content, status=status.value)
+                .returning(*messages_table.c)
+            )
+            .mappings()
+            .fetchone()
+        )
+        if updated is not None:
+            transitioned = PostgresConversationRepository._row_to_message(updated)
+            applied = True
+        else:
+            # Already completed or failed: return the stored row
+            # unchanged rather than overwriting it.
+            stored = (
+                connection.execute(
+                    select(messages_table).where(
+                        messages_table.c.message_id == message_id,
+                        messages_table.c.conversation_id == conversation_id,
+                    )
+                )
+                .mappings()
+                .fetchone()
+            )
+            if stored is None:
+                raise ConversationGoneError(
+                    "The assistant message does not exist in this "
+                    "conversation."
+                )
+            transitioned = PostgresConversationRepository._row_to_message(stored)
+            # Another writer moved this row first. The row is returned
+            # unchanged, so it is the caller's only signal that the reply
+            # it generated was *not* stored.
+            applied = False
+
+        if transitioned.status is MessageStatus.COMPLETE:
+            # ADR 0027: the turn is terminal, so its extraction event may
+            # now be claimed. Released in the same transaction as the
+            # status change, so "complete" and "released" cannot diverge.
+            PostgresConversationRepository._release_turn_outbox(
+                connection, conversation_id, transitioned
+            )
+
+        if transitioned.status is MessageStatus.FAILED:
+            PostgresConversationRepository._cancel_turn_outbox(
+                connection, conversation_id, transitioned
+            )
+        return TransitionResult(message=transitioned, applied=applied)
+    except (ConversationGoneError, ConversationStorageError):
+        raise
+    except sa_exc.SQLAlchemyError as error:
+        raise ConversationStorageError(
+            "Could not transition the conversation turn."
+        ) from error

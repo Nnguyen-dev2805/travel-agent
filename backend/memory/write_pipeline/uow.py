@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
 
 from backend.memory.write_pipeline.models import (
     ExplicitIntentError,
@@ -190,5 +193,29 @@ class MemoryUnitOfWork(Protocol):
         return empty, never another owner's versions. An implementation that
         cannot perform the read must raise; it must not return an empty tuple,
         because an empty tuple is indistinguishable from a real empty history.
+        """
+        ...
+
+
+class MemoryWriteStore(Protocol):
+    """Canonical Memory mutation primitives on a caller-owned connection."""
+
+    def apply_on(
+        self,
+        connection: Connection,
+        *,
+        change: MemoryChangeSet,
+        principal: AuthenticatedPrincipal,
+        evidence: tuple[MemoryEvidence, ...] = (),
+        decision: MemoryDecisionDraft | None = None,
+        idempotency_key: str | None = None,
+        expected_version_id: str | None = None,
+        fence: FenceContext | None = None,
+        source_validity: SourceValidity | None = None,
+    ) -> MemoryWriteResult:
+        """Apply one resolved change atomically on the supplied connection.
+
+        Executes exactly once on the supplied connection: it does not open, commit,
+        or roll back a transaction and does not run an internal whole-transaction retry.
         """
         ...

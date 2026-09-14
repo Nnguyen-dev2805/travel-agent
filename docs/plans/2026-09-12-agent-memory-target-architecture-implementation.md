@@ -25,16 +25,16 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Plan version | 0.11 — final Task-6 contract freeze for typed source validity, deleted-source evidence suppression, exact source-handling schema, and registry-v2 compatibility aliases |
+| Plan version | 0.13 — Task-7 boundary-contract clarification for transaction-aware store and coordinator request/result types |
 | Date | 2026-09-12 |
 | Last amended | 2026-09-14 |
 | Specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.7, Approved 2026-09-14 |
 | Required ADRs | ADR 0036, 0037, 0038, 0039, 0040 — Accepted 2026-09-12 |
 | Execution owner | Coding agent under repository-owner instruction |
 | Decision owner | Repository owner |
-| Approval | Repository owner approved exact plan v0.11 on 2026-09-14 after approving spec v0.7. |
+| Approval | Repository owner approved plan v0.13 on 2026-09-14 as a Task-7 boundary-contract clarification; spec v0.7 and ADR-level architecture remain unchanged. |
 | Scope | Stages 1–7 of the target architecture, with independent rollout gates and evidence-based stop conditions |
-| Verification | Focused unit tests per task, required PostgreSQL integration tests without required skips, evaluation gates, full backend suite, frontend regression suite, `compileall`, `git diff --check`, and exact change-set review |
+| Verification | Task-local CORE tests gate architectural progression. Deferred hardening remains mandatory before final production-readiness proof, including required PostgreSQL integration tests without required skips, exhaustive ADR validation where specified, evaluation gates, full backend suite, frontend regression suite, `compileall`, `git diff --check`, and exact change-set review. |
 
 ## Global Constraints
 
@@ -121,6 +121,11 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
     update path. A non-empty replacement supersedes the prior version; removing
     the last member revokes the assertion through the existing suppression-
     generation contract. `CONTRADICTION` alone never authorizes a set mutation.
+26. Task 7 uses two execution tiers without changing ADR 0036: **CORE** is the
+    minimum architecture gate required before progressing to Task 8; items marked
+    **DEFERRED HARDENING** remain required before final production-readiness/Task
+    16 proof. Deferral changes when evidence is collected, not the accepted
+    transaction, fencing, idempotency, rollback, or lock-order contracts.
 
 ## Required ADRs
 
@@ -918,16 +923,53 @@ in-process set value.
 **Files:** Modify `backend/conversations/repository.py`,
 `backend/conversations/postgres_repository.py`, `backend/memory/write_pipeline/uow.py`,
 `backend/memory/write_pipeline/postgres.py`; create
-`backend/memory/commit_coordinators.py`; add unit and PostgreSQL concurrency tests.
+`backend/memory/commit_coordinators.py`; add focused CORE tests now and defer the
+exhaustive PostgreSQL concurrency/failure matrix to final hardening.
 
 **Interfaces:**
 
 ```python
 class MemoryWriteStore(Protocol):
     def apply_on(self, connection: Connection, *, change: MemoryChangeSet,
-                 principal: AuthenticatedPrincipal, evidence: MemoryEvidence,
-                 decision: MemoryDecision, idempotency_key: str,
-                 fence: FenceContext | None) -> MemoryWriteResult: ...
+                 principal: AuthenticatedPrincipal,
+                 evidence: tuple[MemoryEvidence, ...] = (),
+                 decision: MemoryDecisionDraft | None = None,
+                 idempotency_key: str | None = None,
+                 expected_version_id: str | None = None,
+                 fence: FenceContext | None = None,
+                 source_validity: SourceValidity | None = None,
+                 ) -> MemoryWriteResult: ...
+
+@dataclass(frozen=True)
+class ExplicitMemoryCommitRequest:
+    principal: AuthenticatedPrincipal
+    conversation_id: str
+    assistant_message_id: str
+    expected_deletion_epoch: int
+    acknowledgement_text: str
+    change: MemoryChangeSet
+    evidence: tuple[MemoryEvidence, ...]
+    decision: MemoryDecisionDraft | None
+    idempotency_key: str
+    expected_version_id: str | None
+    source_validity: SourceValidity | None
+    source_handling_record: SourceHandlingRecord
+
+@dataclass(frozen=True)
+class ExplicitMemoryCommitResult:
+    memory: MemoryWriteResult
+    transition: TransitionResult
+
+@dataclass(frozen=True)
+class BackgroundMemoryCommitRequest:
+    principal: AuthenticatedPrincipal
+    change: MemoryChangeSet
+    evidence: tuple[MemoryEvidence, ...]
+    decision: MemoryDecisionDraft | None
+    idempotency_key: str
+    expected_version_id: str | None
+    source_validity: SourceValidity | None
+    fence: FenceContext
 
 class ExplicitMemoryTurnCommit:
     def commit(self, request: ExplicitMemoryCommitRequest) -> ExplicitMemoryCommitResult: ...
@@ -936,17 +978,35 @@ class BackgroundMemoryCommit:
     def commit(self, request: BackgroundMemoryCommitRequest) -> MemoryWriteResult: ...
 ```
 
+The Task-7 request/result types above are frozen value contracts, not a license
+to invent another transaction abstraction. `MemoryWriteStore.apply_on(...)`
+mirrors the Task-6 `MemoryUnitOfWork.apply_memory_change(...)` write inputs and
+executes exactly once on the supplied connection: it does not open, commit, or
+roll back a transaction and does not run an internal whole-transaction retry.
+The existing UoW facade may retain transaction ownership/bounded retry for its
+standalone callers, but it delegates the actual storage mutation to the same
+`apply_on(...)` primitive.
+
+For explicit commit, the existing turn identity is `conversation_id` plus the
+pending `assistant_message_id`; do not introduce a new `turn_id`. The explicit
+request carries the deletion epoch observed by the API path so the coordinator
+can validate it under the conversation lock before Memory mutation. It carries
+the deterministic acknowledgement text and authoritative
+`SourceHandlingRecord` because ADR 0036 requires those effects in the same
+transaction. The explicit coordinator passes `fence=None` to the Memory store.
+
+For background commit, `FenceContext` is required and already carries the
+conversation/deletion epoch plus outbox id/lease owner needed for the worker
+lock/fence checks and terminal source-event transition. It does not gain API
+acknowledgement authority. A persisted background-eligibility source-handling
+record is an authorization precondition from the governed source-handling path;
+Task 7 does not manufacture a new authority record merely to complete a worker
+transaction.
+
+**CORE — required before Task 8:**
+
 - [ ] RED transaction-journal tests assert lock order `conversation -> memory`
   for explicit and `conversation -> outbox -> memory` for worker commits.
-- [ ] RED concurrent set-update tests prove read-modify-write safety: an explicit
-  correction/member-forget proposal carries the active base version it read;
-  if another writer changes that assertion before commit, the locked
-  `expected_version_id` check rejects the stale replacement and the application
-  re-reads/re-resolves within the bounded retry policy. No stale snapshot may
-  overwrite a concurrently added member.
-- [ ] RED failure-injection tests fail after Memory effect, idempotency reservation,
-  source handling, and acknowledgement and assert the whole explicit transaction
-  rolls back.
 - [ ] Extract caller-owned conversation primitives for tenant bind,
   conversation/deletion-epoch lock, and guarded terminal transition; preserve
   existing `TransitionResult.applied` behavior.
@@ -954,9 +1014,35 @@ class BackgroundMemoryCommit:
   as a facade but delegates to the same primitive.
 - [ ] Implement both coordinators. Explicit path never needs the outbox lease
   fence; worker path validates it before Memory mutation.
-- [ ] Run owner-isolation, deletion-epoch, lease-loss, idempotency, and concurrent
-  terminal-transition integration tests.
+- [ ] Add one focused stale-snapshot test proving an explicit set replacement or
+  member-forget carries the base `expected_version_id` and is rejected if that
+  version changed before the locked write. Task 7 must surface the stale result;
+  Task 8 owns bounded re-read/re-resolution of the user intent. No stale snapshot
+  may overwrite a concurrently changed set.
+- [ ] Add one representative late-failure rollback test proving the explicit
+  coordinator owns one atomic transaction: a forced failure after prior Memory/
+  idempotency/source-handling/ack work leaves no partial durable effect and no
+  guarded terminal transition applied.
+- [ ] Run focused guard regressions for owner isolation, deletion epoch, stale
+  worker lease, duplicate idempotency, and guarded terminal transition. Reuse
+  existing tests where they already prove the invariant; do not create a broad
+  permutation matrix merely for Task-7 progression.
 - [ ] Review: neither coordinator bypasses domain guards with ad-hoc semantic SQL.
+
+**DEFERRED HARDENING — does not block Task 8, but remains mandatory before
+Task 16/final production-readiness proof:**
+
+- [ ] Complete ADR 0036's exhaustive forced-failure validation at each explicit
+  commit step, not only the representative CORE rollback case.
+- [ ] Run PostgreSQL concurrency/deadlock coverage for canonical lock ordering,
+  including competing explicit/background writers and concurrent set updates;
+  required final evidence must execute without required skips.
+- [ ] Run the full PostgreSQL owner-isolation, deletion-epoch, lease-loss,
+  duplicate-idempotency, and concurrent terminal-transition matrix under the
+  isolated database test environment.
+- [ ] Add stress/permutation coverage only where it materially increases confidence
+  in transaction/fencing correctness; performance/load tuning and generalized
+  retry optimization are final-hardening concerns, not Task-7 CORE scope.
 
 ## Task 8: Stage 2 Chat-Native Explicit Remember/Correct/Forget
 
@@ -1498,8 +1584,24 @@ ownership, the exact initial `memory_source_handling` column/type contract, and
 registry-v2 compatibility aliases for existing hotel constants. It adds no new
 Memory family, key, public API, persistence operation, or ADR-level decision.
 
-Spec v0.7 plus this exact plan v0.11 are the current approved execution authority
-for Task 6 and the remaining staged Agent Memory program. Plan v0.11 supersedes
-v0.10 as current execution authority.
+Plan version 0.12 was **Approved on 2026-09-14 by the repository owner** against
+approved spec v0.7 and accepted ADR 0036. It changes Task-7 execution sequencing,
+not architecture: the transaction/store/coordinator invariants remain CORE,
+while exhaustive failure injection, PostgreSQL concurrency/deadlock permutations,
+and production-grade stress evidence move to deferred final hardening. Those
+deferred checks remain mandatory before Task 16/final production-readiness proof.
+
+Plan version 0.13 was **Approved on 2026-09-14 by the repository owner** against
+approved spec v0.7 and accepted ADR 0036. It closes the Task-7 implementation
+ambiguity without adding behavior: `MemoryWriteStore.apply_on(...)` now mirrors
+the already-approved Task-6 write inputs, and the explicit/background coordinator
+request/result value contracts are frozen around existing conversation, Memory,
+source-handling, deletion-epoch, idempotency, CAS, and worker-fence authorities.
+No new `turn_id`, execution mode, persistence operation, or transaction layer is
+introduced.
+
+Spec v0.7 plus this exact plan v0.13 are the current approved execution authority
+for the remaining staged Agent Memory program. Plan v0.13 supersedes v0.12 as
+current execution authority.
 Task checkbox state is execution evidence only; it does not replace task review,
 verification, or repository-owner change-set review.

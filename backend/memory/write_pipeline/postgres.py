@@ -65,6 +65,7 @@ from backend.memory.write_pipeline.uow import (
     MemoryUnitOfWork,
     MemoryWriteError,
     MemoryWriteResult,
+    MemoryWriteStore,
     StaleVersionError,
 )
 from backend.security.models import AuthenticatedPrincipal
@@ -311,6 +312,85 @@ def read_current_versions(
     )
 
 
+def record_source_handling_on(
+    connection: Connection, owner_user_id: str, record: SourceHandlingRecord
+) -> bool:
+    """Persist one durable authority record on the given connection; replay-aware, fail-closed."""
+    if not isinstance(record, SourceHandlingRecord):
+        raise MemoryWriteError(
+            "record_source_handling requires a SourceHandlingRecord."
+        )
+    set_tenant(connection, owner_user_id)
+    existing = (
+        connection.execute(
+            select(source_handling_table).where(
+                source_handling_table.c.owner_user_id == owner_user_id,
+                source_handling_table.c.source_outbox_id
+                == record.source_outbox_id,
+                source_handling_table.c.family == record.family.value,
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .fetchone()
+    )
+    if existing is not None:
+        same = (
+            existing["source_message_id"] == record.source_message_id
+            and existing["outcome"] == record.outcome.value
+            and existing["reason_code"] == record.reason_code.value
+            and existing["recorded_at"] == record.recorded_at
+        )
+        if same:
+            return False
+        raise MemoryWriteError(
+            "A different authority record already exists for this source "
+            "and family; replay with identical content or re-derive the "
+            "decision."
+        )
+    inserted = connection.execute(
+        pg_insert(source_handling_table)
+        .values(
+            owner_user_id=owner_user_id,
+            source_outbox_id=record.source_outbox_id,
+            family=record.family.value,
+            source_message_id=record.source_message_id,
+            outcome=record.outcome.value,
+            reason_code=record.reason_code.value,
+            recorded_at=record.recorded_at,
+        )
+        .on_conflict_do_nothing(
+            constraint="uq_memory_source_handling_authority"
+        )
+        .returning(source_handling_table.c.source_outbox_id)
+    ).scalar_one_or_none()
+    if inserted is not None:
+        return True
+
+    winner = (
+        connection.execute(
+            select(source_handling_table).where(
+                source_handling_table.c.source_outbox_id == record.source_outbox_id,
+                source_handling_table.c.family == record.family.value,
+            )
+        )
+        .mappings()
+        .one()
+    )
+    same = (
+        winner["owner_user_id"] == owner_user_id
+        and winner["source_message_id"] == record.source_message_id
+        and winner["outcome"] == record.outcome.value
+        and winner["reason_code"] == record.reason_code.value
+        and winner["recorded_at"] == record.recorded_at
+    )
+    if same:
+        return False
+    raise MemoryWriteError(
+        "A different authority record already exists for this source and family."
+    )
+
+
 def record_source_handling(
     engine: Engine, owner_user_id: str, record: SourceHandlingRecord
 ) -> bool:
@@ -329,80 +409,8 @@ def record_source_handling(
     record's authoritative content: two records differing only in time are
     two different decisions and conflict.
     """
-    if not isinstance(record, SourceHandlingRecord):
-        raise MemoryWriteError(
-            "record_source_handling requires a SourceHandlingRecord."
-        )
     with transaction(engine) as connection:
-        set_tenant(connection, owner_user_id)
-        existing = (
-            connection.execute(
-                select(source_handling_table).where(
-                    source_handling_table.c.owner_user_id == owner_user_id,
-                    source_handling_table.c.source_outbox_id
-                    == record.source_outbox_id,
-                    source_handling_table.c.family == record.family.value,
-                )
-                .with_for_update()
-            )
-            .mappings()
-            .fetchone()
-        )
-        if existing is not None:
-            same = (
-                existing["source_message_id"] == record.source_message_id
-                and existing["outcome"] == record.outcome.value
-                and existing["reason_code"] == record.reason_code.value
-                and existing["recorded_at"] == record.recorded_at
-            )
-            if same:
-                return False
-            raise MemoryWriteError(
-                "A different authority record already exists for this source "
-                "and family; replay with identical content or re-derive the "
-                "decision."
-            )
-        inserted = connection.execute(
-            pg_insert(source_handling_table)
-            .values(
-                owner_user_id=owner_user_id,
-                source_outbox_id=record.source_outbox_id,
-                family=record.family.value,
-                source_message_id=record.source_message_id,
-                outcome=record.outcome.value,
-                reason_code=record.reason_code.value,
-                recorded_at=record.recorded_at,
-            )
-            .on_conflict_do_nothing(
-                constraint="uq_memory_source_handling_authority"
-            )
-            .returning(source_handling_table.c.source_outbox_id)
-        ).scalar_one_or_none()
-        if inserted is not None:
-            return True
-
-        winner = (
-            connection.execute(
-                select(source_handling_table).where(
-                    source_handling_table.c.source_outbox_id == record.source_outbox_id,
-                    source_handling_table.c.family == record.family.value,
-                )
-            )
-            .mappings()
-            .one()
-        )
-        same = (
-            winner["owner_user_id"] == owner_user_id
-            and winner["source_message_id"] == record.source_message_id
-            and winner["outcome"] == record.outcome.value
-            and winner["reason_code"] == record.reason_code.value
-            and winner["recorded_at"] == record.recorded_at
-        )
-        if same:
-            return False
-        raise MemoryWriteError(
-            "A different authority record already exists for this source and family."
-        )
+        return record_source_handling_on(connection, owner_user_id, record)
 
 
 def load_source_handling(
@@ -496,7 +504,7 @@ def _require_fence_reason(reason: FenceReason | None, check: str) -> FenceReason
     return reason
 
 
-class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
+class PostgresMemoryUnitOfWork(MemoryUnitOfWork, MemoryWriteStore):
     """Apply resolved changes atomically against PostgreSQL."""
 
     def __init__(self, engine: Engine, *, max_attempts: int = _MAX_ATTEMPTS) -> None:
@@ -504,11 +512,12 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
         self._engine = engine
         self._max_attempts = max_attempts
 
-    def apply_memory_change(
+    def apply_on(
         self,
-        change,
-        principal: AuthenticatedPrincipal,
+        connection: Connection,
         *,
+        change: MemoryChangeSet,
+        principal: AuthenticatedPrincipal,
         evidence: tuple[MemoryEvidence, ...] = (),
         decision: MemoryDecisionDraft | None = None,
         idempotency_key: str | None = None,
@@ -516,7 +525,7 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
         fence: FenceContext | None = None,
         source_validity: SourceValidity | None = None,
     ) -> MemoryWriteResult:
-        """Apply one change with bounded retry on write contention."""
+        """Apply one resolved change atomically on the supplied connection."""
         self._check_inputs(
             change, principal, evidence, decision, idempotency_key, source_validity
         )
@@ -537,20 +546,45 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
             raise CrossOwnerDeniedError(
                 "The change does not belong to this owner scope."
             )
+        return self._apply_once(
+            connection,
+            change,
+            principal,
+            evidence,
+            decision,
+            idempotency_key,
+            expected_version_id,
+            fence,
+            source_validity,
+        )
+
+    def apply_memory_change(
+        self,
+        change: MemoryChangeSet,
+        principal: AuthenticatedPrincipal,
+        *,
+        evidence: tuple[MemoryEvidence, ...] = (),
+        decision: MemoryDecisionDraft | None = None,
+        idempotency_key: str | None = None,
+        expected_version_id: str | None = None,
+        fence: FenceContext | None = None,
+        source_validity: SourceValidity | None = None,
+    ) -> MemoryWriteResult:
+        """Apply one change with bounded retry on write contention."""
         last_error: Exception | None = None
         for _ in range(self._max_attempts):
             try:
                 with transaction(self._engine) as connection:
-                    return self._apply_once(
+                    return self.apply_on(
                         connection,
-                        change,
-                        principal,
-                        evidence,
-                        decision,
-                        idempotency_key,
-                        expected_version_id,
-                        fence,
-                        source_validity,
+                        change=change,
+                        principal=principal,
+                        evidence=evidence,
+                        decision=decision,
+                        idempotency_key=idempotency_key,
+                        expected_version_id=expected_version_id,
+                        fence=fence,
+                        source_validity=source_validity,
                     )
             except MemoryWriteError:
                 raise
