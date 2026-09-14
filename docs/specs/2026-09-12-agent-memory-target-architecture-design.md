@@ -3,13 +3,14 @@
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Version | 0.2 |
+| Version | 0.4 |
 | Date | 2026-09-12 |
+| Last amended | 2026-09-13 |
 | Change class | Level 3 - Architecture Design |
 | Decision owner | Repository owner |
 | Scope | Chat-first, PostgreSQL-backed Agent Memory covering turn understanding, explicit/inferred write, consolidation, lifecycle, read, use, evaluation, and multi-conversation behavior |
 | Related issue | Repository-owner approved exception: interactive Memory architecture redesign on 2026-09-12 |
-| Superseded document | [Unified Multi-Conversation Agent Memory Architecture](./2026-09-10-unified-multi-conversation-agent-memory-architecture.md), superseded by this approved specification on 2026-09-12 |
+| Superseded document | [Unified Multi-Conversation Agent Memory Architecture](./2026-09-10-unified-multi-conversation-agent-memory-architecture.md), superseded by approved v0.2 on 2026-09-12 |
 
 ## Summary
 
@@ -53,9 +54,11 @@ Verified current baseline:
 | `backend/memory/write_pipeline/registry.py` | Current registry proves one semantic preference slice | Target generality must grow by evaluated vertical slices, not free-form keys |
 | ADR 0020 | Separate public Memory management was intentionally removed | Chat-native explicit Memory is the allowed future direction |
 
-Everything below is approved target behavior. It remains unimplemented until
-the required ADRs and implementation plan are approved and the staged work is
-separately verified.
+The v0.2 baseline below was approved on 2026-09-12. The v0.3 dialogue-state
+responsibility refinement and the v0.4 source-handling proposal/authority
+clarification were approved by the repository owner on 2026-09-13. Target
+behavior remains unimplemented until its governing implementation plan and
+staged verification are satisfied.
 
 ## Problem Statement
 
@@ -260,14 +263,37 @@ technique.
 Turns such as `"tiếp tục đi"`, `"cái đầu tiên"`, or `"giữ cái đó nhưng đổi
 ngày"` depend on prior context.
 
-`DialogueStateResolver` derives ephemeral current-turn state from recent turns:
-active topic, referents, current goal, pending clarification, and similar
-short-lived dependencies. Once Working Memory exists in Stage 5, eligible
-Working Memory becomes an additional governed input. Stage 1 does not depend on
-a Memory family that has not yet been implemented.
+`DialogueStateResolver` deterministically assembles ephemeral dialogue context
+from eligible recent-turn rows. Its Stage-1 responsibility is structural:
+retain delivered user/assistant turns in stored sequence order, expose the
+latest user and assistant turns, and fail closed if rows from more than one
+conversation are supplied. It does not infer topic, referents, goal, intent, or
+clarification semantics.
+
+`TurnUnderstanding` owns semantic interpretation of the current message against
+that structural context. It derives active topic, referents, current goal,
+pending clarification, and similar short-lived semantic dependencies. This
+keeps transcript reconstruction deterministic while giving language
+interpretation one owner.
+
+Once Working Memory exists in Stage 5, eligible Working Memory becomes an
+additional governed input to dialogue-state reconstruction. It supplements
+recent-turn context; it does not transfer semantic-interpretation ownership out
+of `TurnUnderstanding`. Stage 1 does not depend on a Memory family that has not
+yet been implemented.
 
 `DialogueState` is reconstructed and discarded. It is not a second durable
 Working Memory store.
+
+**Decision and trade-off.** Keeping `DialogueStateResolver` structural gives the
+system one deterministic place for transcript eligibility, ordering, and
+conversation isolation, and one semantic owner in `TurnUnderstanding`. This
+reduces duplicate language heuristics and makes state reconstruction easy to
+test without a model. The trade-off is that `TurnUnderstanding` carries more of
+the semantic workload and cannot rely on pre-interpreted topic/referent fields.
+If multiple future consumers need reusable semantic dialogue state, that should
+be introduced as a separately approved typed semantic contract rather than by
+silently moving interpretation back into the resolver.
 
 ### TurnUnderstanding
 
@@ -401,7 +427,48 @@ If one phase cannot safely satisfy the request, return the appropriate
 
 Background Memory must not infer permission from absence.
 
-Each source/outbox event has a family-specific record:
+Stage 1 separates a non-authoritative orchestration proposal from the durable
+family-specific authority record. `MemoryFamily` is one closed vocabulary:
+
+```text
+SEMANTIC
+EPISODIC
+WORKING
+PROCEDURAL
+```
+
+Task 5 may produce background-handling proposals only for `SEMANTIC`; the other
+families become operational only in their separately evaluated stages.
+
+Orchestration produces a typed proposal without needing storage-owned outbox
+identity:
+
+```text
+SourceHandlingProposal(
+  source_message_id,
+  family,
+  outcome,
+  reason_code,
+)
+
+SourceHandlingProposalOutcome:
+  BACKGROUND_ELIGIBLE
+  BACKGROUND_BLOCKED
+
+SourceHandlingReason:
+  EXPLICIT_ACTION
+  BACKGROUND_POLICY_ELIGIBLE
+  AMBIGUOUS_INTENT
+  SENSITIVE_BLOCKED
+```
+
+The mapping is closed: `BACKGROUND_POLICY_ELIGIBLE` may propose
+`BACKGROUND_ELIGIBLE`; explicit action, ambiguous intent, and sensitive/prohibited
+source handling propose `BACKGROUND_BLOCKED`. The proposal is evidence about the
+current turn only. It never grants worker authority and it does not fabricate or
+query a `source_outbox_id`.
+
+The authoritative durable contract is the family-specific record:
 
 ```text
 SourceHandlingRecord(
@@ -414,7 +481,7 @@ SourceHandlingRecord(
 )
 ```
 
-Representative outcomes:
+The governed authoritative outcomes are:
 
 ```text
 BACKGROUND_ELIGIBLE
@@ -425,10 +492,17 @@ FORGET_APPLIED
 FORGET_REFUSED
 ```
 
-Invariant: absence means `UNHANDLED`, never permission.
+`UNHANDLED` is deliberately **not** an outcome enum member. It is the semantic
+state created by absence of a persisted `SourceHandlingRecord`; absence never
+means permission. A blocked proposal likewise cannot be reinterpreted as
+background permission merely because no record has been persisted yet.
 
 The stable uniqueness boundary is `(source_outbox_id, family)`. Background
-formation may process a family only after positive `BACKGROUND_ELIGIBLE`.
+formation may process a family only after a persisted positive
+`BACKGROUND_ELIGIBLE` record. Binding the actual `source_outbox_id` belongs to
+the Stage-2 transaction/persistence seam, where storage identity is available;
+Stage 1 must not widen the Conversation API or query storage solely to obtain an
+outbox identifier for a proposal.
 
 ## Components and Responsibilities
 
@@ -436,10 +510,11 @@ formation may process a family only after positive `BACKGROUND_ELIGIBLE`.
 | --- | --- | --- |
 | `ChatApplication` | One bounded synchronous turn: state resolution, routing, context planning, generation, terminal state | Background extraction lifecycle |
 | `ConversationStore` | Messages, turn allocation/completion, outbox capture/release/cancellation, deletion fence, transaction-aware guarded turn transition | Memory semantics |
-| `DialogueStateResolver` | Ephemeral referents/topic/goal state | Durable Memory |
-| `TurnUnderstanding` | Typed semantic interpretation | Mutation authority |
+| `DialogueStateResolver` | Deterministic structural dialogue context from one conversation: eligible recent turns, stored ordering, latest user/assistant turns, later eligible Working Memory input | Semantic interpretation or durable Memory |
+| `TurnUnderstanding` | Typed semantic interpretation of the current message against `DialogueState`, including topic/referent/goal/clarification semantics | Mutation authority or transcript persistence |
 | `ActionRouter` | Deterministic branch selection | Tool execution or persistence |
 | `ExplicitIntentGate` | High-precision authorization of remember/correct/forget speech acts | Key/value parsing, SQL, lifecycle effect |
+| `SourceHandlingPolicy` | Pure family-specific typed proposal and positive-background gate semantics | Outbox identity lookup, persistence, worker formation, or durable mutation authority |
 | `ExplicitMemoryActionHandler` | Registry/scope/retention/sensitivity/conflict validation and typed change proposal | Transaction commit |
 | `ExplicitMemoryTurnCommit` | API-owned transaction for atomic explicit Memory + acknowledgement + source-handling + guarded terminal turn commit | Semantic interpretation |
 | `BackgroundMemoryCommit` | Worker-owned transaction for fenced background semantic effect + source-event completion | Explicit/API-turn authority |
@@ -536,8 +611,8 @@ or RAG implementations.
 
 1. Authenticate and resolve/create owner-scoped conversation.
 2. Allocate durable turn + extraction outbox intent.
-3. Reconstruct `DialogueState`.
-4. Produce validated `TurnSemantics`.
+3. Reconstruct deterministic structural `DialogueState` from the current conversation.
+4. Interpret the current message against that state and produce validated `TurnSemantics`.
 5. Route `NORMAL_QUERY`.
 6. ContextPlanner chooses among the source modes enabled for the current stage.
 7. Execute Memory/RAG reads; `both` may run in parallel.
@@ -754,7 +829,9 @@ mutating durable state.
    corroboration.
 5. Explicit mutation + idempotency + source handling + acknowledgement + terminal
    effect commits atomically.
-6. Missing `SourceHandlingRecord` is `UNHANDLED`, never background permission.
+6. A `SourceHandlingProposal` is non-authoritative; missing persisted
+   `SourceHandlingRecord` is `UNHANDLED`, never background permission, and only a
+   persisted `BACKGROUND_ELIGIBLE` record grants background formation.
 7. Evidence/committed decisions are append-auditable, not silently rewritten.
 8. One source cannot count as multiple independent evidence items.
 9. Authority, scope, retention, sensitivity, lifecycle, and response precedence
@@ -904,18 +981,24 @@ rejection is enforceable rather than conventional.
 
 Add DialogueStateResolver, TurnUnderstanding, `TurnDisposition`, ActionRouter,
 ContextPlanner contract, ExplicitIntentGate, and family-specific
-SourceHandlingRecord. Stage 1 DialogueState uses recent turns only. The planner
-exposes the final source-mode vocabulary but only `none|rag_only` are reachable
-until Memory Read exists. Harden operational redaction/trace boundaries before
-new Memory traces are enabled. Evaluate semantics before enabling new durable
-explicit behavior. `explicit_inspect` may be recognized here but remains an
-internal unavailable capability until Stage 3.
+`SourceHandlingProposal` plus the pure record/gate contract. Stage 1 does not
+persist source handling and does not obtain `source_outbox_id`; proposals remain
+non-authoritative. Stage 1 DialogueState uses recent turns only and remains a
+deterministic structural context contract; TurnUnderstanding owns semantic
+topic/referent/goal/clarification interpretation. The planner exposes the final
+source-mode vocabulary but only `none|rag_only` are reachable until Memory Read
+exists. Harden operational redaction/trace boundaries before new Memory traces
+are enabled. Evaluate semantics before enabling new durable explicit behavior.
+`explicit_inspect` may be recognized here but remains an internal unavailable
+capability until Stage 3.
 
 ### Stage 2 — Explicit Semantic Write/Store Lifecycle
 
 Add persisted retention modes, optional temporal expiry, `REVOKE`/`REVOKED`,
-suppression generation, `MemoryLifecyclePolicy`, Chat-native mutating semantic
-actions, transaction-aware
+suppression generation, persisted family-specific `SourceHandlingRecord`,
+binding of actual `(source_outbox_id, family)` identity at the storage/transaction
+seam, `MemoryLifecyclePolicy`, Chat-native mutating semantic actions,
+transaction-aware
 Conversation/Memory write seams, shared tenant/conversation fence primitives,
 `ExplicitMemoryTurnCommit`, and `BackgroundMemoryCommit`. Prove canonical lock
 ordering, guarded turn completion, remember/correct/forget/re-remember,
@@ -942,7 +1025,8 @@ Active inference requires a separately approved conclusive evaluation gate.
 Add one evaluated vertical slice at a time, including formation, retention,
 consolidation, read/use, deletion, failure, and evaluation. Once Working Memory
 exists and passes its gate, eligible Working Memory becomes an additional input
-to `DialogueStateResolver`.
+to `DialogueStateResolver`; recent turns remain the immediate structural
+dialogue source and `TurnUnderstanding` remains the semantic interpreter.
 
 ### Stage 6 — Secondary Retrieval Projections
 
@@ -985,7 +1069,7 @@ Rollback rules:
 Existing accepted constraints include ADR 0012, 0013, 0014, 0020, 0023, 0027,
 0029, and the accepted worker lease/fence/credential decisions.
 
-This approved specification requires ADRs for:
+The target architecture requires ADRs for:
 
 1. Chat-native Memory actions + deterministic explicit-intent authority + atomic
    `ExplicitMemoryTurnCommit`, `BackgroundMemoryCommit`, transaction-aware
@@ -1009,13 +1093,16 @@ The target architecture must preserve these outcomes:
 
 1. authenticated PostgreSQL-only standalone Chat remains the baseline;
 2. Workspace/SQLite/separate Memory Manager are not reintroduced;
-3. Turn Understanding is typed and non-authoritative;
+3. `DialogueStateResolver` is a deterministic one-conversation structural
+   context assembler, while Turn Understanding is the typed, non-authoritative
+   owner of semantic topic/referent/goal/clarification interpretation;
 4. durable explicit mutations require deterministic speech-act corroboration;
 5. explicit Memory mutation + ack + source handling + idempotency commit atomically;
 6. authority/scope/retention/sensitivity/lifecycle/response precedence remain
    distinct;
 7. forget prevents stale resurrection at formation, activation, and read;
-8. background extraction requires positive source handling;
+8. background extraction requires a persisted positive family-specific
+   `BACKGROUND_ELIGIBLE` record; a proposal or missing record is insufficient;
 9. only lifecycle-eligible relevant active Memory enters controlled context;
 10. explicit semantic end-to-end behavior passes before inferred activation;
 11. each additional Memory family arrives as an evaluated vertical slice;
@@ -1054,10 +1141,22 @@ Architecture approval alone does not authorize implementation of this target.
 
 ## Approval Record
 
-Version 0.2 was **Approved on 2026-09-12 by the repository owner**. By itself,
-this architecture approval authorizes preparation and review of the required
-ADRs only. It does not authorize code, migrations, feature enablement,
-implementation-plan execution, Git delivery, or release.
+Version 0.2 was **Approved on 2026-09-12 by the repository owner**.
+
+Version 0.3 was **Approved on 2026-09-13 by the repository owner**. It narrows
+the responsibility boundary discovered during Task-3 review:
+`DialogueStateResolver` owns deterministic structural context assembly and
+conversation isolation; `TurnUnderstanding` owns semantic
+topic/referent/goal/clarification interpretation. Version 0.3 supersedes v0.2 as
+the prior approved architecture record for this program.
+
+Version 0.4 was **Approved on 2026-09-13 by the repository owner**. It clarifies
+the Task-5/Stage-2 authority boundary without changing ADR 0038: orchestration
+produces a typed, non-authoritative `SourceHandlingProposal`; the persisted
+`SourceHandlingRecord` is the authority object; absence is `UNHANDLED`; only a
+persisted `BACKGROUND_ELIGIBLE` record grants background formation; and actual
+`source_outbox_id` binding stays at the later storage/transaction seam. Version
+0.4 supersedes v0.3 as the current approved architecture record.
 
 ## References
 

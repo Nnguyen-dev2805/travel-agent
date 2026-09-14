@@ -20,20 +20,20 @@ structured context to generation.
 PostgreSQL 16, pytest, existing RAG/generation seams. pgvector/full-text are not
 introduced unless Stage 6 evidence proves structured retrieval insufficient.
 
-**Spec:** [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.2 (Approved 2026-09-12)
+**Spec:** [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.4 (Approved 2026-09-13)
 
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Plan version | 0.5 — closes Semantic Registry v2 set-value consolidation semantics and Stage-2 traceability gaps in plan v0.4 |
+| Plan version | 0.8 — clarifies Task-5 proposal-vs-authority contracts and defers outbox-identity binding/persistence to Stage 2 |
 | Date | 2026-09-12 |
 | Last amended | 2026-09-13 |
-| Approved specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.2, Approved 2026-09-12 |
+| Approved specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.4, Approved 2026-09-13 |
 | Required ADRs | ADR 0036, 0037, 0038, 0039, 0040 — Accepted 2026-09-12 |
 | Execution owner | Coding agent under repository-owner instruction |
 | Decision owner | Repository owner |
-| Approval | Repository owner approved exact plan v0.5 on 2026-09-13 |
-| Scope | Stages 1–7 of the approved target architecture, with independent rollout gates and evidence-based stop conditions |
+| Approval | Repository owner approved exact plan v0.8 on 2026-09-13 |
+| Scope | Stages 1–7 of the target architecture, with independent rollout gates and evidence-based stop conditions |
 | Verification | Focused unit tests per task, required PostgreSQL integration tests without required skips, evaluation gates, full backend suite, frontend regression suite, `compileall`, `git diff --check`, and exact change-set review |
 
 ## Global Constraints
@@ -56,7 +56,9 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 7. A successful explicit mutation atomically commits Memory effect, semantic
    idempotency result, `SourceHandlingRecord`, deterministic acknowledgement,
    and the guarded terminal turn transition.
-8. Missing `SourceHandlingRecord` means `UNHANDLED`, never background permission.
+8. A `SourceHandlingProposal` is non-authoritative. Missing persisted
+   `SourceHandlingRecord` means `UNHANDLED`, never background permission; only a
+   persisted `BACKGROUND_ELIGIBLE` record grants background formation.
 9. Product forget is `REVOKE`/`REVOKED` plus suppression generation. It is not
    privacy erasure; stale generations cannot form, activate, or read.
 10. `retention_mode`, optional `expires_at`, and source validity are independent
@@ -136,15 +138,15 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | `backend/observability/events.py` | Single structured emission boundary; no raw-content escape hatch | 2 |
 | `backend/app/api/chat.py` | Reclassify legacy domain literals away from `failure_class` | 2 |
 | `backend/app/api/conversations.py` | Reclassify legacy domain literals away from `failure_class` | 2 |
-| `backend/orchestration/turn_models.py` | Closed turn-understanding, disposition, routing, context-plan contracts | 3 |
-| `backend/orchestration/dialogue_state.py` | Ephemeral recent-turn state and referents | 3, 13 |
+| `backend/orchestration/turn_models.py` | Closed turn-understanding, disposition, routing, explicit-intent, and context-plan contracts | 3, 4 |
+| `backend/orchestration/dialogue_state.py` | Ephemeral structural recent-turn dialogue state; no topic/referent/goal/intent/clarification inference | 3, 13 |
 | `backend/orchestration/turn_understanding.py` | Deterministic-first understanding plus bounded structured parse | 4 |
 | `backend/orchestration/action_router.py` | Deterministic branch selection and explicit-intent gate | 4 |
 | `backend/orchestration/context_planner.py` | `none/rag_only/memory_only/both` source plan | 4, 10 |
 | `backend/orchestration/context_arbiter.py` | Precedence/token-budget admission and source-to-generation projection | 10 |
-| `backend/orchestration/conversation_orchestrator.py` | Bounded one-turn workflow and internal `TurnDisposition` | 4, 8, 10 |
+| `backend/orchestration/conversation_orchestrator.py` | Bounded one-turn workflow, internal `TurnDisposition`, and Task-5 typed source-handling proposal production | 4, 5, 8, 10 |
 | `backend/generation/contracts.py` | Source-neutral generation context/citation/result/sufficiency contracts | 10 |
-| `backend/memory/source_handling.py` | Family source outcomes, typed reasons, positive background authority | 5 |
+| `backend/memory/source_handling.py` | Stdlib-only Memory-family/source-handling vocabulary, non-authoritative proposals, record contract, and fail-closed positive-background predicate | 5 |
 | `backend/memory/lifecycle.py` | Single lifecycle-policy owner | 6 |
 | `backend/memory/explicit_actions.py` | Chat-native remember/correct/forget/inspect proposals | 8, 10 |
 | `backend/memory/commit_coordinators.py` | Explicit/background transaction ownership | 7 |
@@ -166,7 +168,9 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | `backend/memory/write_pipeline/resolver.py` | Deterministic single/set consolidation, immutable set snapshot transitions, and `REVOKE` | 6 |
 | `backend/memory/write_pipeline/postgres.py` | Canonical Memory store primitives | 6, 7, 9, 11 |
 | `backend/memory/write_pipeline/worker.py` | Positive handling + background commit | 11 |
-| `backend/conversations/postgres_repository.py` | Caller-owned transaction primitives preserving guarded transitions | 7 |
+| `backend/conversations/repository.py` | Owner-scoped repository contract for bounded recent-dialogue reads | 4 |
+| `backend/conversations/service.py` | Application seam for bounded recent dialogue strictly before the current user message | 4 |
+| `backend/conversations/postgres_repository.py` | Bounded recent-dialogue read plus caller-owned transaction primitives preserving guarded transitions | 4, 7 |
 | `backend/app/runtime_container.py` | Runtime composition only; no new public Memory router | 8, 10, 15 |
 | `backend/rag/contracts.py` | RAG-owned retrieval evidence/citation/ContextBundle; not generic Memory context | 10 |
 | `backend/rag/generation/llm.py` | Transitional generator consumes neutral `GenerationContext`, not RAG evidence semantics | 10 |
@@ -200,7 +204,7 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 ## Acceptance-Criteria Traceability
 
 This table is the execution/review map for the 20 acceptance criteria in the
-approved specification. A criterion is not considered implemented merely
+approved governing specification. A criterion is not considered implemented merely
 because a task mentions the same concept; the mapped task must produce the
 corresponding verification evidence and Task 16 must confirm the final
 cross-stage behavior.
@@ -340,6 +344,13 @@ class DialogueStateResolver:
     def resolve(self, recent_turns: Sequence[Message]) -> DialogueState: ...
 ```
 
+`DialogueStateResolver` is deliberately structural in Stage 1. It reconstructs
+eligible delivered user/assistant turns from exactly one conversation, orders
+them by stored `sequence`, and exposes the latest user/assistant turns. It must
+not infer topic, referents, current goal, intent, or clarification semantics;
+those belong to `TurnUnderstanding` in Task 4. Mixed-conversation input fails
+closed instead of producing plausible cross-conversation state.
+
 The approved combination contract copied from the specification is:
 
 | Persisted `MessageStatus` | Finalized `TurnDisposition` |
@@ -348,20 +359,30 @@ The approved combination contract copied from the specification is:
 | `FAILED` | any non-`ANSWERED` terminal disposition; never `ANSWERED` |
 | `COMPLETE` | `ANSWERED`, `NEEDS_CLARIFICATION`, `INCOMPLETE`, or `EXECUTION_FAILED` |
 
-- [ ] Write RED tests for the matrix above and context-dependent turns such as
-  `"tiếp tục đi"`; tests must not invent additional persistence semantics.
-- [ ] Run the focused tests and confirm import/contract failure.
-- [ ] Implement immutable closed contracts and deterministic recent-turn-only
-  `DialogueStateResolver`; no model, DB write, or Working Memory dependency.
-- [ ] Re-run focused tests to GREEN.
-- [ ] Review: public `ChatResponse` has no `TurnDisposition`; resolver imports no
+- [x] Write RED tests for the matrix above and structural dialogue-state
+  reconstruction: empty history, stored ordering, pending/failed filtering,
+  latest delivered user/assistant turns, and mixed-conversation rejection;
+  tests must not invent additional persistence semantics.
+- [x] Run the focused tests and confirm import/contract failure.
+- [x] Implement immutable closed contracts and deterministic recent-turn-only
+  `DialogueStateResolver`; no semantic interpretation, model, DB write, or
+  Working Memory dependency. Reject mixed-conversation input deterministically.
+- [x] Re-run focused tests to GREEN.
+- [x] Review: public `ChatResponse` has no `TurnDisposition`; resolver imports no
   Memory persistence/provider module.
 
 ## Task 4: Stage 1 Understanding, Explicit Intent Gate, Router, and Planner
 
-**Files:** Create `turn_understanding.py`, `action_router.py`,
-`context_planner.py`; modify `conversation_orchestrator.py`, `app/config.py`, and
-Memory evaluation docs/modules; add focused unit tests.
+**Files:** Modify `backend/orchestration/turn_models.py`; create
+`backend/orchestration/turn_understanding.py`,
+`backend/orchestration/action_router.py`, and
+`backend/orchestration/context_planner.py`; modify
+`backend/orchestration/conversation_orchestrator.py`, `backend/app/config.py`,
+`backend/conversations/repository.py`, `backend/conversations/service.py`, and
+`backend/conversations/postgres_repository.py`; create
+`docs/evaluation/agent-memory-evaluation.md`; modify only the existing Memory
+evaluation modules needed to compute the Stage-1 metrics; add focused unit and
+repository/service tests.
 
 **Interfaces:**
 
@@ -374,7 +395,53 @@ class ExplicitIntentGate:
 
 class ContextPlanner:
     def plan(self, understanding: TurnUnderstandingResult) -> ContextPlan: ...
+
+class ConversationService:
+    def get_recent_messages_before(
+        self,
+        conversation_id: str,
+        owner_user_id: str,
+        before_sequence: int,
+        limit: int = DEFAULT_HISTORY_LIMIT,
+    ) -> tuple[Message, ...]: ...
 ```
+
+`turn_models.py` is the single contract owner for Task-4 closed orchestration
+types. Task 4 may add immutable `TurnUnderstandingResult`,
+`ExplicitIntentDecision`, `ContextPlan`, and their closed enums there; behavior
+stays in `turn_understanding.py`, `action_router.py`, and `context_planner.py`.
+Do not create parallel model modules for the same contracts.
+
+**Recent-dialogue reconstruction contract:** Task 4 does not read an unbounded
+conversation and does not use `get_messages_in_range(..., limit=N)` as a
+substitute for "latest N": the existing range API orders ascending before
+applying `LIMIT`, so on a long conversation that would select the oldest rows in
+the range. Add the dedicated owner-scoped `get_recent_messages_before()` seam.
+Its storage implementation selects at most `DEFAULT_HISTORY_LIMIT = 50` rows
+with `sequence < before_sequence`, chooses the newest matching rows, then returns
+them in ascending transcript order. It must not assume sequence numbers are
+dense. The current user message is passed separately to `TurnUnderstanding` and
+must not appear inside `DialogueState`; for a just-persisted user message at
+sequence `S`, orchestration reads history with `before_sequence=S`. A first turn
+therefore resolves an empty `DialogueState`. No new Task-4 history-window tuning
+setting is introduced.
+
+Task 4 consumes only the current message plus bounded recent dialogue.
+Conversation Summary and Working Memory are explicitly outside this task; Stage
+1 must not depend on either future context mechanism.
+
+`TurnUnderstanding` owns the semantic outputs already governed by the spec:
+`interaction_mode`, topics, entities/referents, current assertions and
+overrides, Memory namespaces needed, temporal context, clarification need, and
+closed reason codes. `DialogueStateResolver` remains structural and does not
+pre-compute any of them.
+
+`ExplicitIntentGate` is an authorization boundary, not another extractor. It
+deterministically corroborates explicit remember/correct/forget speech acts;
+model classification or payload parsing alone cannot authorize durable state.
+`explicit_inspect` may be recognized in Stage 1, but before Stage 3 it returns a
+controlled internal `INCOMPLETE`/capability-unavailable result and never
+fabricates Memory state.
 
 **Stage-1 rollout contract:** the planner produces a **proposed** context plan
 for shadow evaluation only. Normal-query execution keeps the current RAG-only
@@ -384,38 +451,92 @@ retrieval or change answer grounding on the authority of the new planner. Add
 Planner-authoritative source execution begins only in Task 10 after the
 context-mode quality gate and neutral generation seam exist.
 
-- [ ] RED fixtures cover normal query, obvious remember/correct/forget,
-  ambiguous/quoted/negated commands, `"tiếp tục đi"`, and inspect.
-- [ ] Implement deterministic-first understanding; optional semantic parser is
-  one structured hard-timeout call and never grants durable authority.
-- [ ] Planner exposes all four enum values but Stage 1 can return only `NONE` or
+- [x] Write RED repository/service tests for `get_recent_messages_before()`:
+  owner isolation, exclusive `before_sequence`, first-turn empty history,
+  newest-50 selection from a history longer than 50 rows, ascending returned
+  order, and a sparse-sequence fixture proving the implementation does not
+  derive the window by arithmetic over sequence density.
+- [x] Implement the dedicated bounded recent-history repository/service seam.
+  The PostgreSQL query may select descending to apply the limit to the newest
+  eligible rows, but the application contract always returns ascending
+  transcript order to `DialogueStateResolver`.
+- [x] RED fixtures cover normal query, obvious remember/correct/forget,
+  ambiguous/quoted/negated commands, context-dependent turns such as
+  `"tiếp tục đi"`, `"cái đầu tiên"`, and `"giữ cái đó nhưng đổi ngày"`, and inspect.
+- [x] Prove `TurnUnderstanding` — not `DialogueStateResolver` — derives the
+  active topic, referent(s), current goal, and pending-clarification semantics
+  needed by those context-dependent turns from the current message plus
+  structural `DialogueState`.
+- [x] Implement deterministic-first understanding; optional semantic parser is
+  at most one structured hard-timeout call, returns only the governed closed
+  schema, and never grants durable authority. A parser timeout/schema failure
+  degrades to deterministic ambiguity/clarification behavior; it does not
+  silently authorize an action or widen the context plan.
+- [x] Planner exposes all four enum values but Stage 1 can return only `NONE` or
   `RAG_ONLY`; inspect returns controlled `INCOMPLETE` before Stage 3. Record the
   proposed plan for evaluation, but while
   `CONTEXT_PLANNER_ENFORCEMENT_ENABLED=False` keep the effective normal-query
   source plan at the existing `RAG_ONLY` baseline.
-- [ ] RED orchestration regression proves a Stage-1 proposal of `NONE` still
+- [x] RED orchestration regression proves a Stage-1 proposal of `NONE` still
   executes the existing RAG generation path and cannot silently produce an
   ungrounded answer.
-- [ ] Add internal `disposition` to `TurnOutcome` without changing Chat schema.
-- [ ] Add intent precision/recall, durable-action false-positive rate,
-  clarification correctness, context-mode evaluation, and **false-`NONE` rate**:
-  grounding-required queries proposed as `NONE` divided by all approved
-  grounding-required fixtures. The hard-gate dataset requires zero false-`NONE`
-  before planner enforcement may be enabled; missing fixtures are
-  `INCONCLUSIVE`.
-- [ ] Review: zero durable-action false positives on the approved hard-gate set.
+- [x] Add internal `disposition` to `TurnOutcome` without changing Chat schema.
+- [x] Create `docs/evaluation/agent-memory-evaluation.md` as the canonical staged
+  evaluation record, then add intent precision/recall, durable-action
+  false-positive rate, clarification correctness, context-mode evaluation, and
+  **false-`NONE` rate**: grounding-required queries proposed as `NONE` divided by
+  all approved grounding-required fixtures. The artifact records dataset/fixture
+  identity, metric definition, result, and gate state so Tasks 11–16 can extend
+  the same evidence rather than creating parallel reports.
+- [x] Treat missing/insufficient approved grounding-required fixtures as
+  `INCONCLUSIVE`, never `PASS`. The hard gate requires zero false-`NONE` on a
+  conclusive approved set before planner enforcement may be enabled. While the
+  gate is `INCONCLUSIVE` or failing,
+  `CONTEXT_PLANNER_ENFORCEMENT_ENABLED=False` remains mandatory.
+- [x] Review: zero durable-action false positives on the approved hard-gate set.
+- [x] Review the Stage-1 execution invariant explicitly: Task 4 proves
+  understanding/planning quality but does **not** change normal answer-source
+  execution. A proposed `NONE` still executes the existing RAG-only generation
+  path while enforcement is disabled.
 
 ## Task 5: Positive Family-Specific Source Handling
 
-**Files:** Create `backend/memory/source_handling.py` and unit tests; produce
-typed proposals from orchestration. Persistence lands with Task 6 migration.
+**Files:** Create `backend/memory/source_handling.py` and unit tests; modify
+orchestration only as needed to produce typed proposals. Persistence and actual
+outbox-identity binding land with Task 6/Stage 2; Task 5 must not widen the
+Conversation repository/service API merely to obtain `source_outbox_id`.
 
 ```python
+class MemoryFamily(str, Enum):
+    SEMANTIC = "semantic"
+    EPISODIC = "episodic"
+    WORKING = "working"
+    PROCEDURAL = "procedural"
+
+class SourceHandlingProposalOutcome(str, Enum):
+    BACKGROUND_ELIGIBLE = "background_eligible"
+    BACKGROUND_BLOCKED = "background_blocked"
+
 class SourceHandlingReason(str, Enum):
     EXPLICIT_ACTION = "explicit_action"
     BACKGROUND_POLICY_ELIGIBLE = "background_policy_eligible"
     AMBIGUOUS_INTENT = "ambiguous_intent"
     SENSITIVE_BLOCKED = "sensitive_blocked"
+
+@dataclass(frozen=True)
+class SourceHandlingProposal:
+    source_message_id: str
+    family: MemoryFamily
+    outcome: SourceHandlingProposalOutcome
+    reason_code: SourceHandlingReason
+
+class SourceHandlingOutcome(str, Enum):
+    BACKGROUND_ELIGIBLE = "background_eligible"
+    EXPLICIT_APPLIED = "explicit_applied"
+    EXPLICIT_REFUSED = "explicit_refused"
+    EXPLICIT_NOOP = "explicit_noop"
+    FORGET_APPLIED = "forget_applied"
+    FORGET_REFUSED = "forget_refused"
 
 @dataclass(frozen=True)
 class SourceHandlingRecord:
@@ -427,15 +548,35 @@ class SourceHandlingRecord:
     recorded_at: datetime
 ```
 
-- [ ] RED truth table proves every explicit outcome fails the background gate.
-- [ ] Implement unique authority identity `(source_outbox_id, family)` and
-  `UNHANDLED` semantics; only `BACKGROUND_ELIGIBLE` grants future formation.
+- [ ] RED proposal truth table proves `BACKGROUND_POLICY_ELIGIBLE ->
+  BACKGROUND_ELIGIBLE`, while `EXPLICIT_ACTION`, `AMBIGUOUS_INTENT`, and
+  `SENSITIVE_BLOCKED` produce `BACKGROUND_BLOCKED`. Task 5 may propose
+  background handling only for `MemoryFamily.SEMANTIC`; later families remain
+  contract vocabulary only until their evaluated stages.
+- [ ] RED authority truth table proves `record is None` is `UNHANDLED`/deny and
+  every explicit authoritative outcome fails the background gate. The gate
+  returns allow only for a persisted-shape `SourceHandlingRecord` whose outcome
+  is exactly `BACKGROUND_ELIGIBLE`.
+- [ ] Implement `MemoryFamily`, proposal/outcome/reason vocabularies and the pure
+  fail-closed gate in `backend/memory/source_handling.py` using standard-library
+  dependencies only. Do not import `backend.memory.write_pipeline` into
+  orchestration or duplicate its persistence/lifecycle policy.
+- [ ] Produce a typed `SourceHandlingProposal` from orchestration using the
+  already-persisted `source_message_id`. A proposal has no `source_outbox_id` and
+  cannot grant formation authority. Do not query storage for the outbox row or
+  change `append_turn` / `create_conversation_with_initial_turn` return shapes in
+  Task 5 merely to obtain that identity.
 - [ ] Normal eligible semantic source may propose background eligibility;
-  ambiguous, secret, or explicit-action sources may not.
+  ambiguous, sensitive/prohibited, or explicit-action sources may only produce
+  a blocked proposal. Task 5 does not move or duplicate secret-detection
+  ownership; the typed sensitive-blocked result is a policy input/denial reason,
+  and later formation still revalidates prohibited content before model use.
 - [ ] Keep source-handling reasons typed and closed. Observability may project
   `.value` into its bounded `reason_code`; persistence/domain logic never branches
   on arbitrary free text.
-- [ ] Review: absence is never interpreted as permission.
+- [ ] Review: proposal != permission; absence is never interpreted as permission;
+  `UNHANDLED` is absence of a persisted record, not an enum value; and Task 5
+  introduces no persistence, worker consumer, or config flag.
 
 ## Task 6: Stage 2 Lifecycle Domain and PostgreSQL Schema
 
@@ -450,7 +591,10 @@ unit tests, migration tests, and PostgreSQL integration tests.
 **Contracts:** add `RetentionMode.CONVERSATION_BOUND | SOURCE_BOUND |
 USER_DURABLE`, `MemoryOperation.REVOKE`, `VersionStatus.REVOKED`, nullable
 `expires_at`, generation identity, assertion `suppression_generation`, durable
-source handling, and the first production-useful `semantic-registry-v2`.
+source handling, binding of actual `(source_outbox_id, family)` identity at the
+storage/transaction seam, and the first production-useful
+`semantic-registry-v2`. Reuse Task-5 `MemoryFamily`/`SourceHandlingRecord`
+contracts rather than defining parallel enums or record types.
 
 **Semantic Registry v2 — P0 product slice:**
 
@@ -875,7 +1019,8 @@ formation, activation, read engine; create
 
 **Contract:** Working Memory is governed conversation open state/summary
 replacement, not the ephemeral `DialogueState`. It becomes an additional input
-to `DialogueStateResolver` only after passing lifecycle/read eligibility.
+to `DialogueStateResolver` only after passing lifecycle/read eligibility; that
+does not move semantic interpretation out of `TurnUnderstanding`.
 
 - [ ] RED fixtures cover deterministic replacement, stale-source rejection,
   conversation deletion, current-turn precedence, and non-duplication with
@@ -883,7 +1028,8 @@ to `DialogueStateResolver` only after passing lifecycle/read eligibility.
 - [ ] Implement typed Working Memory and source-consistent replacement; no raw
   transcript blob becomes a durable instruction.
 - [ ] Admit only eligible Working Memory to `DialogueStateResolver`; recent turns
-  remain the immediate referent source.
+  remain the immediate structural dialogue source and `TurnUnderstanding`
+  remains the semantic referent/topic/goal interpreter.
 - [ ] Run cross-conversation/non-leakage, deletion, lifecycle, and read/use
   evaluation.
 - [ ] Review: Working Memory cannot bypass conversation scope or become a second
@@ -1091,6 +1237,10 @@ Stop and return to architecture/plan review when:
 - [x] Stage-1 `ContextPlanner` is shadow-only: proposed `NONE` cannot skip the
   existing RAG baseline. Planner enforcement starts in Task 10 only after a
   conclusive context-mode gate with zero hard-gate false-`NONE` cases.
+- [x] Stage-1 responsibility is single-owner: `DialogueStateResolver` performs
+  deterministic structural context assembly and conversation isolation;
+  `TurnUnderstanding` owns semantic topic/referent/goal/clarification
+  interpretation.
 - [x] `explicit_inspect` is unavailable before Stage 3.
 - [x] Memory Read and RAG remain dependency-separated; source-specific RAG and
   Memory records are projected into a neutral generation contract instead of
@@ -1111,14 +1261,13 @@ Stop and return to architecture/plan review when:
 
 ## Completion Record
 
-Plan version 0.5 is `Approved`. It retains the v0.4 P0
-`semantic-registry-v2` product slice and closes its set-valued semantics:
-typed single/set values, immutable union/replacement snapshots, deterministic
-member-forget behavior, fail-closed contradictory relation output, and an
-explicit all-eight-key Stage-2 gate. This remains inside the approved Semantic
-Memory family and the spec's evaluated-vertical-slice rule; no ADR authority
-boundary changes. Architecture v0.2 and ADR 0036–0040 are approved. The
-repository owner approved this exact plan version on 2026-09-13, so staged
-implementation is authorized under this plan and repository workflow. Task
-checkbox state is execution evidence only; it does not replace task review,
-verification, or repository-owner change-set review.
+Plan version 0.8 is `Approved`; v0.7 remains the prior approved historical
+execution record. v0.8 implements the approved spec-v0.4 clarification without
+changing ADR 0038's authority rule: Task 5 creates stdlib-only family/source
+handling contracts and a non-authoritative typed proposal; `UNHANDLED` remains
+absence of a persisted record; only persisted `BACKGROUND_ELIGIBLE` grants
+formation; and actual outbox identity/persistence stays at the Stage-2
+storage/transaction seam. Task 5 must not widen Conversation persistence APIs
+just to obtain `source_outbox_id`. The repository owner approved this exact plan
+v0.8 on 2026-09-13. Task checkbox state is execution evidence only; it does not
+replace task review, verification, or repository-owner change-set review.
