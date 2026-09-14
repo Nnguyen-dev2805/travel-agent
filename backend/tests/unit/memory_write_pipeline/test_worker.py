@@ -89,6 +89,7 @@ class FakeUoW:
         idempotency_key=None,
         expected_version_id=None,
         fence=None,
+        source_validity=None,
     ):
         self.applied_changes.append(
             {
@@ -98,6 +99,7 @@ class FakeUoW:
                 "decision": decision,
                 "idempotency_key": idempotency_key,
                 "fence": fence,
+                "source_validity": source_validity,
             }
         )
         # If any version were active, record it (for zero-active verification)

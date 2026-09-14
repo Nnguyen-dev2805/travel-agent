@@ -27,6 +27,7 @@ from backend.memory.write_pipeline.models import (
     MemoryOperation,
     MemoryRelation,
     MemoryScope,
+    SourceValidity,
     MemoryVersion,
     SensitivityBand,
     assertion_identity,
@@ -327,6 +328,7 @@ class BackgroundMemoryRecorder:
             decision=decision,
             idempotency_key=semantic_key,
             fence=fence,
+            source_validity=SourceValidity.VALID,
         )
 
         return BackgroundRecordResult(

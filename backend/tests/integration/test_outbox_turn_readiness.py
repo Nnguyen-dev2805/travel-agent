@@ -547,11 +547,13 @@ def test_migration_head_is_the_latest_revision(schema):
     # migration fails here rather than silently reporting readiness for a
     # revision the database is not on.
     #
-    # Bumped by 20260912_01 (backlog-age and dead-letter signals) and by
+    # Bumped by 20260912_01 (backlog-age and dead-letter signals), by
     # 20260912_02, which narrowed the worker's outbox UPDATE to the claim
-    # path's eight columns. See `test_postgres_migrations.py` for the grant
-    # assertions.
-    assert ALEMBIC_HEAD == "20260912_02"
+    # path's eight columns, and by 20260912_03 (Agent Memory lifecycle
+    # retention, revocation, suppression generation, and the append-only
+    # source-handling authority table). See `test_postgres_migrations.py` for
+    # the grant assertions.
+    assert ALEMBIC_HEAD == "20260912_03"
 
 
 # 12. ADR 0030: claiming is serialised per conversation.

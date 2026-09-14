@@ -15,10 +15,12 @@ from enum import Enum
 from typing import Protocol
 
 from backend.memory.write_pipeline.models import (
+    ExplicitIntentError,
     MemoryChangeSet,
     MemoryDecisionDraft,
     MemoryEvidence,
     MemoryOperation,
+    SourceValidity,
 )
 from backend.security.models import AuthenticatedPrincipal
 
@@ -162,6 +164,7 @@ class MemoryUnitOfWork(Protocol):
         idempotency_key: str | None = None,
         expected_version_id: str | None = None,
         fence: FenceContext | None = None,
+        source_validity: SourceValidity | None = None,
     ) -> MemoryWriteResult:
         """Apply one resolved change atomically and idempotently.
 
@@ -170,7 +173,8 @@ class MemoryUnitOfWork(Protocol):
         writes anything. `idempotency_key`, when given, deduplicates
         redelivery to one semantic outcome. `expected_version_id`, when
         given, must match the stored current version or the write is
-        rejected without touching state. `fence`, when given, is verified
+        rejected without touching state. `source_validity` is derived by the
+        caller that owns the canonical source/evidence snapshot. `fence`, when given, is verified
         in the same transaction before any write; a moved fence raises
         `FencedWriteError` without touching state.
         """

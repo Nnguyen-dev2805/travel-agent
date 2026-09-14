@@ -51,6 +51,7 @@ EXPECTED_TABLES = frozenset(
         "memory_summaries",
         "memory_episodes",
         "memory_deletion_ledger",
+        "memory_source_handling",
     }
 )
 OWNER_TABLES = EXPECTED_TABLES
@@ -301,10 +302,10 @@ def test_one_active_version_constraint_rejects_duplicates(fresh_db, pg_engine):
                 "INSERT INTO memory_versions "
                 "(version_id, assertion_id, owner_user_id, normalized_value, "
                 "value_payload, authority, sensitivity, status, valid_from, "
-                "created_at) VALUES ('mem_first', :aid, 'owner_a', 'quiet', "
+                "retention_mode, created_at) VALUES ('mem_first', :aid, 'owner_a', 'quiet', "
                 '\'{"normalized_value": "quiet", "display_text": "q"}\', '
                 "'explicit_save', "
-                "'ordinary_personal', 'active', :at, :at)"
+                "'ordinary_personal', 'active', :at, 'user_durable', :at)"
             ),
             {"aid": assertion_id, "at": MOMENT},
         )
@@ -314,10 +315,10 @@ def test_one_active_version_constraint_rejects_duplicates(fresh_db, pg_engine):
                     "INSERT INTO memory_versions "
                     "(version_id, assertion_id, owner_user_id, normalized_value, "
                     "value_payload, authority, sensitivity, status, valid_from, "
-                    "created_at) VALUES ('mem_second', :aid, 'owner_a', 'lively', "
+                    "retention_mode, created_at) VALUES ('mem_second', :aid, 'owner_a', 'lively', "
                     '\'{"normalized_value": "lively", "display_text": "l"}\', '
                     "'explicit_save', "
-                    "'ordinary_personal', 'active', :at, :at)"
+                    "'ordinary_personal', 'active', :at, 'user_durable', :at)"
                 ),
                 {"aid": assertion_id, "at": MOMENT},
             )
@@ -1116,6 +1117,10 @@ def test_the_worker_grants_are_the_enumerated_minimum(fresh_db, pg_engine):
         ("memory_write_idempotency", "SELECT"),
         ("memory_write_idempotency", "INSERT"),
         ("memory_write_idempotency", "UPDATE"),
+        # The durable source-handling authority path (migration 20260912_03):
+        # read and append a decision, never rewrite one.
+        ("memory_source_handling", "SELECT"),
+        ("memory_source_handling", "INSERT"),
     }, f"unexpected worker grant set: {sorted(granted)}"
 
 
@@ -1342,6 +1347,10 @@ def test_the_runtime_role_grants_are_the_enumerated_minimum(fresh_db, pg_engine)
         ("conversation_outbox", "UPDATE"),
         ("memory_evidence", "SELECT"),
         ("memory_evidence", "UPDATE"),
+        # The durable source-handling authority path (migration 20260912_03):
+        # read and append a decision, never rewrite one.
+        ("memory_source_handling", "SELECT"),
+        ("memory_source_handling", "INSERT"),
     }, f"unexpected runtime grant set: {sorted(granted)}"
 
 
@@ -1453,6 +1462,9 @@ def test_the_worker_memory_grants_are_the_derived_minimum(fresh_db, pg_engine):
         ("memory_write_idempotency", "SELECT"),
         ("memory_write_idempotency", "INSERT"),
         ("memory_write_idempotency", "UPDATE"),
+        # The durable source-handling authority path (migration 20260912_03).
+        ("memory_source_handling", "SELECT"),
+        ("memory_source_handling", "INSERT"),
     }, f"unexpected worker memory grant set: {sorted(granted)}"
 
 
@@ -1497,4 +1509,57 @@ def test_the_worker_memory_grants_round_trip(fresh_db, pg_engine):
                 "WHERE grantee = 'travel_worker' AND table_name LIKE 'memory\\_%'"
             )
         ).scalar()
-    assert restored == 13
+    assert restored == 15
+
+
+def test_source_handling_table_rejects_duplicate_authority_key(fresh_db, pg_engine):
+    """The authority key `(source_outbox_id, family)` is unique at the schema
+    level, so a double write of one decision cannot create two rows."""
+    _upgrade_to_head(pg_engine, _test_dsn())
+    with pg_engine.begin() as connection:
+        row = (
+            "'cout_dup', 'ms_dup', 'owner_a', 'semantic', 'background_eligible', "
+            "'background_policy_eligible'"
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO memory_source_handling "
+                "(source_outbox_id, source_message_id, owner_user_id, family, "
+                "outcome, reason_code, recorded_at) "
+                f"VALUES ({row}, :at)"
+            ),
+            {"at": MOMENT},
+        )
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                sa.text(
+                    "INSERT INTO memory_source_handling "
+                    "(source_outbox_id, source_message_id, owner_user_id, family, "
+                    "outcome, reason_code, recorded_at) "
+                    f"VALUES ({row}, :at)"
+                ),
+                {"at": MOMENT},
+            )
+
+
+def test_source_handling_rls_forces_tenant_scoping(fresh_db, pg_engine):
+    """FORCE RLS is on and no product role may UPDATE or DELETE an authority
+    record: append-only by grant, not by convention."""
+    _upgrade_to_head(pg_engine, _test_dsn())
+    with pg_engine.connect() as connection:
+        forced = connection.execute(
+            sa.text(
+                "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                "WHERE relname = 'memory_source_handling'"
+            )
+        ).one()
+        assert forced == (True, True)
+        forbidden = connection.execute(
+            sa.text(
+                "SELECT count(*) FROM information_schema.role_table_grants "
+                "WHERE table_name = 'memory_source_handling' "
+                "AND grantee IN ('travel_app', 'travel_worker') "
+                "AND privilege_type IN ('UPDATE', 'DELETE')"
+            )
+        ).scalar()
+    assert forbidden == 0

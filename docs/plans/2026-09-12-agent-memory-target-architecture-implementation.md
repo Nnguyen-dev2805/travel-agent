@@ -20,19 +20,19 @@ structured context to generation.
 PostgreSQL 16, pytest, existing RAG/generation seams. pgvector/full-text are not
 introduced unless Stage 6 evidence proves structured retrieval insufficient.
 
-**Spec:** [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.4 (Approved 2026-09-13)
+**Spec:** [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.7 (Approved 2026-09-14)
 
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Plan version | 0.8 — clarifies Task-5 proposal-vs-authority contracts and defers outbox-identity binding/persistence to Stage 2 |
+| Plan version | 0.11 — final Task-6 contract freeze for typed source validity, deleted-source evidence suppression, exact source-handling schema, and registry-v2 compatibility aliases |
 | Date | 2026-09-12 |
-| Last amended | 2026-09-13 |
-| Approved specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.4, Approved 2026-09-13 |
+| Last amended | 2026-09-14 |
+| Specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.7, Approved 2026-09-14 |
 | Required ADRs | ADR 0036, 0037, 0038, 0039, 0040 — Accepted 2026-09-12 |
 | Execution owner | Coding agent under repository-owner instruction |
 | Decision owner | Repository owner |
-| Approval | Repository owner approved exact plan v0.8 on 2026-09-13 |
+| Approval | Repository owner approved exact plan v0.11 on 2026-09-14 after approving spec v0.7. |
 | Scope | Stages 1–7 of the target architecture, with independent rollout gates and evidence-based stop conditions |
 | Verification | Focused unit tests per task, required PostgreSQL integration tests without required skips, evaluation gates, full backend suite, frontend regression suite, `compileall`, `git diff --check`, and exact change-set review |
 
@@ -61,12 +61,16 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
    persisted `BACKGROUND_ELIGIBLE` record grants background formation.
 9. Product forget is `REVOKE`/`REVOKED` plus suppression generation. It is not
    privacy erasure; stale generations cannot form, activate, or read.
-10. `retention_mode`, optional `expires_at`, and source validity are independent
-    eligibility dimensions. Retention is persisted at write time.
+10. `retention_mode`, optional `expires_at`, and typed `SourceValidity` are
+    independent eligibility dimensions. Retention is persisted at write time;
+    source validity is derived outside the pure lifecycle policy from canonical
+    source/evidence state.
 11. `ACTIVE` alone never means answer-eligible. Read still applies lifecycle,
     relevance, precedence, conflict exclusion, ranking, and bounded selection.
 12. Memory context is structured data, never a citation or instruction channel.
-    Raw source evidence does not enter generation context by default.
+    Raw source evidence does not enter generation context by default, and
+    deleted/invalid-source evidence is filtered at the governed evidence read
+    boundary even when a `USER_DURABLE` normalized value remains eligible.
 13. `TurnDisposition` is internal to `TurnOutcome` in this rollout; do not add it
     to the public Chat response schema.
 14. Inferred Memory remains shadow-only until a conclusive evaluation gate for
@@ -203,8 +207,9 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 
 ## Acceptance-Criteria Traceability
 
-This table is the execution/review map for the 20 acceptance criteria in the
-approved governing specification. A criterion is not considered implemented merely
+This table is the execution/review map for the 25 acceptance criteria in the
+approved governing specification v0.7. The criterion count is unchanged from
+approved v0.6; v0.7 only tightens the contracts mapped below. A criterion is not considered implemented merely
 because a task mentions the same concept; the mapped task must produce the
 corresponding verification evidence and Task 16 must confirm the final
 cross-stage behavior.
@@ -218,7 +223,7 @@ cross-stage behavior.
 | 5 | Explicit Memory effect + ack + source handling + idempotency commit atomically | 7–8 |
 | 6 | Authority/scope/retention/sensitivity/lifecycle/response precedence stay distinct | 3, 5–6, 9–10 |
 | 7 | Forget prevents stale resurrection during formation, activation, and read | 6, 8–11, 16 |
-| 8 | Background extraction requires positive source handling | 5, 11, 16 |
+| 8 | Background extraction requires a persisted family-specific `BACKGROUND_ELIGIBLE` record; a proposal or missing record is insufficient | 5, 6, 11, 16 |
 | 9 | Only lifecycle-eligible relevant active Memory reaches controlled context | 9–10, 16 |
 | 10 | Explicit semantic E2E passes before inferred activation | 8, 10–11 |
 | 11 | Every additional Memory family arrives as an evaluated vertical slice | 12–15 |
@@ -227,10 +232,15 @@ cross-stage behavior.
 | 14 | Migration/recovery/deletion behavior is documented before production enablement | 6, 11, 15–16 |
 | 15 | Explicit commit preserves guarded terminal transition and canonical lock order | 7–8, 16 |
 | 16 | Procedural Memory is system-owned publication state, not a tenant scope | 15–16 |
-| 17 | Retention, temporal expiry, and source validity remain independent dimensions | 6, 9, 12–13 |
+| 17 | Retention, temporal expiry, and typed source validity remain independent; `USER_DURABLE` value retention never re-exposes deleted-source evidence | 6, 9–10, 12–13, 16 |
 | 18 | Shared runtime cannot bypass tenant isolation with a privileged DB role | 6–7, 9, 15–16 |
 | 19 | `TurnDisposition` stays distinct from `MessageStatus`, obeys the matrix, and remains internal | 3–4, 16 |
 | 20 | `memory_outbox` has a bounded lifecycle before broad Memory-write enablement | 11, 16 |
+| 21 | Legacy retention backfill maps conversation scope to `CONVERSATION_BOUND` and user scope to `SOURCE_BOUND`, never silently to `USER_DURABLE` | 6, 16 |
+| 22 | `MemoryLifecyclePolicy` exposes one pure stage-aware `evaluate` interface, closed deterministic reasons, explicit stage facts, and closed `SourceValidity` input semantics; `RetentionAssignmentPolicy` is the sole initial retention-assignment owner | 6, 16 |
+| 23 | Persisted source handling uses the exact governed append-only `memory_source_handling` schema, tenant RLS, unique `(source_outbox_id, family)` authority, and no product-path update/delete | 6, 16 |
+| 24 | Suppression generation starts at `1`; governed work carries a generation stamp; storage-owned `REVOKE` works for single/set and atomically advances generation; CAS `expected_version_id` stays distinct from semantic `reference_version_id` | 6, 16 |
+| 25 | Semantic-registry-v2 normalization is data-driven from governed per-key values/synonyms while existing hotel constants remain compatibility aliases only, never special execution branches | 6, 16 |
 
 ---
 
@@ -548,33 +558,33 @@ class SourceHandlingRecord:
     recorded_at: datetime
 ```
 
-- [ ] RED proposal truth table proves `BACKGROUND_POLICY_ELIGIBLE ->
+- [x] RED proposal truth table proves `BACKGROUND_POLICY_ELIGIBLE ->
   BACKGROUND_ELIGIBLE`, while `EXPLICIT_ACTION`, `AMBIGUOUS_INTENT`, and
   `SENSITIVE_BLOCKED` produce `BACKGROUND_BLOCKED`. Task 5 may propose
   background handling only for `MemoryFamily.SEMANTIC`; later families remain
   contract vocabulary only until their evaluated stages.
-- [ ] RED authority truth table proves `record is None` is `UNHANDLED`/deny and
+- [x] RED authority truth table proves `record is None` is `UNHANDLED`/deny and
   every explicit authoritative outcome fails the background gate. The gate
   returns allow only for a persisted-shape `SourceHandlingRecord` whose outcome
   is exactly `BACKGROUND_ELIGIBLE`.
-- [ ] Implement `MemoryFamily`, proposal/outcome/reason vocabularies and the pure
+- [x] Implement `MemoryFamily`, proposal/outcome/reason vocabularies and the pure
   fail-closed gate in `backend/memory/source_handling.py` using standard-library
   dependencies only. Do not import `backend.memory.write_pipeline` into
   orchestration or duplicate its persistence/lifecycle policy.
-- [ ] Produce a typed `SourceHandlingProposal` from orchestration using the
+- [x] Produce a typed `SourceHandlingProposal` from orchestration using the
   already-persisted `source_message_id`. A proposal has no `source_outbox_id` and
   cannot grant formation authority. Do not query storage for the outbox row or
   change `append_turn` / `create_conversation_with_initial_turn` return shapes in
   Task 5 merely to obtain that identity.
-- [ ] Normal eligible semantic source may propose background eligibility;
+- [x] Normal eligible semantic source may propose background eligibility;
   ambiguous, sensitive/prohibited, or explicit-action sources may only produce
   a blocked proposal. Task 5 does not move or duplicate secret-detection
   ownership; the typed sensitive-blocked result is a policy input/denial reason,
   and later formation still revalidates prohibited content before model use.
-- [ ] Keep source-handling reasons typed and closed. Observability may project
+- [x] Keep source-handling reasons typed and closed. Observability may project
   `.value` into its bounded `reason_code`; persistence/domain logic never branches
   on arbitrary free text.
-- [ ] Review: proposal != permission; absence is never interpreted as permission;
+- [x] Review: proposal != permission; absence is never interpreted as permission;
   `UNHANDLED` is absence of a persisted record, not an enum value; and Task 5
   introduces no persistence, worker consumer, or config flag.
 
@@ -595,6 +605,176 @@ source handling, binding of actual `(source_outbox_id, family)` identity at the
 storage/transaction seam, and the first production-useful
 `semantic-registry-v2`. Reuse Task-5 `MemoryFamily`/`SourceHandlingRecord`
 contracts rather than defining parallel enums or record types.
+
+**Lifecycle-policy interface:** `backend/memory/lifecycle.py` owns one pure,
+stage-aware interface and no I/O:
+
+```python
+class LifecycleStage(str, Enum):
+    WRITE = "write"
+    FORMATION = "formation"
+    ACTIVATION = "activation"
+    READ = "read"
+
+class MemoryLifecyclePolicy:
+    def evaluate(
+        self,
+        *,
+        stage: LifecycleStage,
+        facts: LifecycleFacts,
+    ) -> LifecycleDecision: ...
+```
+
+The closed reason vocabulary is:
+
+```python
+class LifecycleReason(str, Enum):
+    MISSING_REQUIRED_FACT = "missing_required_fact"
+    SCOPE_INELIGIBLE = "scope_ineligible"
+    SENSITIVITY_INELIGIBLE = "sensitivity_ineligible"
+    STALE_GENERATION = "stale_generation"
+    EXPIRED = "expired"
+    SOURCE_INVALID = "source_invalid"
+    STATUS_INELIGIBLE = "status_ineligible"
+    ELIGIBLE = "eligible"
+```
+
+When more than one predicate fails, `MemoryLifecyclePolicy.evaluate` returns the
+first applicable reason in that exact order. `ELIGIBLE` is returned only after
+all applicable checks pass. Free text may explain a decision in logs, but no
+policy branch consumes free text.
+
+`LifecycleFacts` carries only typed lifecycle inputs required by the selected
+stage. The minimum fact matrix is normative:
+
+| Lifecycle fact | WRITE | FORMATION | ACTIVATION | READ |
+| --- | --- | --- | --- | --- |
+| `retention_mode` | required | required | required | required |
+| stamped suppression generation | required | required | required | required |
+| current assertion suppression generation | required | required | required | required |
+| scope | required | required | required | required |
+| sensitivity | required | required | required | required |
+| source/provenance validity | required for `CONVERSATION_BOUND` / `SOURCE_BOUND`, not required to authorize `USER_DURABLE` value retention | same | same | same |
+| `expires_at` | optional | optional | optional | optional |
+| evaluation time | required iff `expires_at` is present | same | same | same |
+| lifecycle status | not applicable | not applicable | not applicable | required and must be `ACTIVE` |
+
+Missing facts that the selected stage requires return
+`MISSING_REQUIRED_FACT`. `READ` requires an eligible `ACTIVE` version; earlier
+stages apply only their relevant lifecycle predicates. This module must not
+query PostgreSQL, call a model/provider, or branch on API-vs-worker execution
+mode.
+
+`source/provenance validity` is represented by a closed enum, never a raw bool,
+row, or free-text reason:
+
+```python
+class SourceValidity(str, Enum):
+    VALID = "valid"
+    INVALID = "invalid"
+    NOT_REQUIRED = "not_required"
+```
+
+`LifecycleFacts.source_validity` is `SourceValidity | None`. The caller owning
+the canonical source/evidence snapshot derives this fact before policy
+evaluation; `MemoryLifecyclePolicy` never performs source/evidence I/O. For
+`CONVERSATION_BOUND` and `SOURCE_BOUND`, `None` or `NOT_REQUIRED` returns
+`MISSING_REQUIRED_FACT`, while `INVALID` returns `SOURCE_INVALID`. For
+`USER_DURABLE` normalized-value eligibility, `NOT_REQUIRED` is the explicit
+valid state; source deletion does not invalidate the normalized durable value.
+This does not authorize access to deleted-source raw evidence: the governed
+evidence/provenance read boundary filters invalid/deleted source material before
+`MemoryReadEngine`, inspect, trace, citation, or `MemoryContextComposer` can
+consume it. Task 9/10 implement that read boundary; Task 16 proves zero deleted-
+source leakage.
+
+**Retention-assignment interface:** the same module owns a separate pure
+assignment policy. Assignment occurs before write; lifecycle evaluation never
+re-derives retention:
+
+```python
+class RetentionAssignmentPolicy:
+    def assign(
+        self,
+        *,
+        scope: MemoryScope,
+        authority: Authority,
+    ) -> RetentionMode: ...
+```
+
+The initial mapping is closed: conversation scope -> `CONVERSATION_BOUND` for
+every governed authority; user scope + `EXPLICIT_SAVE` -> `USER_DURABLE`; user
+scope + `EXPLICIT_STATEMENT` or `REPEATED_INFERENCE` -> `SOURCE_BOUND`.
+Unknown combinations fail closed. Execution mode is not an input.
+
+**Generation and version-reference contract:** `MemoryCandidate`,
+`MemoryVersionDraft`, and `MemoryVersion` carry one positive
+`suppression_generation` stamp. `LifecycleFacts.stamped_generation` is projected
+from that field and compared with the assertion's current
+`suppression_generation`. New assertions start at generation `1`.
+
+`MemoryOperation.REVOKE` is a semantic command, not a request to choose the next
+generation. Do not add `next_generation` to `MemoryChangeSet`. Under the
+assertion lock, the PostgreSQL write boundary must verify the current version,
+mark the governed current version `REVOKED`, and increment
+`memory_assertions.suppression_generation` atomically. Re-remember writes a new
+version stamped with the new current generation; old-generation candidates,
+drafts, or versions fail lifecycle evaluation with `STALE_GENERATION`.
+
+Keep the two existing version identifiers separate:
+
+- `expected_version_id` remains the CAS/concurrency precondition argument to
+  `MemoryUnitOfWork.apply_memory_change`; mismatch rejects the write without a
+  mutation.
+- `MemoryChangeSet.reference_version_id` remains semantic linkage to a related
+  version. It is not a concurrency token and must not be reused as one.
+
+**Task-6 migration contract:**
+
+- Add `memory_source_handling` as the durable authority table with this exact
+  initial schema: `owner_user_id TEXT NOT NULL`, `source_outbox_id TEXT NOT NULL`,
+  `source_message_id TEXT NOT NULL`, `family TEXT NOT NULL`, `outcome TEXT NOT
+  NULL`, `reason_code TEXT NOT NULL`, and `recorded_at TIMESTAMPTZ NOT NULL`.
+  `source_outbox_id`/`source_message_id` use the existing text identity
+  convention of `conversation_outbox`/messages. Enforce uniqueness on
+  `(source_outbox_id, family)`; do not add mutable bookkeeping columns merely
+  for implementation convenience.
+- Enable and force tenant RLS on `memory_source_handling`. `travel_app` and
+  `travel_worker` receive only the `SELECT`/`INSERT` privileges required by
+  their governed paths; no product path receives `UPDATE` or `DELETE` on this
+  authority table.
+- Duplicate insertion of an identical `(source_outbox_id, family)` record is an
+  idempotent replay; the same authority key with different authoritative
+  content fails closed. Do not implement mutable upsert semantics.
+- Existing `conversation`-scope Memory backfills to
+  `RetentionMode.CONVERSATION_BOUND`; existing `user`-scope Memory backfills to
+  `RetentionMode.SOURCE_BOUND`. Legacy rows never become `USER_DURABLE` by
+  migration. A source-bound row lacking provably valid provenance is ineligible
+  until a new governed write establishes current evidence.
+- Add `memory_assertions.suppression_generation` as `NOT NULL`, initial/default
+  value `1`, with a positive-generation constraint (`>= 1`). Existing assertions
+  backfill to generation `1`.
+- `MemoryOperation.REVOKE` is a writing operation for both `SINGLE` and `SET`
+  assertions. A successful revoke changes the governed current version to
+  `REVOKED` and advances the assertion generation atomically; removing the last
+  set member is one revoke trigger, not a set-only definition of revoke.
+- Add the generation stamp required above to candidate/draft/version domain
+  contracts and persist the version stamp. The migration/backfill must make
+  existing version rows consistent with assertion generation `1`; no reader may
+  manufacture a current-generation stamp when durable data says otherwise.
+
+**Registry-definition contract:** every `SemanticKeyDefinition` owns its governed
+per-value English/Vietnamese synonym data together with values, cardinality,
+allowed scopes, and sensitivity floor. The representation must be immutable to
+callers. `is_known_key`, lookup, and normalization are data-driven over the
+registry entries; no hotel-specific execution branch remains.
+
+Existing exported hotel constants required by current callers/evaluation — in
+particular `HOTEL_ATMOSPHERE_KEY` and any directly-used companion constant —
+remain compatibility aliases into the registry-v2 definition during Task 6.
+They must not own separate values, normalization logic, or a special execution
+branch. Removing those aliases is a later caller-migration cleanup, not a Task-6
+requirement.
 
 **Semantic Registry v2 — P0 product slice:**
 
@@ -678,16 +858,40 @@ in-process set value.
   canonical textual representation, typed reconstruction on read, and no
   delimiter encoding or in-place update of an existing version payload.
 - [ ] RED domain tests prove expiry/source validity independence, revoke +
-  generation advance, stale generation rejection, and re-remember as a new
-  generation.
+  generation advance, stale generation rejection, re-remember as a new
+  generation, the closed `LifecycleReason` vocabulary/precedence, every row of
+  the stage-required-facts matrix, and fail-closed unknown retention-assignment
+  inputs.
+- [ ] RED lifecycle tests pin `SourceValidity.VALID | INVALID | NOT_REQUIRED`,
+  prove that bound retention rejects missing/`NOT_REQUIRED` validity, that
+  `INVALID` yields `SOURCE_INVALID`, and that `USER_DURABLE` value eligibility
+  accepts `NOT_REQUIRED` without granting raw-source access.
 - [ ] RED migration tests assert exact columns/constraints/indexes, source record
-  uniqueness, RLS/ownership, and downgrade round-trip.
+  uniqueness, append-only replay-vs-conflict behavior, RLS/ownership, least-
+  privilege app/worker grants, conservative retention backfill, generation-1
+  backfill/default/check constraint, and downgrade round-trip.
 - [ ] Implement `MemoryLifecyclePolicy` as the only lifecycle-rule owner; early
   stages apply stage-appropriate rules without pretending a candidate is ACTIVE.
+  Implement `RetentionAssignmentPolicy` beside it as the only initial
+  retention-assignment owner. Unit tests must cover every `LifecycleStage`,
+  every closed reason and its deterministic precedence, the normative fact
+  matrix, retention assignment for all current `MemoryScope`/`Authority`
+  combinations, missing-required-fact fail-closed behavior,
+  temporal/source/generation independence, and the rule that execution mode is
+  not a policy input.
+- [ ] RED/write-store tests prove `REVOKE` generation advance is owned by the
+  locked PostgreSQL write boundary rather than resolver/model output, that no
+  `next_generation` field exists on `MemoryChangeSet`, and that
+  `expected_version_id` CAS behavior remains distinct from
+  `reference_version_id` semantic linkage.
 - [ ] Replace the registry's current hotel-only `is_known_key`, lookup, and
   normalization branches with data-driven `semantic-registry-v2` definitions.
   Existing `hotel_atmosphere` behavior is a regression baseline, not a special
   execution path.
+- [ ] Preserve currently-imported `HOTEL_ATMOSPHERE_*` compatibility constants
+  as aliases into registry-v2 and add a regression test proving they resolve to
+  the same governed definition/value data; no alias may retain separate
+  normalization or execution logic.
 - [ ] Extend `Cardinality` with `SET`, change the normalized-value contracts
   consistently, and update stale single-only docstrings/comments in
   `models.py`, `registry.py`, and `resolver.py`; do not leave type annotations or
@@ -695,9 +899,12 @@ in-process set value.
 - [ ] Keep resolver deterministic/side-effect-free and implement the set truth
   table above without adding `REMOVE_MEMBER` as a persistence operation. Model
   output cannot emit an authorized revoke, member removal, or set replacement by
-  itself.
-- [ ] Implement the migration and conservative explicit backfill; advance head to
-  `20260912_03` only if the preflight head is still `20260912_02`.
+  itself. Add `REVOKE` to persistence writing-operation handling for both
+  cardinalities and verify generation advance is atomic with revocation.
+- [ ] Implement migration `20260912_03_agent_memory_lifecycle.py` exactly to the
+  Task-6 migration contract above. Advance head to `20260912_03` only if the
+  preflight head is still `20260912_02`; update all non-historical executable
+  head assertions/documentation that represent current runtime state.
 - [ ] Required PostgreSQL tests run without skips.
 - [ ] Treat the eight-key registry as one closed Stage-2 contract for this plan:
   every key must pass its task-local registry/extraction/E2E evidence before
@@ -1151,7 +1358,7 @@ npm --prefix frontend test -- --run
   the frontend infrastructure failure.
 
 - [ ] Final review compares the exact Git-visible change set plus untracked files
-  with all 20 spec acceptance criteria and ADR 0036–0040.
+  with all 25 spec acceptance criteria and ADR 0036–0040.
 
 ## Rollout Order
 
@@ -1207,7 +1414,7 @@ Stop and return to architecture/plan review when:
 
 ## Self-Review Record
 
-- [x] All 20 specification acceptance criteria have an explicit task/evidence
+- [x] All 25 specification acceptance criteria have an explicit task/evidence
   mapping; Task 16 remains the final cross-stage proof rather than a substitute
   for the task-local gates.
 - [x] Stage-1 prerequisites are Tasks 1–2; Stage 1 core is Tasks 3–5; Stage 2 is
@@ -1232,6 +1439,14 @@ Stop and return to architecture/plan review when:
   failing key; later inferred activation remains independently promoted per
   key/type rather than using one key's evidence to authorize another.
 - [x] `MemoryLifecyclePolicy` has one owner reused across all lifecycle paths.
+- [x] Lifecycle policy now has a closed reason vocabulary, deterministic reason
+  precedence, and an explicit stage-required-facts matrix; retention assignment
+  is owned by a separate pure `RetentionAssignmentPolicy` rather than inferred
+  ad hoc by writers/readers.
+- [x] Suppression generation has one write-side owner: governed work/version
+  stamps are checked by lifecycle policy, while the locked PostgreSQL revoke
+  path advances the assertion generation atomically. CAS `expected_version_id`
+  remains distinct from semantic `reference_version_id`.
 - [x] Explicit and background transaction owners remain distinct.
 - [x] Public Chat schema does not expose `TurnDisposition`.
 - [x] Stage-1 `ContextPlanner` is shadow-only: proposed `NONE` cannot skip the
@@ -1261,13 +1476,30 @@ Stop and return to architecture/plan review when:
 
 ## Completion Record
 
-Plan version 0.8 is `Approved`; v0.7 remains the prior approved historical
-execution record. v0.8 implements the approved spec-v0.4 clarification without
-changing ADR 0038's authority rule: Task 5 creates stdlib-only family/source
-handling contracts and a non-authoritative typed proposal; `UNHANDLED` remains
-absence of a persisted record; only persisted `BACKGROUND_ELIGIBLE` grants
-formation; and actual outbox identity/persistence stays at the Stage-2
-storage/transaction seam. Task 5 must not widen Conversation persistence APIs
-just to obtain `source_outbox_id`. The repository owner approved this exact plan
-v0.8 on 2026-09-13. Task checkbox state is execution evidence only; it does not
-replace task review, verification, or repository-owner change-set review.
+Plan version 0.9 was **Approved on 2026-09-14 by the repository owner** after a
+traceability-only correction and is superseded by approved v0.10.
+
+Plan version 0.10 was **Approved on 2026-09-14 by the repository owner** against
+approved spec v0.6. It closes
+the remaining Task-6 implementation choices that must not be invented by the
+coding agent: closed lifecycle reasons and precedence, the normative stage-fact
+matrix, the retention-assignment owner/mapping, storage-owned suppression-
+generation advance, and the distinction between concurrency
+`expected_version_id` and semantic `reference_version_id`. It also strengthens
+AC 8 to require the persisted family-specific `BACKGROUND_ELIGIBLE` authority
+record rather than a merely positive proposal. These clarifications do not
+change ADR 0037 semantics or the eight-key registry scope.
+
+Plan version 0.11 was **Approved on 2026-09-14 by the repository owner** against
+approved spec v0.7. It freezes
+the final four Task-6 clarification points before implementation: typed
+`SourceValidity` and its producer boundary, deleted-source evidence suppression
+ownership, the exact initial `memory_source_handling` column/type contract, and
+registry-v2 compatibility aliases for existing hotel constants. It adds no new
+Memory family, key, public API, persistence operation, or ADR-level decision.
+
+Spec v0.7 plus this exact plan v0.11 are the current approved execution authority
+for Task 6 and the remaining staged Agent Memory program. Plan v0.11 supersedes
+v0.10 as current execution authority.
+Task checkbox state is execution evidence only; it does not replace task review,
+verification, or repository-owner change-set review.

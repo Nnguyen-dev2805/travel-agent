@@ -188,6 +188,8 @@ def _apply(
     expected=None,
     fence=None,
 ):
+    from backend.memory.lifecycle import SourceValidity
+
     return uow.apply_memory_change(
         change,
         _principal(owner),
@@ -196,6 +198,7 @@ def _apply(
         idempotency_key=key,
         expected_version_id=expected,
         fence=fence,
+        source_validity=SourceValidity.VALID,
     )
 
 
@@ -648,7 +651,7 @@ def test_concurrent_first_touch_yields_one_winner(uow, clean):
         "_insert_evidence_rows",
         "_insert_decision_row",
         "_insert_version_row",
-        "_mark_versions_superseded",
+        "_mark_versions_status",
         "_insert_event_row",
         "_insert_outbox_row",
         # ADR 0031: the key is reserved before the effect and filled after it.
@@ -673,7 +676,7 @@ def test_injected_stage_failure_leaves_zero_rows(uow, clean, monkeypatch, stage)
     # that case seeds a live version first; every other stage runs on a
     # fresh ADD. Either way the final assertion is the same: the failed
     # apply changes no row counts at all.
-    if stage == "_mark_versions_superseded":
+    if stage == "_mark_versions_status":
         seed_candidate = _candidate()
         seed = resolve_change(
             seed_candidate, current=(), relation=MemoryRelation.UNRELATED
@@ -965,3 +968,144 @@ def test_replaying_one_key_commits_one_effect(clean, uow):
 # finds the completed row and replays it. An assertion that cannot fail is
 # decoration. `test_a_second_reservation_of_a_held_key_conflicts` is the
 # deterministic proof, and it does fail under that mutation.
+
+
+# ---------------------------------------------------------------------------
+# 14. No-resurrection generation fence (plan:710-722).
+#
+# A write whose candidate carries an older suppression generation than the
+# live assertion must be refused inside the write transaction. Without this
+# fence, delayed background work that slept through a REVOKE resubmits a
+# stale change set and resurrects the memory it was about to lose.
+# ---------------------------------------------------------------------------
+
+
+def test_a_stale_generation_write_is_refused_at_the_boundary(uow, clean):
+    import pytest as _pytest
+
+    from backend.memory.write_pipeline.models import MemoryRelation
+    from backend.memory.write_pipeline.resolver import resolve_change
+    from backend.memory.write_pipeline.uow import StaleVersionError
+
+    seed_candidate = _candidate()
+    seed = resolve_change(seed_candidate, current=(), relation=MemoryRelation.UNRELATED)
+    seed_result = _apply(uow, seed, seed_candidate, key="key-gen-seed")
+
+    # Simulate the state after a REVOKE advanced the assertion to generation
+    # 2, by bumping the column directly under the same rules the boundary
+    # itself uses.
+    with clean.begin() as connection:
+        connection.execute(
+            sa.text(
+                "UPDATE memory_assertions SET suppression_generation = 2 "
+                "WHERE owner_user_id = 'owner_a'"
+            )
+        )
+
+    # The delayed worker resubmits its pre-revoke change set, stamped 1.
+    stale = resolve_change(
+        _candidate(suppression_generation=1, observed_at=NEWER),
+        current=_versions(clean, seed.identity),
+        relation=MemoryRelation.TEMPORAL_UPDATE,
+    )
+    assert stale.operation.value == "supersede"
+
+    with _pytest.raises(StaleVersionError):
+        _apply(uow, stale, _candidate(suppression_generation=1), key="key-gen-stale")
+
+    # Nothing was written and nothing moved: the refusal happens inside the
+    # transaction, so the only version row is the seed, still exactly as it
+    # was — the delayed write resurrected nothing and superseded nothing.
+    from backend.memory.write_pipeline.models import VersionStatus as _VersionStatus
+
+    versions = _versions(clean, seed.identity)
+    assert [item.version_id for item in versions] == [seed_result.version_id]
+    assert versions[0].status is _VersionStatus.ACTIVE
+
+
+def test_a_current_generation_write_succeeds(uow, clean):
+    from backend.memory.write_pipeline.models import MemoryRelation
+    from backend.memory.write_pipeline.resolver import resolve_change
+
+    seed_candidate = _candidate()
+    seed = resolve_change(seed_candidate, current=(), relation=MemoryRelation.UNRELATED)
+    _apply(uow, seed, seed_candidate, key="key-gen-curr-seed")
+
+    change = resolve_change(
+        _candidate(
+            normalized_value="lively",
+            suppression_generation=1,
+            observed_at=NEWER,
+        ),
+        current=_versions(clean, seed.identity),
+        relation=MemoryRelation.CONTRADICTION,
+    )
+    result = _apply(uow, change, _candidate(suppression_generation=1), key="key-gen-curr")
+
+    assert result.version_id is not None
+
+
+# ---------------------------------------------------------------------------
+# 15. Durable source-handling seam semantics (plan:734-748).
+# ---------------------------------------------------------------------------
+
+
+def test_identical_source_handling_replay_is_idempotent(uow, clean):
+    from backend.memory.source_handling import (
+        MemoryFamily,
+        SourceHandlingOutcome,
+        SourceHandlingReason,
+        SourceHandlingRecord,
+    )
+    from backend.memory.write_pipeline.postgres import record_source_handling
+
+    record = SourceHandlingRecord(
+        source_outbox_id="cout_replay",
+        source_message_id="ms_replay",
+        family=MemoryFamily.SEMANTIC,
+        outcome=SourceHandlingOutcome.BACKGROUND_ELIGIBLE,
+        reason_code=SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE,
+        recorded_at=MOMENT,
+    )
+    record_source_handling(clean, "owner_a", record)
+    record_source_handling(clean, "owner_a", record)  # identical replay
+
+    from backend.memory.write_pipeline.postgres import load_source_handling
+
+    stored = load_source_handling(clean, "owner_a", "cout_replay", MemoryFamily.SEMANTIC)
+    assert stored is not None
+    assert stored.outcome is SourceHandlingOutcome.BACKGROUND_ELIGIBLE
+
+
+def test_same_authority_key_with_different_content_fails_closed(uow, clean):
+    import pytest as _pytest
+
+    from backend.memory.source_handling import (
+        MemoryFamily,
+        SourceHandlingOutcome,
+        SourceHandlingReason,
+        SourceHandlingRecord,
+    )
+    from backend.memory.write_pipeline.postgres import record_source_handling
+    from backend.memory.write_pipeline.uow import MemoryWriteError
+
+    first = SourceHandlingRecord(
+        source_outbox_id="cout_conflict",
+        source_message_id="ms_conflict",
+        family=MemoryFamily.SEMANTIC,
+        outcome=SourceHandlingOutcome.BACKGROUND_ELIGIBLE,
+        reason_code=SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE,
+        recorded_at=MOMENT,
+    )
+    record_source_handling(clean, "owner_a", first)
+
+    conflict = SourceHandlingRecord(
+        source_outbox_id="cout_conflict",
+        source_message_id="ms_conflict",
+        family=MemoryFamily.SEMANTIC,
+        outcome=SourceHandlingOutcome.EXPLICIT_APPLIED,
+        reason_code=SourceHandlingReason.EXPLICIT_ACTION,
+        recorded_at=MOMENT,
+    )
+    with _pytest.raises(MemoryWriteError):
+        record_source_handling(clean, "owner_a", conflict)

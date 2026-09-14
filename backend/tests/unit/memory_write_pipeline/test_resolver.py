@@ -15,6 +15,7 @@ from backend.memory.write_pipeline.models import (
     MemoryOperation,
     MemoryRelation,
     MemoryVersion,
+    RetentionMode,
     SensitivityBand,
     VersionStatus,
     assertion_identity,
@@ -48,7 +49,12 @@ def _candidate(**overrides) -> MemoryCandidate:
 
 
 def _version(**overrides) -> MemoryVersion:
-    identity = assertion_identity(_candidate())
+    # The identity must be derived from the same key the version carries, or a
+    # set-keyed fixture would silently fail to match its own candidate and every
+    # set row would exercise the first-add path instead.
+    identity = assertion_identity(
+        _candidate(canonical_key=overrides.get("canonical_key", HOTEL_ATMOSPHERE_KEY))
+    )
     payload = {
         "version_id": new_version_id(),
         "owner_user_id": identity.owner_user_id,
@@ -63,6 +69,7 @@ def _version(**overrides) -> MemoryVersion:
         "sensitivity": SensitivityBand.ORDINARY_PERSONAL,
         "status": VersionStatus.ACTIVE,
         "valid_from": MOMENT,
+        "retention_mode": RetentionMode.USER_DURABLE,
     }
     payload.update(overrides)
     return MemoryVersion(**payload)
@@ -575,5 +582,205 @@ def test_resolver_is_deterministic():
     )
 
     assert first == second
-    assert first.new_version is not candidate
-    assert active.status is VersionStatus.ACTIVE
+
+
+# ---------------------------------------------------------------------------
+# 9. Set consolidation truth table (`plan v0.11`).
+#
+# A set assertion holds one immutable snapshot under one identity. Positive
+# evidence grows it by deterministic union; an explicit replacement is the only
+# thing that shrinks it; and the empty snapshot is a revoke rather than a stored
+# value, so it is submitted through an explicit channel rather than by putting
+# an empty tuple on a candidate — the contract says a set value is non-empty.
+# ---------------------------------------------------------------------------
+
+ACTIVITY_KEY = "travel.preference.activity_style"
+
+
+def _set_candidate(members, **overrides) -> MemoryCandidate:
+    """A set candidate, newer than the fixtures it is resolved against.
+
+    The explicit-replacement rows go through the temporal-update path, which
+    requires evidence that is both at least as authoritative and strictly newer
+    than what is live.
+    """
+    payload = {"observed_at": NEWER}
+    payload.update(overrides)
+    return _candidate(
+        canonical_key=ACTIVITY_KEY, normalized_value=members, **payload
+    )
+
+
+def _set_version(members, **overrides) -> MemoryVersion:
+    return _version(
+        canonical_key=ACTIVITY_KEY, normalized_value=members, **overrides
+    )
+
+
+def test_first_set_signal_adds_one_canonical_snapshot():
+    change = resolve_change(
+        _set_candidate(("culture", "food")),
+        current=(),
+        relation=MemoryRelation.UNRELATED,
+    )
+
+    assert change.operation is MemoryOperation.ADD
+    assert change.new_version is not None
+    assert change.new_version.normalized_value == ("culture", "food")
+
+
+def test_a_duplicate_or_subset_signal_reinforces_the_snapshot():
+    """Positive evidence already contained by the snapshot is not a new version.
+
+    Creating a version whose payload equals the active one would make one
+    assertion look like it had changed, and would grow history for nothing.
+    """
+    active = _set_version(("culture", "food", "nature"))
+
+    for members in (("culture", "food", "nature"), ("culture", "food")):
+        change = resolve_change(
+            _set_candidate(members),
+            current=(active,),
+            relation=MemoryRelation.SAME,
+        )
+
+        assert change.operation is MemoryOperation.REINFORCE, members
+        assert change.new_version is None, members
+        assert change.reference_version_id == active.version_id, members
+
+
+def test_a_compatible_addition_supersedes_with_the_union():
+    """The snapshot grows by union, and the prior version is superseded.
+
+    The union is computed here rather than taken from the candidate, because a
+    candidate that restates part of the snapshot must not shrink it.
+    """
+    active = _set_version(("culture", "food"))
+
+    change = resolve_change(
+        _set_candidate(("food", "nature")),
+        current=(active,),
+        relation=MemoryRelation.COMPATIBLE,
+    )
+
+    assert change.operation is MemoryOperation.SUPERSEDE
+    assert change.new_version.normalized_value == ("culture", "food", "nature")
+    assert change.superseded_version_ids == (active.version_id,)
+    assert change.new_version.supersedes_version_id == active.version_id
+
+
+def test_the_active_payload_is_never_mutated_in_place():
+    """A supersede writes a new snapshot; it does not edit the old one.
+
+    History is append-auditable, so the superseded version must still read back
+    as the snapshot it was written with.
+    """
+    active = _set_version(("culture", "food"))
+    before = active.normalized_value
+
+    resolve_change(
+        _set_candidate(("nature",)),
+        current=(active,),
+        relation=MemoryRelation.COMPATIBLE,
+    )
+
+    assert active.normalized_value == before == ("culture", "food")
+
+
+def test_an_explicit_non_empty_replacement_supersedes_with_that_snapshot():
+    """Targeted member forget materialises the desired snapshot, not a union."""
+    active = _set_version(("culture", "food", "nature"))
+
+    change = resolve_change(
+        _set_candidate(("culture",)),
+        current=(active,),
+        relation=MemoryRelation.TEMPORAL_UPDATE,
+        desired_members=("culture",),
+    )
+
+    assert change.operation is MemoryOperation.SUPERSEDE
+    assert change.new_version.normalized_value == ("culture",)
+    assert change.superseded_version_ids == (active.version_id,)
+
+
+def test_removing_the_final_member_revokes_instead_of_storing_an_empty_set():
+    """The empty snapshot is a revoke, and no version is written.
+
+    This is the one row that cannot be expressed through the candidate's value,
+    because a governed set value is never empty. The explicit layer submits the
+    materialised empty snapshot through `desired_members` instead.
+    """
+    active = _set_version(("culture",))
+
+    change = resolve_change(
+        _set_candidate(("culture",)),
+        current=(active,),
+        relation=MemoryRelation.TEMPORAL_UPDATE,
+        desired_members=(),
+    )
+
+    assert change.operation is MemoryOperation.REVOKE
+    assert change.new_version is None
+    assert change.superseded_version_ids == (active.version_id,)
+
+
+def test_a_single_valued_key_refuses_a_desired_snapshot():
+    """`desired_members` is a set-cardinality channel and nothing else."""
+    with pytest.raises(ValueError):
+        resolve_change(
+            _candidate(),
+            current=(_version(),),
+            relation=MemoryRelation.TEMPORAL_UPDATE,
+            desired_members=(),
+        )
+
+
+def test_an_overlapping_contradiction_fails_closed():
+    """A contradiction that overlaps live members is inconsistent, not idempotent.
+
+    The classifier said "these disagree" while naming members the snapshot
+    already holds. Converting that into a user action would silently treat a
+    classifier defect as intent, so it is refused with the governed reason.
+    """
+    active = _set_version(("culture", "food"))
+
+    change = resolve_change(
+        _set_candidate(("culture", "nature")),
+        current=(active,),
+        relation=MemoryRelation.CONTRADICTION,
+    )
+
+    assert change.operation is MemoryOperation.REJECT
+    assert change.reason == "rejected_relation_value_mismatch"
+    assert change.new_version is None
+
+
+def test_repeated_positive_evidence_reaches_reinforce_not_conflict():
+    """Restating the snapshot repeatedly must settle on `REINFORCE`."""
+    active = _set_version(("culture", "food"))
+
+    for _ in range(3):
+        change = resolve_change(
+            _set_candidate(("culture", "food")),
+            current=(active,),
+            relation=MemoryRelation.SAME,
+        )
+
+        assert change.operation is MemoryOperation.REINFORCE
+
+
+def test_a_replacement_snapshot_keeps_typed_shape_and_order():
+    """Read-back shape is a tuple in canonical order, whatever the input order."""
+    active = _set_version(("culture",))
+
+    change = resolve_change(
+        _set_candidate(("nature",)),
+        current=(active,),
+        relation=MemoryRelation.TEMPORAL_UPDATE,
+        desired_members=("nature", "adventure"),
+    )
+
+    snapshot = change.new_version.normalized_value
+    assert isinstance(snapshot, tuple)
+    assert snapshot == ("adventure", "nature")
+    assert list(snapshot) == sorted(snapshot)

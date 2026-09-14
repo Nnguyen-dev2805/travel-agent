@@ -313,6 +313,6 @@ must be compared; a cosmetic variant is not a distinct alternative.
 | 2026-09-11 | Configurable Model Provider Endpoint | Level 2 | 0.2 | Approved | [Design](./2026-09-11-configurable-model-provider-endpoint-design.md) |
 | 2026-09-11 | Outbox Turn-Readiness Barrier: Release an Extraction Event Only After Its Turn Is Terminal | Level 3 | 0.1 | Approved | [Design](./2026-09-11-outbox-turn-readiness-barrier-design.md) |
 | 2026-09-11 | Worker Role and Tenant-Bound Outbox Claim | Level 3 | 0.1 | Approved | [Design](./2026-09-11-worker-role-tenant-bound-outbox-claim-design.md) |
-| 2026-09-12 | Agent Memory Target Architecture | Level 3 | 0.4 | Approved (2026-09-13) | [Design](./2026-09-12-agent-memory-target-architecture-design.md) |
+| 2026-09-12 | Agent Memory Target Architecture | Level 3 | 0.7 | Approved (2026-09-14) | [Design](./2026-09-12-agent-memory-target-architecture-design.md) |
 | 2026-09-12 | Memory Worker Runtime | Level 3 | 0.1 | Approved | [Design](./2026-09-12-memory-worker-runtime-design.md) |
 | 2026-09-12 | Worker Authority: Credential, Lease Time, and Fence Semantics | Level 3 | 0.1 | Approved | [Design](./2026-09-12-worker-authority-credential-lease-fence-design.md) |

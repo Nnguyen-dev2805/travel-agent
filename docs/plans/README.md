@@ -189,9 +189,10 @@ The status column records the historical approval/execution state of each plan;
 it does not override the lifecycle of its governing specification. If a
 governing specification is `Superseded`, its plan is historical execution
 evidence and must not be selected as current implementation authority. For the
-active Agent Memory program, the approved execution authority is
-[Agent Memory Target Architecture Implementation Plan](./2026-09-12-agent-memory-target-architecture-implementation.md)
-v0.8 together with specification v0.4 and ADR 0036–0040.
+active Agent Memory program, specification v0.7 and implementation-plan v0.11
+are the current approved execution authority as of 2026-09-14. They supersede
+specification v0.6 and plan v0.10 for Task 6 and the remaining staged program.
+ADR 0036–0040 remain the accepted architecture decisions.
 
 | Date | Title | Governing spec | Status | Path |
 | --- | --- | --- | --- | --- |
@@ -231,4 +232,4 @@ v0.8 together with specification v0.4 and ADR 0036–0040.
 | 2026-09-11 | Worker Role and Tenant-Bound Outbox Claim Implementation Plan | [Worker Role and Tenant-Bound Outbox Claim](../specs/2026-09-11-worker-role-tenant-bound-outbox-claim-design.md) v0.1 (Approved) | Completed | [Plan](./2026-09-11-worker-role-tenant-bound-outbox-claim-implementation.md) |
 | 2026-09-12 | Memory Worker Runtime Implementation Plan | [Memory Worker Runtime](../specs/2026-09-12-memory-worker-runtime-design.md) v0.1 (Approved) | Completed | [Plan](./2026-09-12-memory-worker-runtime-implementation.md) |
 | 2026-09-12 | Worker Authority: Credential, Lease Time, and Fence Semantics Implementation Plan | [Worker Authority: Credential, Lease Time, and Fence Semantics](../specs/2026-09-12-worker-authority-credential-lease-fence-design.md) v0.1 (Approved) | Completed | [Plan](./2026-09-12-worker-authority-credential-lease-fence-implementation.md) |
-| 2026-09-12 | Agent Memory Target Architecture Implementation Plan | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.4 (Approved 2026-09-13) | Approved (v0.8; 2026-09-13) | [Plan](./2026-09-12-agent-memory-target-architecture-implementation.md) |
+| 2026-09-12 | Agent Memory Target Architecture Implementation Plan | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.7 (Approved 2026-09-14) | Approved (v0.11; 2026-09-14) | [Plan](./2026-09-12-agent-memory-target-architecture-implementation.md) |

@@ -11,6 +11,7 @@ model or network call occurs inside the transaction.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -21,17 +22,25 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Integer,
     MetaData,
     Table,
     Text,
+    UniqueConstraint,
     and_,
     exc as sa_exc,
     select,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
 from sqlalchemy.engine import Connection, Engine
 
+from backend.memory.lifecycle import (
+    LifecycleFacts,
+    LifecycleStage,
+    MemoryLifecyclePolicy,
+)
+from backend.memory.source_handling import SourceHandlingRecord
 from backend.memory.write_pipeline.models import (
     AssertionIdentity,
     DecisionOutcome,
@@ -41,6 +50,10 @@ from backend.memory.write_pipeline.models import (
     MemoryOperation,
     MemoryVersion,
     MemoryVersionDraft,
+    NormalizedSemanticValue,
+    RetentionMode,
+    SourceValidity,
+    VersionStatus,
     new_version_id,
 )
 from backend.memory.write_pipeline.uow import (
@@ -65,6 +78,27 @@ logger = logging.getLogger("travel_agent_memory_write")
 
 metadata = MetaData()
 
+#: The durable authority record for positive family-specific source handling.
+#: The table itself is created by migration `20260912_03`; this declaration
+#: lets the storage seam speak in typed columns. The authority key is
+#: `(source_outbox_id, family)`, matching the migration exactly.
+source_handling_table = Table(
+    "memory_source_handling",
+    metadata,
+    Column("owner_user_id", Text(), nullable=False),
+    Column("source_outbox_id", Text(), nullable=False),
+    Column("family", Text(), nullable=False),
+    Column("source_message_id", Text(), nullable=False),
+    Column("outcome", Text(), nullable=False),
+    Column("reason_code", Text(), nullable=False),
+    Column("recorded_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "source_outbox_id",
+        "family",
+        name="uq_memory_source_handling_authority",
+    ),
+)
+
 assertions_table = Table(
     "memory_assertions",
     metadata,
@@ -75,6 +109,14 @@ assertions_table = Table(
     Column("canonical_key", Text(), nullable=False),
     Column("subject_key", Text(), nullable=False),
     Column("condition_fingerprint", Text(), nullable=False),
+    #: Which forget era this assertion is in. A candidate stamped with an older
+    #: generation can no longer form, activate, or read.
+    Column(
+        "suppression_generation",
+        Integer(),
+        nullable=False,
+        server_default=text("1"),
+    ),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
@@ -97,6 +139,14 @@ versions_table = Table(
     Column("status", Text(), nullable=False),
     Column("valid_from", DateTime(timezone=True), nullable=False),
     Column("supersedes_version_id", Text(), nullable=True),
+    Column("retention_mode", Text(), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column(
+        "suppression_generation",
+        Integer(),
+        nullable=False,
+        server_default=text("1"),
+    ),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
@@ -195,6 +245,11 @@ _WRITING_OPERATIONS = frozenset(
         MemoryOperation.ADD_EXCEPTION,
         MemoryOperation.REINFORCE,
         MemoryOperation.PENDING_CONFLICT,
+        # `REVOKE` writes no version but it does write: it moves the governed
+        # current version to `REVOKED` and advances the assertion's suppression
+        # generation. Leaving it out of this set would let a revoke be applied
+        # without ever being recorded as a writing operation.
+        MemoryOperation.REVOKE,
     }
 )
 
@@ -241,16 +296,186 @@ def read_current_versions(
             canonical_key=identity.canonical_key,
             subject_key=identity.subject_key,
             condition_fingerprint=identity.condition_fingerprint,
-            normalized_value=row["normalized_value"],
+            normalized_value=_rebuild_normalized_value(row),
             display_text=row["value_payload"]["display_text"],
             authority=row["authority"],
             sensitivity=row["sensitivity"],
             status=row["status"],
             valid_from=row["valid_from"],
             supersedes_version_id=row["supersedes_version_id"],
+            retention_mode=row["retention_mode"],
+            expires_at=row["expires_at"],
+            suppression_generation=row["suppression_generation"],
         )
         for row in rows
     )
+
+
+def record_source_handling(
+    engine: Engine, owner_user_id: str, record: SourceHandlingRecord
+) -> bool:
+    """Persist one durable authority record; replay-aware, fail-closed.
+
+    The authority key is `(owner_user_id, source_outbox_id, family)`. An
+    identical replay — every authoritative field equal — is idempotent and
+    returns `False`; the same key with different content is a contradiction
+    between two decisions about one source and fails closed with
+    `MemoryWriteError` (`plan:734-748`). The unique constraint backs the
+    race; the explicit comparison supplies the semantics, so a losing
+    concurrent writer observes the winner's row and compares rather than
+    treating constraint violation as "already done".
+
+    Runs in its own tenant-bound transaction. `recorded_at` is part of the
+    record's authoritative content: two records differing only in time are
+    two different decisions and conflict.
+    """
+    if not isinstance(record, SourceHandlingRecord):
+        raise MemoryWriteError(
+            "record_source_handling requires a SourceHandlingRecord."
+        )
+    with transaction(engine) as connection:
+        set_tenant(connection, owner_user_id)
+        existing = (
+            connection.execute(
+                select(source_handling_table).where(
+                    source_handling_table.c.owner_user_id == owner_user_id,
+                    source_handling_table.c.source_outbox_id
+                    == record.source_outbox_id,
+                    source_handling_table.c.family == record.family.value,
+                )
+                .with_for_update()
+            )
+            .mappings()
+            .fetchone()
+        )
+        if existing is not None:
+            same = (
+                existing["source_message_id"] == record.source_message_id
+                and existing["outcome"] == record.outcome.value
+                and existing["reason_code"] == record.reason_code.value
+                and existing["recorded_at"] == record.recorded_at
+            )
+            if same:
+                return False
+            raise MemoryWriteError(
+                "A different authority record already exists for this source "
+                "and family; replay with identical content or re-derive the "
+                "decision."
+            )
+        inserted = connection.execute(
+            pg_insert(source_handling_table)
+            .values(
+                owner_user_id=owner_user_id,
+                source_outbox_id=record.source_outbox_id,
+                family=record.family.value,
+                source_message_id=record.source_message_id,
+                outcome=record.outcome.value,
+                reason_code=record.reason_code.value,
+                recorded_at=record.recorded_at,
+            )
+            .on_conflict_do_nothing(
+                constraint="uq_memory_source_handling_authority"
+            )
+            .returning(source_handling_table.c.source_outbox_id)
+        ).scalar_one_or_none()
+        if inserted is not None:
+            return True
+
+        winner = (
+            connection.execute(
+                select(source_handling_table).where(
+                    source_handling_table.c.source_outbox_id == record.source_outbox_id,
+                    source_handling_table.c.family == record.family.value,
+                )
+            )
+            .mappings()
+            .one()
+        )
+        same = (
+            winner["owner_user_id"] == owner_user_id
+            and winner["source_message_id"] == record.source_message_id
+            and winner["outcome"] == record.outcome.value
+            and winner["reason_code"] == record.reason_code.value
+            and winner["recorded_at"] == record.recorded_at
+        )
+        if same:
+            return False
+        raise MemoryWriteError(
+            "A different authority record already exists for this source and family."
+        )
+
+
+def load_source_handling(
+    engine: Engine, owner_user_id: str, source_outbox_id: str, family: Any
+) -> SourceHandlingRecord | None:
+    """Return the durable record for one authority key, or `None`.
+
+    `None` is `UNHANDLED`: it grants nothing — `allows_background_formation`
+    denies it, and that denial is the point (`ADR 0038:59`). The read binds
+    the tenant so RLS scopes it like every other owner-path read.
+    """
+    from backend.memory.source_handling import MemoryFamily
+
+    resolved_family = (
+        family if isinstance(family, MemoryFamily) else MemoryFamily(family)
+    )
+    with engine.connect() as connection:
+        set_tenant(connection, owner_user_id)
+        row = (
+            connection.execute(
+                select(source_handling_table).where(
+                    source_handling_table.c.owner_user_id == owner_user_id,
+                    source_handling_table.c.source_outbox_id == source_outbox_id,
+                    source_handling_table.c.family == resolved_family.value,
+                )
+            )
+            .mappings()
+            .fetchone()
+        )
+    if row is None:
+        return None
+    return SourceHandlingRecord(
+        source_outbox_id=row["source_outbox_id"],
+        source_message_id=row["source_message_id"],
+        family=resolved_family,
+        outcome=row["outcome"],
+        reason_code=row["reason_code"],
+        recorded_at=row["recorded_at"],
+    )
+
+
+def _derived_normalized_text(value: NormalizedSemanticValue) -> str:
+    """The deterministic textual form stored beside the JSON payload.
+
+    A set is canonical compact JSON rather than delimiter text, so the column
+    stays auditable without inventing an encoding a reader could mistake for the
+    value itself. `"a|b"` is one value; `["a","b"]` is two.
+    """
+    if isinstance(value, tuple):
+        return json.dumps(list(value), separators=(",", ":"), ensure_ascii=False)
+    return value
+
+
+def _typed_normalized_value(payload_value: Any) -> NormalizedSemanticValue:
+    """Rebuild the in-process value from the authoritative JSON payload."""
+    if isinstance(payload_value, list):
+        return tuple(payload_value)
+    return payload_value
+
+
+def _rebuild_normalized_value(row: Any) -> NormalizedSemanticValue:
+    """Rebuild a stored value, and cross-check the derived text on the way.
+
+    The payload is authoritative and the text column is derived, so a
+    disagreement means the row was not written by this writer. Returning the
+    text instead would expose a raw JSON string as an in-process set value.
+    """
+    typed = _typed_normalized_value(row["value_payload"]["normalized_value"])
+    if _derived_normalized_text(typed) != row["normalized_value"]:
+        raise MemoryWriteError(
+            "Stored normalized_value disagrees with value_payload."
+        )
+    return typed
 
 
 def _require_fence_reason(reason: FenceReason | None, check: str) -> FenceReason:
@@ -289,9 +514,12 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
         idempotency_key: str | None = None,
         expected_version_id: str | None = None,
         fence: FenceContext | None = None,
+        source_validity: SourceValidity | None = None,
     ) -> MemoryWriteResult:
         """Apply one change with bounded retry on write contention."""
-        self._check_inputs(change, principal, evidence, decision, idempotency_key)
+        self._check_inputs(
+            change, principal, evidence, decision, idempotency_key, source_validity
+        )
         if fence is not None and not isinstance(fence, FenceContext):
             raise MemoryWriteError("A fence must be a FenceContext or null.")
         if change.identity is None:
@@ -322,6 +550,7 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
                         idempotency_key,
                         expected_version_id,
                         fence,
+                        source_validity,
                     )
             except MemoryWriteError:
                 raise
@@ -342,7 +571,9 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
         ) from last_error
 
     @staticmethod
-    def _check_inputs(change, principal, evidence, decision, idempotency_key) -> None:
+    def _check_inputs(
+        change, principal, evidence, decision, idempotency_key, source_validity
+    ) -> None:
         if not isinstance(change, MemoryChangeSet):
             raise MemoryWriteError("apply_memory_change requires a MemoryChangeSet.")
         if not isinstance(principal, AuthenticatedPrincipal):
@@ -359,6 +590,8 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
             not isinstance(idempotency_key, str) or not idempotency_key.strip()
         ):
             raise MemoryWriteError("An idempotency key must be non-blank text.")
+        if source_validity is not None and not isinstance(source_validity, SourceValidity):
+            raise MemoryWriteError("source_validity must be a SourceValidity or null.")
 
     def _apply_once(
         self,
@@ -370,6 +603,7 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
         idempotency_key: str | None,
         expected_version_id: str | None,
         fence: FenceContext | None,
+        source_validity: SourceValidity | None,
     ) -> MemoryWriteResult:
         owner = principal.owner_user_id
         set_tenant(connection, owner)
@@ -437,6 +671,44 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
                 raise StaleVersionError(
                     "The expected current version no longer matches stored state."
                 )
+        stored_generation = self._read_locked_assertion_generation(
+            connection, assertion_id
+        )
+        if change.operation in _WRITING_OPERATIONS and change.new_version is not None:
+            if stored_generation != change.new_version.suppression_generation:
+                # The no-resurrection fence (`plan:710-722`): the domain
+                # resolver compares stamps, but only this locked boundary
+                # knows the durable fact. A write whose candidate carries an
+                # older generation than the live assertion is delayed work
+                # from before a REVOKE; letting it through would resurrect
+                # the memory the revoke retired. The comparison happens after
+                # the lock, so a revoke committing concurrently is observed
+                # by one of the two writers.
+                raise StaleVersionError(
+                    "The change carries a stale suppression generation; "
+                    "re-resolve against the current assertion."
+                )
+            lifecycle = MemoryLifecyclePolicy().evaluate(
+                stage=LifecycleStage.WRITE,
+                facts=LifecycleFacts(
+                    retention_mode=change.new_version.retention_mode,
+                    stamped_generation=change.new_version.suppression_generation,
+                    current_generation=stored_generation,
+                    scope=change.new_version.scope,
+                    sensitivity=change.new_version.sensitivity,
+                    source_validity=source_validity,
+                    expires_at=change.new_version.expires_at,
+                    evaluated_at=(
+                        datetime.now(timezone.utc)
+                        if change.new_version.expires_at is not None
+                        else None
+                    ),
+                ),
+            )
+            if not lifecycle.eligible:
+                raise MemoryWriteError(
+                    f"Memory lifecycle write denied: {lifecycle.reason.value}."
+                )
 
         operation = change.operation
         if operation in (MemoryOperation.ADD, MemoryOperation.ADD_EXCEPTION):
@@ -456,12 +728,27 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
                 )
             # Flip first, then insert: the one-current-version index
             # forbids two live rows even momentarily inside the txn.
-            superseded = self._mark_versions_superseded(
+            superseded = self._mark_versions_status(
                 connection, assertion_id, change.superseded_version_ids
             )
             version_id = self._insert_version_row(
                 connection, change.new_version, assertion_id, owner
             )
+            reference = None
+        elif operation is MemoryOperation.REVOKE:
+            if not change.superseded_version_ids:
+                raise ConcurrentWriteError("The revoke target is gone; re-resolve.")
+            # Revoke is a terminal status, not a deletion: the row survives so
+            # delayed work can be fenced against it. The suppression-generation
+            # advance that goes with it is applied under the same lock, below.
+            superseded = self._mark_versions_status(
+                connection,
+                assertion_id,
+                change.superseded_version_ids,
+                status=VersionStatus.REVOKED.value,
+            )
+            self._advance_suppression_generation(connection, assertion_id)
+            version_id = None
             reference = None
         elif operation is MemoryOperation.REINFORCE:
             if change.reference_version_id not in active_ids:
@@ -659,6 +946,30 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
             .fetchall()
         )
 
+    @staticmethod
+    def _read_locked_assertion_generation(
+        connection: Connection, assertion_id: str
+    ) -> int:
+        """The assertion's durable suppression generation, read under lock.
+
+        The parent row is already `FOR UPDATE`-locked by `_resolve_assertion`,
+        so this read is stable for the rest of the transaction: no concurrent
+        revoke can advance the generation between this comparison and the
+        write it guards.
+        """
+        row = (
+            connection.execute(
+                select(
+                    assertions_table.c.suppression_generation
+                ).where(assertions_table.c.assertion_id == assertion_id)
+            )
+            .mappings()
+            .fetchone()
+        )
+        if row is None:  # pragma: no cover - the caller just resolved it
+            raise MemoryWriteError("The assertion disappeared under the lock.")
+        return int(row["suppression_generation"])
+
     def _insert_evidence_rows(
         self,
         connection: Connection,
@@ -714,9 +1025,13 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
                 version_id=version_id,
                 assertion_id=assertion_id,
                 owner_user_id=owner,
-                normalized_value=draft.normalized_value,
+                normalized_value=_derived_normalized_text(draft.normalized_value),
                 value_payload={
-                    "normalized_value": draft.normalized_value,
+                    "normalized_value": (
+                        list(draft.normalized_value)
+                        if isinstance(draft.normalized_value, tuple)
+                        else draft.normalized_value
+                    ),
                     "display_text": draft.display_text,
                 },
                 authority=draft.authority.value,
@@ -724,14 +1039,29 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
                 status="active",
                 valid_from=draft.valid_from,
                 supersedes_version_id=draft.supersedes_version_id,
+                retention_mode=draft.retention_mode.value,
+                expires_at=draft.expires_at,
+                suppression_generation=draft.suppression_generation,
                 created_at=now,
             )
         )
         return version_id
 
-    def _mark_versions_superseded(
-        self, connection: Connection, assertion_id: str, version_ids
+    def _mark_versions_status(
+        self,
+        connection: Connection,
+        assertion_id: str,
+        version_ids,
+        *,
+        status: str = "superseded",
     ) -> tuple[str, ...]:
+        """Move the named live versions to a terminal status, or refuse.
+
+        Both terminal transitions flip first for the same reason: the
+        one-current-version index forbids two live rows even momentarily inside
+        the transaction. A target that is no longer live means another writer
+        moved it, which is a concurrency refusal rather than a silent no-op.
+        """
         identities = tuple(version_ids)
         if not identities:
             return ()
@@ -740,13 +1070,33 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork):
             .where(versions_table.c.assertion_id == assertion_id)
             .where(versions_table.c.version_id.in_(identities))
             .where(versions_table.c.status == "active")
-            .values(status="superseded")
+            .values(status=status)
         )
         if result.rowcount != len(identities):
             raise ConcurrentWriteError(
                 "A supersession target moved; re-resolve and retry."
             )
         return identities
+
+    def _advance_suppression_generation(
+        self, connection: Connection, assertion_id: str
+    ) -> int:
+        """Advance the assertion's generation under the caller's lock.
+
+        Storage owns this, not the resolver: a generation is a fact about what
+        has been committed, and a pure function cannot know whether its change
+        set will actually be applied. Doing it in the same statement that reads
+        the current value keeps it atomic with the revocation.
+        """
+        return connection.execute(
+            assertions_table.update()
+            .where(assertions_table.c.assertion_id == assertion_id)
+            .values(
+                suppression_generation=assertions_table.c.suppression_generation
+                + 1,
+                updated_at=datetime.now(timezone.utc),
+            )
+        ).rowcount
 
     def _insert_event_row(
         self,
@@ -912,10 +1262,11 @@ def pg_list_active_versions(
     statement = (
         "SELECT v.version_id, v.owner_user_id, a.scope, a.scope_id, "
         "a.canonical_key, a.subject_key, a.condition_fingerprint, "
-        "v.normalized_value, "
+        "v.normalized_value, v.value_payload, "
         "v.value_payload ->> 'display_text' AS display_text, "
         "v.authority, v.sensitivity, v.status, v.valid_from, "
-        "v.supersedes_version_id "
+        "v.supersedes_version_id, v.retention_mode, v.expires_at, "
+        "v.suppression_generation "
         "FROM memory_versions AS v "
         "JOIN memory_assertions AS a "
         "ON v.assertion_id = a.assertion_id "
@@ -937,13 +1288,16 @@ def pg_list_active_versions(
             canonical_key=row["canonical_key"],
             subject_key=row["subject_key"],
             condition_fingerprint=row["condition_fingerprint"],
-            normalized_value=row["normalized_value"],
+            normalized_value=_rebuild_normalized_value(row),
             display_text=row["display_text"] or row["normalized_value"],
             authority=row["authority"],
             sensitivity=row["sensitivity"],
             status=row["status"],
             valid_from=row["valid_from"],
             supersedes_version_id=row["supersedes_version_id"],
+            retention_mode=row["retention_mode"],
+            expires_at=row["expires_at"],
+            suppression_generation=row["suppression_generation"],
         )
         for row in rows
     )

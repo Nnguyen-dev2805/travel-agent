@@ -62,6 +62,7 @@ class RecordingUoW:
         decision=None,
         idempotency_key=None,
         fence=None,
+        source_validity=None,
     ) -> MemoryWriteResult:
         self.applied_changes.append(
             {
@@ -71,6 +72,7 @@ class RecordingUoW:
                 "decision": decision,
                 "idempotency_key": idempotency_key,
                 "fence": fence,
+                "source_validity": source_validity,
             }
         )
         return MemoryWriteResult(
