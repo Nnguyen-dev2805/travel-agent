@@ -29,6 +29,12 @@ from backend.conversations.repository import (
     ConversationGoneError,
     ConversationRepositoryError,
 )
+from backend.memory.source_handling import (
+    MemoryFamily,
+    SourceHandlingProposal,
+    SourceHandlingReason,
+    propose_source_handling,
+)
 from backend.observability.events import emit_event
 from backend.observability.models import (
     EventComponent,
@@ -65,6 +71,52 @@ INSPECT_UNAVAILABLE_REPLY = (
 #: No model produced this reply, so the label says so rather than borrowing the
 #: configured model name — a model label must not be read as proof of a call.
 INSPECT_UNAVAILABLE_MODEL = "unavailable"
+
+#: Reading -> source-handling reason, written as an explicit table rather than
+#: as an if-chain with a default. A chain has to end in *something*, and the
+#: only useful default here would be "eligible" — which would mean a reading
+#: added by a later stage inherits background permission simply because nobody
+#: classified it. A table has no default: an unclassified reading raises.
+#:
+#: `EXPLICIT_INSPECT` maps to `EXPLICIT_ACTION` even though it mutates nothing.
+#: The rule being applied is about a source that was already *handled* as an
+#: explicit Memory command, not about whether that handling wrote anything
+#: (`ADR 0038:61-64`); letting the worker independently reinterpret an
+#: inspection request would make one source count twice.
+_SOURCE_HANDLING_REASON_BY_READING: dict[InteractionMode, SourceHandlingReason] = {
+    InteractionMode.NORMAL_QUERY: SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE,
+    InteractionMode.EXPLICIT_REMEMBER: SourceHandlingReason.EXPLICIT_ACTION,
+    InteractionMode.EXPLICIT_CORRECT: SourceHandlingReason.EXPLICIT_ACTION,
+    InteractionMode.EXPLICIT_FORGET: SourceHandlingReason.EXPLICIT_ACTION,
+    InteractionMode.EXPLICIT_INSPECT: SourceHandlingReason.EXPLICIT_ACTION,
+    InteractionMode.AMBIGUOUS: SourceHandlingReason.AMBIGUOUS_INTENT,
+}
+
+
+def _source_handling_reason_for(
+    interaction_mode: InteractionMode,
+) -> SourceHandlingReason:
+    """Map one Stage-1 reading onto the closed source-handling reason vocabulary.
+
+    Only three of the four reasons are reachable from here. `SENSITIVE_BLOCKED`
+    belongs to the stage that owns prohibited-content detection: reaching it
+    would mean importing the write pipeline's detector into orchestration, which
+    the approved plan forbids (`plan v0.6:456-459`).
+
+    An unclassified reading raises rather than falling back to a reason. This is
+    an authority boundary, so the two failure directions are not equivalent: a
+    reading that is silently refused is a defect nobody notices until a family
+    stops forming, whereas a reading that is silently *permitted* is the defect
+    the whole architecture exists to prevent.
+    """
+    try:
+        return _SOURCE_HANDLING_REASON_BY_READING[interaction_mode]
+    except KeyError as error:
+        raise ValueError(
+            f"No source-handling reason is defined for the reading "
+            f"'{interaction_mode}'. Classify it explicitly; an unclassified "
+            f"reading must never inherit background eligibility."
+        ) from error
 
 
 class DialogueStateInvariantError(ConversationRepositoryError):
@@ -109,6 +161,12 @@ class TurnOutcome:
     `disposition` is the internal reasoning outcome (ADR 0023 / `spec:332-363`).
     It stays on this aggregate and is never added to the public Chat response
     schema (`spec:360-363`).
+
+    `source_handling` is the Stage-1 typed proposal for this turn's source
+    (`plan v0.6:431-436`). It is internal for the same reason: it is evidence
+    about how the turn was classified, not something a client may read. It is
+    **not** a `SourceHandlingRecord` — orchestration cannot persist one, because
+    it does not know the source's outbox identity (`spec:484-490`).
     """
 
     reply: str
@@ -117,6 +175,7 @@ class TurnOutcome:
     conversation: Optional[TurnPersistence] = None
     memory: Optional[Any] = None
     disposition: Optional[TurnDisposition] = None
+    source_handling: Optional[SourceHandlingProposal] = None
 
 
 class ConversationOrchestrator:
@@ -263,17 +322,36 @@ class ConversationOrchestrator:
             route = self._router.route(understanding)
             context_plan = self._planner.plan(understanding)
 
+            # Task 5: record how this turn's source was handled. The proposal is
+            # keyed by the user message this turn already persisted, so it names
+            # a real source without orchestration having to reach for the
+            # outbox identity that only the Stage-2 seam owns (`spec:484-490`).
+            # It is evidence, not permission: nothing below consults it, and
+            # Stage 1 creates no `SourceHandlingRecord`.
+            source_handling = propose_source_handling(
+                source_message_id=user_message.message_id,
+                family=MemoryFamily.SEMANTIC,
+                reason_code=_source_handling_reason_for(
+                    understanding.interaction_mode
+                ),
+            )
+
             # Shadow evidence only: the proposal is recorded, and the effective
             # mode stays the RAG-only baseline while enforcement is off. Nothing
             # below consults `context_plan.effective` to decide whether to
             # retrieve.
             logger.info(
                 "chat.turn understood interaction_mode=%s route=%s "
-                "proposed_context=%s effective_context=%s",
+                "proposed_context=%s effective_context=%s "
+                "source_handling_family=%s source_handling_outcome=%s "
+                "source_handling_reason=%s",
                 understanding.interaction_mode.value,
                 route.value,
                 context_plan.proposed.value,
                 context_plan.effective.value,
+                source_handling.family.value,
+                source_handling.outcome.value,
+                source_handling.reason_code.value,
             )
 
             if understanding.interaction_mode is InteractionMode.EXPLICIT_INSPECT:
@@ -384,6 +462,7 @@ class ConversationOrchestrator:
             ),
             memory=None,
             disposition=self._disposition_for(route),
+            source_handling=source_handling,
         )
 
     @staticmethod

@@ -2,14 +2,44 @@
 
 Canonical staged evaluation record for the Agent Memory target architecture.
 Tasks 11–16 extend this artifact rather than creating parallel reports
-(`plan v0.7:482-488`).
+(`plan v0.8`, evaluation task group).
 
-**Governing spec:** [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.3 (Approved 2026-09-13)
-**Governing plan:** [Agent Memory Target Architecture Implementation](../plans/2026-09-12-agent-memory-target-architecture-implementation.md) v0.7 (Approved 2026-09-13)
+**Governing spec:** [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.4 (Approved 2026-09-13)
+**Governing plan:** [Agent Memory Target Architecture Implementation](../plans/2026-09-12-agent-memory-target-architecture-implementation.md) v0.8 (Approved 2026-09-13)
 **Evaluation code:** `backend/memory/write_pipeline/evaluation/stage1_metrics.py`
 **Last run:** 2026-09-13, Stage 1 (Task 4)
 
 ---
+
+## Component Maturity Register
+
+This register records delivery and evidence maturity; it does **not** override
+the approved specification, implementation plan, or ADRs. Update the affected
+row in the same task that materially changes a component or its evaluation
+status.
+
+Three states must stay separate:
+
+- `IMPLEMENTED` means the component exists and its scoped implementation checks
+  pass; it does not imply semantic quality has been proven.
+- `VALIDATED` means the required quality claim has conclusive evidence from the
+  governed evaluation path, not only unit tests or ad-hoc examples.
+- `ENFORCEMENT_READY` means the approved promotion gate is satisfied and the
+  component may exercise the authority named by the architecture.
+
+| Component | Implementation | Validation | Runtime authority now | Known limitations / target | Revisit or promotion condition |
+| --- | --- | --- | --- | --- | --- |
+| `DialogueStateResolver` | `IMPLEMENTED` | Unit-verified; no separate quality gate required yet | Authoritative only for the bounded structural recent-turn snapshot | Stage 1 is recent-turn-only and deliberately contributes no semantic interpretation. Working Memory becomes an additional governed input in the later stage defined by the spec. | Revisit when Working Memory read/use becomes available; preserve the structural-vs-semantic boundary. |
+| `TurnUnderstanding` | `IMPLEMENTED` baseline | `PARTIAL`; focused tests exist, but no approved Stage-1 fixture set exists | Provides typed semantics to routing; **cannot** authorize durable mutation by itself | Current implementation is a deterministic/rule-based Stage-1 baseline. Known semantic edge cases remain around reported/embedded memory phrases and distinguishing short clarification replies from unrelated short topic shifts. Target remains the approved hybrid resolution order: deterministic safety/high-precision rules, bounded structured model classification when unresolved, closed-schema validation, deterministic final policy. | After the end-to-end Memory path exists, benchmark rule-only vs structured-model vs hybrid understanding on an approved dataset before making a production-quality semantic claim. |
+| `ExplicitIntentGate` | `IMPLEMENTED` | Unit-verified; hard-gate dataset still missing | Authoritative guard for whether an interpreted explicit intent may proceed; Stage 1 has no Memory mutation path | Deterministic corroboration remains mandatory even if `TurnUnderstanding` later gains a semantic model. Model/classifier output alone never grants durable authority. | Re-evaluate on the approved explicit-intent set and the controlled explicit Memory vertical slice before durable write rollout. |
+| `ActionRouter` | `IMPLEMENTED` | Unit-verified | Authoritative for Stage-1 turn routing only | Explicit Memory execution is not present yet; inspect returns the controlled unavailable/incomplete outcome defined for this stage. | Revisit as the explicit write path and later read/use paths are introduced; downstream code must depend on typed outcomes, not on `TurnUnderstanding` heuristics. |
+| `ContextPlanner` | `IMPLEMENTED` shadow | `INCONCLUSIVE` | `SHADOW_ONLY`; effective normal-query execution remains the existing `RAG_ONLY` baseline | Stage 1 proposals are evaluation evidence only. No approved context-mode dataset exists, so planner quality has not been proven. | Task 10 plus a conclusive owner-approved grounding set with zero false-`NONE` before authoritative planner execution. |
+| Stage-1 evaluation harness | `IMPLEMENTED` with known blockers | `INCONCLUSIVE` | No rollout/promotion authority while evidence is inconclusive | The trust root is fixed to the governed manifest path, but manifest-schema hardening remains required before this harness can safely open a gate: reject duplicate IDs inside the manifest, require every grounding-required ID to belong to `fixture_ids`, and require correctly typed/validated approval metadata. | Fix the schema blockers, add an owner-approved Stage-1 fixture set, then run the full governed metrics before using the result for promotion. |
+| `SourceHandling` (Task 5) | `IMPLEMENTED` | Unit-verified; no quality gate is defined for this component yet, and none is claimed | **None.** Stage 1 proposals grant nothing, no `SourceHandlingRecord` is persisted, and the fail-closed gate has no runtime caller holding a record | Proposals are non-authoritative by construction: they carry no `source_outbox_id`, so they cannot be bound to a source event or consumed. Stage-1 orchestration emits only three of the four reasons — `SENSITIVE_BLOCKED` is covered by the pure reason-mapping tests but is unreachable until the stage that owns prohibited-content detection, because reaching it would mean importing the write pipeline's detector into orchestration. `EXPLICIT_INSPECT` is blocked under `EXPLICIT_ACTION`: inspection mutates nothing, but it is still an explicit Memory command, and the rule is about a source already *handled* explicitly. | Task 6 (persistence, `(source_outbox_id, family)` binding) and Task 11 (first real consumer). The gate must then be re-exercised against records read back from storage, not only against constructed ones — an unreadable record and an absent one must both still deny. |
+
+The maintenance rule is intentionally strict: **implemented != validated !=
+enforcement-ready**. Known blockers are recorded as blockers, not converted into
+`PASS` by schedule pressure or by the existence of unit tests.
 
 ## 1. How to read this record
 
@@ -29,7 +59,7 @@ states are therefore distinct and must not be conflated:
 ## 2. Stage 1 — Understanding and Action
 
 Required by `spec:873-875` (intent precision/recall, durable-action
-false-positive rate, clarification correctness) and `plan v0.7:482-493`
+false-positive rate, clarification correctness) and `plan v0.8` Task 4
 (context-mode evaluation, false-`NONE` rate).
 
 **Dataset identity:** *none approved.* There is no Stage-1 agent-memory fixture
@@ -56,10 +86,17 @@ rate. Scoring it as correct was a defect of the first version of this harness.
 `APPROVED_MANIFEST_PATH` — `docs/evaluation/fixtures/agent-memory/stage1-manifest.json`
 — and `compute_stage1_metrics` takes **no manifest argument**, so there is nothing
 for a caller to substitute. The manifest must carry an explicit approval record
-(`approved_by`, `approved_on`), its fixture IDs must equal the evaluated examples
-exactly **with no duplicates**, and its `grounding_required_fixture_ids` — not a
-per-example flag — define the false-`NONE` denominator. The set must also meet
+(`approved_by`, `approved_on`); evaluated fixture IDs must match the manifest's
+fixture-ID set exactly, and duplicate IDs in the evaluated examples are refused.
+The manifest's `grounding_required_fixture_ids` — not a per-example flag — define
+the false-`NONE` denominator. The set must also meet
 `MIN_APPROVED_GROUNDING_FIXTURES` (20).
+
+This binding is not yet sufficient to call the harness promotion-ready. The
+current loader still needs fail-closed schema validation for duplicate IDs inside
+the manifest itself, grounding IDs that are not members of `fixture_ids`, and the
+type/format of approval metadata. These are tracked as explicit blockers in the
+Component Maturity Register above.
 
 Two earlier versions were insufficient. The first accepted an object the caller
 built, so declaring a set was treated as being the set. The second hashed the file
@@ -98,7 +135,7 @@ otherwise be reported as a misleading number:
 
 ## 3. The planner rollout gate
 
-`plan v0.7:489-493` makes the false-`NONE` gate mandatory:
+`plan v0.8` Task 4 makes the false-`NONE` gate mandatory:
 
 > The hard gate requires zero false-`NONE` on a conclusive approved set before
 > planner enforcement may be enabled. While the gate is `INCONCLUSIVE` or
@@ -159,7 +196,7 @@ execution. This is verified by test, not by a rate:
 | A statement *about* memory never authorizes a durable action | `backend/tests/unit/orchestration/test_turn_understanding.py::test_a_statement_about_memory_is_not_a_speech_act` |
 | The active goal is the original request, not the latest clarification answer | `backend/tests/unit/orchestration/test_turn_understanding.py::test_the_current_goal_is_the_original_request_not_the_last_answer` |
 | `effective` always matches what executes | `backend/tests/unit/orchestration/test_context_planner.py::test_the_effective_mode_always_matches_what_executes` |
-| The approved set is bound to a manifest file, not a caller object | `backend/tests/unit/memory_write_pipeline/test_stage1_metrics.py::test_a_fabricated_manifest_fails_the_digest_check` |
+| The approved set is bound to the governed manifest path, not a caller object or caller path | `backend/tests/unit/memory_write_pipeline/test_stage1_metrics.py::test_the_metrics_take_no_manifest_argument` and `::test_a_caller_supplied_path_is_not_part_of_the_api` |
 | The removed-subsystem guard catches `from backend import planner` | `backend/tests/unit/test_runtime_container.py::test_a_forbidden_submodule_imported_by_name_is_caught` |
 | A comment or noun usage of a memory verb is not a command | `backend/tests/unit/orchestration/test_turn_understanding.py::test_a_bare_verb_at_the_start_of_a_comment_is_not_a_command` |
 | A topic change is not a clarification answer, and it replaces the goal | `backend/tests/unit/orchestration/test_turn_understanding.py::test_a_new_question_is_not_a_clarification_answer` |

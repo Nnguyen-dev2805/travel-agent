@@ -1233,3 +1233,209 @@ def test_a_dialogue_state_invariant_failure_is_not_a_user_validation_error(rag, 
     )
     assert "fail_turn" in journal
     assert not rag.calls
+
+
+# ---------------------------------------------------------------------------
+# Task 5: the Stage-1 turn produces a typed, non-authoritative proposal.
+# ---------------------------------------------------------------------------
+
+
+def test_a_normal_query_proposes_background_eligibility(rag, journal):
+    """The ordinary turn is the one source condition that may be eligible.
+
+    `spec:442`. Orchestration states the *reason*; the module derives the
+    outcome, so this also proves the mapping is applied at the call site rather
+    than the caller asserting an outcome of its own.
+    """
+    from backend.memory.source_handling import (
+        MemoryFamily,
+        SourceHandlingProposal,
+        SourceHandlingProposalOutcome,
+        SourceHandlingReason,
+    )
+
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    outcome = orchestrator.handle_turn(
+        message=USER_MESSAGE, conversation_id=None, principal=DEFAULT_PRINCIPAL
+    )
+
+    proposal = outcome.source_handling
+    assert isinstance(proposal, SourceHandlingProposal)
+    assert proposal.family is MemoryFamily.SEMANTIC
+    assert proposal.outcome is SourceHandlingProposalOutcome.BACKGROUND_ELIGIBLE
+    assert proposal.reason_code is SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE
+
+
+def test_the_proposal_is_keyed_by_the_persisted_user_message(rag, journal):
+    """The proposal names the source it is evidence about, and nothing else.
+
+    `spec:484-486`: Task 5 keys the proposal by the already-known source message
+    identity. A proposal that carried no identity, or a fabricated one, could
+    not be bound to a real outbox row in Stage 2.
+    """
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    outcome = orchestrator.handle_turn(
+        message=USER_MESSAGE, conversation_id=None, principal=DEFAULT_PRINCIPAL
+    )
+
+    assert (
+        outcome.source_handling.source_message_id
+        == outcome.conversation.user_message_id
+    )
+
+
+def test_an_explicit_remember_proposes_a_blocked_source(rag, journal):
+    """An explicit Memory command must not double as inference permission.
+
+    `ADR 0038:61-64`. The handler that would write Memory is Task 8, so in
+    Stage 1 the turn is only *recognized*; the source-handling consequence is
+    already decided, and it is a refusal.
+    """
+    from backend.memory.source_handling import (
+        SourceHandlingProposalOutcome,
+        SourceHandlingReason,
+    )
+
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    outcome = orchestrator.handle_turn(
+        message=REMEMBER_MESSAGE, conversation_id=None, principal=DEFAULT_PRINCIPAL
+    )
+
+    assert outcome.source_handling.outcome is (
+        SourceHandlingProposalOutcome.BACKGROUND_BLOCKED
+    )
+    assert outcome.source_handling.reason_code is SourceHandlingReason.EXPLICIT_ACTION
+
+
+def test_an_ambiguous_turn_proposes_a_blocked_source(rag, journal):
+    """An unresolvable reading is refused, not guessed into eligibility."""
+    from backend.memory.source_handling import (
+        SourceHandlingProposalOutcome,
+        SourceHandlingReason,
+    )
+
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    outcome = orchestrator.handle_turn(
+        message=AMBIGUOUS_MESSAGE, conversation_id=None, principal=DEFAULT_PRINCIPAL
+    )
+
+    assert outcome.source_handling.outcome is (
+        SourceHandlingProposalOutcome.BACKGROUND_BLOCKED
+    )
+    assert outcome.source_handling.reason_code is SourceHandlingReason.AMBIGUOUS_INTENT
+
+
+def test_the_proposal_is_never_an_authoritative_record(rag, journal):
+    """Orchestration may propose; only the Stage-2 seam may persist.
+
+    `spec:486-490`. If orchestration ever built a `SourceHandlingRecord` it would
+    have to invent `source_outbox_id`, which is the storage identity the plan
+    forbids this task from obtaining.
+    """
+    from backend.memory.source_handling import SourceHandlingRecord
+
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    outcome = orchestrator.handle_turn(
+        message=USER_MESSAGE, conversation_id=None, principal=DEFAULT_PRINCIPAL
+    )
+
+    assert not isinstance(outcome.source_handling, SourceHandlingRecord)
+    assert not hasattr(outcome.source_handling, "source_outbox_id")
+
+
+def test_producing_a_proposal_does_not_add_a_storage_call(rag, journal):
+    """The proposal is derived from the turn, not read back from anywhere.
+
+    A Stage-1 implementation that looked the outbox row up would widen the
+    Conversation API and move the Stage-2 binding boundary into Task 5.
+    """
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    orchestrator.handle_turn(
+        message=USER_MESSAGE, conversation_id=None, principal=DEFAULT_PRINCIPAL
+    )
+
+    assert "get_outbox" not in journal
+    assert "claim_event" not in journal
+    assert not [entry for entry in journal if "outbox" in entry.lower()], journal
+
+
+def test_the_proposal_does_not_change_the_answer(rag, journal):
+    """The load-bearing rollout assertion: this task is evidence, not behaviour.
+
+    `plan v0.6:481-483`. A source-handling proposal that altered the reply, the
+    retrieval path, or the persistence result would be a behavioural change
+    smuggled in under a contracts task.
+    """
+    orchestrator = _stage_one_orchestrator(rag, journal)
+
+    outcome = orchestrator.handle_turn(
+        message=USER_MESSAGE, conversation_id=None, principal=DEFAULT_PRINCIPAL
+    )
+
+    assert outcome.reply == GENERATED_REPLY
+    assert outcome.conversation.persisted is True
+    assert rag.calls, "retrieval was skipped"
+
+
+def test_every_interaction_mode_has_a_source_handling_reason():
+    """The reading -> reason mapping must be total over `InteractionMode`.
+
+    This is an authority boundary, so it is checked by enumeration rather than
+    by sampling. If a later stage adds a reading and does not classify it, this
+    fails immediately — the alternative is that the new reading inherits
+    whatever the implementation's final branch happens to return.
+    """
+    from backend.memory.source_handling import SourceHandlingReason
+    from backend.orchestration.conversation_orchestrator import (
+        _source_handling_reason_for,
+    )
+    from backend.orchestration.turn_models import InteractionMode
+
+    mapped = {mode: _source_handling_reason_for(mode) for mode in InteractionMode}
+
+    assert set(mapped) == set(InteractionMode)
+    assert mapped[InteractionMode.NORMAL_QUERY] is (
+        SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE
+    )
+
+
+def test_only_the_ordinary_query_reading_is_positive():
+    """Exactly one reading may propose eligibility, and it is the plain query."""
+    from backend.memory.source_handling import SourceHandlingReason
+    from backend.orchestration.conversation_orchestrator import (
+        _source_handling_reason_for,
+    )
+    from backend.orchestration.turn_models import InteractionMode
+
+    positive = [
+        mode
+        for mode in InteractionMode
+        if _source_handling_reason_for(mode)
+        is SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE
+    ]
+
+    assert positive == [InteractionMode.NORMAL_QUERY]
+
+
+def test_an_unknown_reading_fails_closed():
+    """An unclassified reading must not inherit eligibility.
+
+    The first version of this mapping ended in
+    `return BACKGROUND_POLICY_ELIGIBLE`, so anything that was not explicit or
+    ambiguous — including a value that is not an `InteractionMode` at all — was
+    treated as an ordinary query. For an authority boundary the safe direction
+    is refusal and the loud direction is an error: a reading that is silently
+    blocked is a defect nobody notices until a family stops forming.
+    """
+    from backend.orchestration.conversation_orchestrator import (
+        _source_handling_reason_for,
+    )
+
+    with pytest.raises(ValueError):
+        _source_handling_reason_for("future_mode")
