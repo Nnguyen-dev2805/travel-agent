@@ -350,16 +350,46 @@ def _tail_after(tokens: list[str], index: int, span: int) -> str:
     return " ".join(tokens[index + span :]).strip()
 
 
-#: Personalization cues in Vietnamese and English (Plan v0.16).
-_PERSONALIZATION_CUES = (
+#: Explicit broad personalization cues in Vietnamese and English (Plan v0.16).
+#: These unambiguously indicate tailoring by user preferences.
+_BROAD_PERSONALIZATION_CUES = (
+    "theo sở thích của tôi",
     "theo sở thích",
+    "theo gu của tôi",
     "theo gu",
     "phù hợp với tôi",
     "hợp với tôi",
     "như tôi thích",
-    "cho tôi",
-    "tôi thích",
-    "tôi muốn",
+    "my preferences",
+    "my preference",
+    "my taste",
+    "suit me",
+    "suits me",
+    "fits me",
+    "personalized",
+    "according to my preferences",
+    "according to my preference",
+    "according to my taste",
+)
+
+#: Recommendation / suggestion frames that request tailoring when paired with domain cues.
+#: Bare "cho tôi" or "tôi muốn" is rejected to avoid false-positive Memory requests
+#: on ordinary informational queries like "Cho tôi biết..." or "Tôi muốn biết...".
+_RECOMMENDATION_PERSONALIZATION_CUES = (
+    "gợi ý cho tôi",
+    "gợi ý giúp tôi",
+    "gợi ý hộ tôi",
+    "tư vấn cho tôi",
+    "tư vấn giúp tôi",
+    "tìm cho tôi",
+    "tìm giúp tôi",
+    "chọn cho tôi",
+    "chọn giúp tôi",
+    "đề xuất cho tôi",
+    "đề xuất giúp tôi",
+    "recommend for me",
+    "suggest for me",
+    "find for me",
     "cho chuyến đi này",
     "chuyến đi này",
     "cho chuyến này",
@@ -368,15 +398,8 @@ _PERSONALIZATION_CUES = (
     "chuyến đi khác",
     "cho chuyến khác",
     "chuyến khác",
-    "cho chuyến đi",
-    "my preferences",
-    "my preference",
-    "my taste",
-    "suit me",
-    "suits me",
-    "fits me",
-    "for me",
-    "personalized",
+    "cho chuyến đi của tôi",
+    "chuyến đi của tôi",
     "this trip",
     "for this trip",
     "another trip",
@@ -635,17 +658,23 @@ def _extract_memory_intent(
     topics_tuple = tuple(dict.fromkeys(domain_topics))
 
     # 3. Check personalization intent
-    has_personalization = _first_cue(tokens, _PERSONALIZATION_CUES) >= 0
-    if not has_personalization:
-        return (), tuple(override_keys), topics_tuple
+    has_broad = _first_cue(tokens, _BROAD_PERSONALIZATION_CUES) >= 0
+    has_rec = _first_cue(tokens, _RECOMMENDATION_PERSONALIZATION_CUES) >= 0
 
     if domain_keys:
-        # Preserve order while deduplicating
-        deduped = tuple(dict.fromkeys(domain_keys))
-        return deduped, tuple(override_keys), topics_tuple
+        if has_broad or has_rec:
+            # Preserve order while deduplicating
+            deduped = tuple(dict.fromkeys(domain_keys))
+            return deduped, tuple(override_keys), topics_tuple
+        return (), tuple(override_keys), topics_tuple
 
-    # Broad personalization without narrow domain cues -> all governed registry keys
-    return _CANONICAL_REGISTRY_KEYS, tuple(override_keys), topics_tuple
+    # When no domain keys are present, only explicit broad personalization
+    # ("theo sở thích", "theo gu", "phù hợp với tôi") can select all canonical keys.
+    # Recommendation cues without domain cues (or general queries) never widen to all keys.
+    if has_broad:
+        return _CANONICAL_REGISTRY_KEYS, tuple(override_keys), topics_tuple
+
+    return (), tuple(override_keys), topics_tuple
 
 
 

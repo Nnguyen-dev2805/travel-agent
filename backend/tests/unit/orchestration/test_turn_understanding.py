@@ -811,3 +811,24 @@ def test_current_memory_override_keys_extracted_from_dimension_values():
         EMPTY_STATE,
     )
     assert "travel.preference.hotel_atmosphere" in res_quiet.current_memory_override_keys
+
+
+def test_informational_queries_omit_memory_and_remain_rag_only():
+    """Verify informational queries with 'cho tôi' or 'tôi muốn' do NOT request Memory."""
+    from backend.orchestration.context_planner import ContextPlanner
+    from backend.orchestration.turn_models import ContextMode
+
+    planner = ContextPlanner(enforcement_enabled=True)
+    queries = [
+        "Cho tôi biết Đà Nẵng có những cây cầu nổi tiếng nào?",
+        "Tôi muốn biết Cầu Rồng ở đâu",
+        "Cho tôi biết thời tiết Đà Nẵng thế nào?",
+    ]
+
+    for q in queries:
+        u = UNDERSTANDING.understand(q, EMPTY_STATE)
+        assert u.requested_memory_keys == (), f"Query {q!r} should not request Memory keys"
+        assert u.interaction_mode is InteractionMode.NORMAL_QUERY
+        plan = planner.plan(u)
+        assert plan.proposed is ContextMode.RAG_ONLY, f"Query {q!r} should propose RAG_ONLY, got {plan.proposed}"
+        assert plan.effective is ContextMode.RAG_ONLY
