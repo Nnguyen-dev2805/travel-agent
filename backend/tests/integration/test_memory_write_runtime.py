@@ -106,6 +106,26 @@ class RecordingUoW:
             and getattr(version, "canonical_key", None) == canonical_key
         )
 
+    def get_assertion_identity_details(self, identity):
+        """Return `(assertion_id, has_unresolved_conflict)` for one identity.
+
+        Required by `MemoryUnitOfWork`. `(None, False)` models the first write to
+        a key: no assertion exists yet, so there is nothing to conflict with.
+        """
+        return None, False
+
+    def get_assertion_generation(self, owner_user_id: str, canonical_key: str) -> int:
+        """Required by `MemoryUnitOfWork`: a new assertion starts at generation 1."""
+        return 1
+
+    def get_active_evidence_for_assertion(self, owner_user_id: str, assertion_id: str):
+        """No prior evidence in this double, which can only lower support."""
+        return ()
+
+    def get_assertion_conflict_state(self, owner_user_id: str, assertion_id: str) -> bool:
+        """Required by `MemoryUnitOfWork`: no persisted conflict in this double."""
+        return False
+
     def apply_memory_change(
         self,
         change,
@@ -131,6 +151,25 @@ class RecordingUoW:
         )
         if change.new_version and change.new_version.status == VersionStatus.ACTIVE:
             self.active_versions.append(change.new_version)
+
+
+def _positive_handling(outbox_id: str):
+    """A persisted `BACKGROUND_ELIGIBLE` semantic record for one outbox event."""
+    from backend.memory.source_handling import (
+        MemoryFamily,
+        SourceHandlingOutcome,
+        SourceHandlingReason,
+        SourceHandlingRecord,
+    )
+
+    return SourceHandlingRecord(
+        source_outbox_id=outbox_id,
+        source_message_id=f"ms_{outbox_id}",
+        family=MemoryFamily.SEMANTIC,
+        outcome=SourceHandlingOutcome.BACKGROUND_ELIGIBLE,
+        reason_code=SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE,
+        recorded_at=datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc),
+    )
 
 
 def test_chat_non_blocking_and_outbox_capture():
@@ -161,10 +200,19 @@ def test_chat_non_blocking_and_outbox_capture():
         ):
             self.messages.append((message, message_id))
             if outbox_event:
-                event_type = getattr(
-                    outbox_event, "event_type", None
-                ) or outbox_event.get("event_type")
-                payload = getattr(outbox_event, "payload", None) or outbox_event.get(
+                # The turn now writes one event per Memory family (Task 12).
+                # This double models a single queued event, so it takes the
+                # first family's intent; the family-specific fan-out is asserted
+                # in the unit orchestrator tests and in the episodic slice.
+                intent = (
+                    outbox_event[0]
+                    if isinstance(outbox_event, (list, tuple))
+                    else outbox_event
+                )
+                event_type = getattr(intent, "event_type", None) or intent.get(
+                    "event_type"
+                )
+                payload = getattr(intent, "payload", None) or intent.get(
                     "payload", {}
                 )
                 outbox_repo.save_event(
@@ -241,10 +289,19 @@ def test_chat_non_blocking_and_outbox_capture():
             self.messages.append((pending, pending.message_id))
 
             if outbox_event:
-                event_type = getattr(
-                    outbox_event, "event_type", None
-                ) or outbox_event.get("event_type")
-                payload = getattr(outbox_event, "payload", None) or outbox_event.get(
+                # The turn now writes one event per Memory family (Task 12).
+                # This double models a single queued event, so it takes the
+                # first family's intent; the family-specific fan-out is asserted
+                # in the unit orchestrator tests and in the episodic slice.
+                intent = (
+                    outbox_event[0]
+                    if isinstance(outbox_event, (list, tuple))
+                    else outbox_event
+                )
+                event_type = getattr(intent, "event_type", None) or intent.get(
+                    "event_type"
+                )
+                payload = getattr(intent, "payload", None) or intent.get(
                     "payload", {}
                 )
                 outbox_repo.save_event(
@@ -415,7 +472,16 @@ def test_chat_non_blocking_and_outbox_capture():
         outbox_repo=outbox_repo,
         model_adapter=model,
         conversation_service=conv_service,
-        recorder=BackgroundMemoryRecorder(uow_factory=lambda: uow),
+        recorder=BackgroundMemoryRecorder(
+            uow_factory=lambda: uow,
+            # The positive source-handling precondition. An absent record is
+            # `UNHANDLED`, and `UNHANDLED` grants no background formation
+            # (`ADR 0038:59`), so a recorder built without it measures the gate
+            # rather than the commit path this test is about.
+            source_handling_loader=lambda owner, outbox_id, family: _positive_handling(
+                outbox_id
+            ),
+        ),
         worker_id="bg_worker_1",
     )
     res = worker.process_one(event)

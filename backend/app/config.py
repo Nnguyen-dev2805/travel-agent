@@ -150,6 +150,12 @@ class Settings(BaseModel):
     MEMORY_INFERRED_ACTIVATION_ENABLED: bool = _env_flag(
         "MEMORY_INFERRED_ACTIVATION_ENABLED", False
     )
+    MEMORY_EPISODIC_READ_ENABLED: bool = _env_flag(
+        "MEMORY_EPISODIC_READ_ENABLED", False
+    )
+    MEMORY_EPISODIC_ACTIVATION_ENABLED: bool = _env_flag(
+        "MEMORY_EPISODIC_ACTIVATION_ENABLED", False
+    )
     MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS: int = int(
         os.getenv("MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS", "30")
     )

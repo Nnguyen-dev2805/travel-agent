@@ -16,14 +16,14 @@ Governed by Plan v0.15, Spec v0.7, and ADR 0039:
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from backend.generation.contracts import (
     ContextSufficiency,
     GenerationCitation,
     GenerationContext,
 )
-from backend.memory.context import MemoryContextComposer
+from backend.memory.context import EpisodeContextComposer, MemoryContextComposer
 from backend.memory.read_models import MemorySelection
 from backend.orchestration.turn_models import ContextMode
 from backend.rag.contracts import ContextBundle
@@ -34,8 +34,13 @@ class ContextArbiter:
 
     TRAVEL_HEADER: str = "=== CẨM NANG DU LỊCH THAM KHẢO ==="
 
-    def __init__(self, memory_composer: Optional[MemoryContextComposer] = None) -> None:
+    def __init__(
+        self,
+        memory_composer: Optional[MemoryContextComposer] = None,
+        episode_composer: Optional[EpisodeContextComposer] = None,
+    ) -> None:
         self._memory_composer = memory_composer or MemoryContextComposer()
+        self._episode_composer = episode_composer or EpisodeContextComposer()
 
     def arbitrate(
         self,
@@ -43,6 +48,7 @@ class ContextArbiter:
         rag_bundle: Optional[ContextBundle] = None,
         memory_selection: Optional[MemorySelection] = None,
         current_memory_override_keys: tuple[str, ...] = (),
+        episodic_selection: Optional[Any] = None,
     ) -> GenerationContext:
         """Project source records into GenerationContext according to the planned mode."""
         if mode is ContextMode.NONE:
@@ -83,6 +89,7 @@ class ContextArbiter:
                 abstention_reason=memory_selection.abstention_reason if memory_selection else None,
             )
             prompt_context = self._memory_composer.compose(admitted_selection)
+            prompt_context = self._with_episodes(prompt_context, episodic_selection)
             return GenerationContext(
                 prompt_context=prompt_context,
                 citations=(),  # Memory is never a travel citation
@@ -117,7 +124,9 @@ class ContextArbiter:
                 abstention_reason=memory_selection.abstention_reason if memory_selection else None,
             )
             mem_part = self._memory_composer.compose(admitted_selection).strip()
-            combined_prompt = f"{rag_part}\n\n{mem_part}"
+            combined_prompt = self._with_episodes(
+                f"{rag_part}\n\n{mem_part}", episodic_selection
+            )
 
             return GenerationContext(
                 prompt_context=combined_prompt,
@@ -126,6 +135,24 @@ class ContextArbiter:
             )
 
         raise ValueError(f"Unsupported ContextMode: {mode}")
+
+    def _with_episodes(self, prompt_context: str, episodic_selection: Any) -> str:
+        """Append the governed episodic block, last.
+
+        Last is the precedence rule, not an accident: episodes sit below the
+        current request, verified hard constraints and user-scoped soft
+        preferences, so they are appended after the Memory block rather than
+        interleaved with it. Episodes never become citations — a recorded event is
+        context, not travel evidence.
+        """
+        if episodic_selection is None or not getattr(
+            episodic_selection, "selected", ()
+        ):
+            return prompt_context
+        block = self._episode_composer.compose(episodic_selection)
+        if not block:
+            return prompt_context
+        return f"{prompt_context}\n\n{block}" if prompt_context else block
 
     def _admit_memory(
         self,

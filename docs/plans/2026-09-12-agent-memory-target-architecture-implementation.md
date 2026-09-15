@@ -25,14 +25,14 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Plan version | 0.18 — Task-11 authority-owner, activation lifecycle, conflict-state, and prune-RLS contract correction |
+| Plan version | 0.21 — Task-12 Step-3 episodic authority/release invariant clarification |
 | Date | 2026-09-12 |
 | Last amended | 2026-09-15 |
 | Specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.8, Approved 2026-09-15 |
 | Required ADRs | ADR 0036, 0037, 0038, 0039, 0040 — Accepted 2026-09-12 |
 | Execution owner | Coding agent under repository-owner instruction |
 | Decision owner | Repository owner |
-| Approval | Repository owner approved exact plan v0.18 on 2026-09-15. Spec v0.8 remains Approved 2026-09-15. |
+| Approval | Repository owner approved exact plan v0.21 on 2026-09-15. Spec v0.8 remains Approved 2026-09-15. |
 | Scope | Stages 1–7 of the target architecture, with independent rollout gates and evidence-based stop conditions |
 | Verification | Task-local CORE tests gate architectural progression. Deferred hardening remains mandatory before final production-readiness proof, including required PostgreSQL integration tests without required skips, exhaustive ADR validation where specified, evaluation gates, full backend suite, frontend regression suite, `compileall`, `git diff --check`, and exact change-set review. |
 
@@ -82,8 +82,9 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
     counts are allowed; raw messages, Memory values, evidence, exception text,
     and secrets are not. Redaction remains defense in depth rather than the
     primary privacy boundary.
-17. The current Task-9 execution head is `20260914_01`. If it differs when execution
-    starts, stop and revise migration identifiers/dependencies before editing.
+17. The current Task-12 execution head is `20260915_01`. If it differs when Task 12
+    execution starts, stop and revise the Task-12 migration identifier/dependency
+    before editing persistence code; never fork a migration from a stale head.
 18. Rollback never clears revoke/suppression state, reactivates superseded or
     revoked versions, restores SQLite, or treats a projection as truth.
 19. Git staging, commit in the primary tree, push, PR, merge, release, and
@@ -151,19 +152,19 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | `backend/orchestration/dialogue_state.py` | Ephemeral structural recent-turn dialogue state; no topic/referent/goal/intent/clarification inference | 3, 13 |
 | `backend/orchestration/turn_understanding.py` | Deterministic-first understanding plus bounded structured parse | 4 |
 | `backend/orchestration/action_router.py` | Deterministic branch selection and explicit-intent gate | 4 |
-| `backend/orchestration/context_planner.py` | `none/rag_only/memory_only/both` source plan | 4, 10 |
-| `backend/orchestration/context_arbiter.py` | Precedence/token-budget admission and source-to-generation projection | 10 |
-| `backend/orchestration/conversation_orchestrator.py` | Bounded one-turn workflow, internal `TurnDisposition`, and Task-5 typed source-handling proposal production | 4, 5, 8, 10 |
+| `backend/orchestration/context_planner.py` | `none/rag_only/memory_only/both` source plan | 4, 10, 12 |
+| `backend/orchestration/context_arbiter.py` | Precedence/token-budget admission and source-to-generation projection | 10, 12 |
+| `backend/orchestration/conversation_orchestrator.py` | Bounded one-turn workflow, internal `TurnDisposition`, and family-specific typed source-handling proposal production | 4, 5, 8, 10, 12 |
 | `backend/generation/contracts.py` | Source-neutral generation context/citation/result/sufficiency contracts | 10 |
-| `backend/memory/source_handling.py` | Stdlib-only Memory-family/source-handling vocabulary, non-authoritative proposals, record contract, and fail-closed positive-background predicate | 5 |
-| `backend/memory/lifecycle.py` | Single lifecycle-policy owner | 6 |
+| `backend/memory/source_handling.py` | Stdlib-only Memory-family/source-handling vocabulary, non-authoritative proposals, record contract, and fail-closed positive-background predicate | 5, 12 |
+| `backend/memory/lifecycle.py` | Single lifecycle-policy owner | 6, 12–13 |
 | `backend/memory/explicit_actions.py` | Chat-native remember/correct/forget/inspect proposals | 8, 10 |
 | `backend/memory/commit_coordinators.py` | Explicit/background transaction ownership | 7 |
 | `backend/memory/read_models.py` | Read, selection, abstention, inspect contracts | 9 |
 | `backend/memory/read_engine.py` | Governed relevance/precedence/ranking/abstention | 9 |
 | `backend/memory/postgres_store.py` | Tenant-scoped physical read adapter; no lifecycle/relevance policy | 9 |
-| `backend/memory/context.py` | Prompt-safe structured Memory context | 10 |
-| `backend/memory/formation.py` | Background formation into immutable evidence/candidates | 11 |
+| `backend/memory/context.py` | Prompt-safe structured Memory context | 10, 12 |
+| `backend/memory/formation.py` | Background formation into immutable evidence/candidates | 11–12 |
 | `backend/memory/activation.py` | Family/type activation policy | 11–13 |
 | `backend/memory/episodic.py` | Episodic vertical slice | 12 |
 | `backend/memory/working.py` | Working Memory vertical slice | 13 |
@@ -175,12 +176,12 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | `backend/tests/unit/memory_write_pipeline/test_registry.py` | Registry-v2 key/value/cardinality/normalization and fail-closed coverage | 6 |
 | `backend/tests/unit/memory_write_pipeline/test_model_adapter.py` | Multi-key structured extraction and invalid-output rejection | 8 |
 | `backend/memory/write_pipeline/resolver.py` | Deterministic single/set consolidation, immutable set snapshot transitions, and `REVOKE` | 6 |
-| `backend/memory/write_pipeline/postgres.py` | Canonical Memory store primitives | 6, 7, 9, 11 |
-| `backend/memory/write_pipeline/worker.py` | Positive handling + background commit | 11 |
+| `backend/memory/write_pipeline/postgres.py` | Canonical Memory store primitives | 6, 7, 9, 11–12 |
+| `backend/memory/write_pipeline/worker.py` | Positive handling + background commit | 11–12 |
 | `backend/conversations/repository.py` | Owner-scoped repository contract for bounded recent-dialogue reads | 4 |
 | `backend/conversations/service.py` | Application seam for bounded recent dialogue strictly before the current user message | 4 |
 | `backend/conversations/postgres_repository.py` | Bounded recent-dialogue read plus caller-owned transaction primitives preserving guarded transitions | 4, 7 |
-| `backend/app/runtime_container.py` | Runtime composition only; no new public Memory router | 8, 10, 15 |
+| `backend/app/runtime_container.py` | Runtime composition only; no new public Memory router | 8, 10, 12, 15 |
 | `backend/rag/contracts.py` | RAG-owned retrieval evidence/citation/ContextBundle; not generic Memory context | 10 |
 | `backend/rag/generation/llm.py` | Transitional generator consumes neutral `GenerationContext`, not RAG evidence semantics | 10 |
 | `backend/rag/generation/rag_service.py` | Travel-context builder plus narrow adapter into neutral generation contract; no Memory import | 10 |
@@ -191,7 +192,7 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | `backend/tests/unit/test_evaluation_runner.py` | Adapt evaluation fakes/type assertions from `GeneratedAnswer` to `GenerationResult` | 10 |
 | `backend/tests/integration/test_rag_evaluation_flow.py` | Preserve end-to-end RAG evaluation evidence while migrating the generation result type | 10 |
 | `backend/storage/migrations/versions/20260912_03_agent_memory_lifecycle.py` | Source handling + lifecycle/retention/revoke/suppression persistence | 6 |
-| `backend/storage/migrations/versions/20260912_04_episodic_memory.py` | Episodic persistence only | 12 |
+| `backend/storage/migrations/versions/20260915_02_episodic_memory.py` | Evolve existing canonical episodic persistence from head `20260915_01` | 12 |
 | `backend/storage/migrations/versions/20260912_05_working_memory.py` | Working Memory persistence only | 13 |
 | `backend/storage/migrations/versions/20260912_06_procedural_publication.py` | Separate procedural publication state | 15 |
 | `docs/evaluation/agent-memory-evaluation.md` | Stage metrics and promotion evidence | 4, 11–16 |
@@ -1535,26 +1536,193 @@ below must pass before Task 10 returns to verification.
 
 ## Task 12: Stage 5 Episodic Memory Vertical Slice
 
-**Files:** Create `backend/memory/episodic.py`; extend registry, formation,
-activation, read engine, evaluation; create
-`backend/storage/migrations/versions/20260912_04_episodic_memory.py`; update
-`ALEMBIC_HEAD`; add episode unit and PostgreSQL integration tests.
+**Execution precondition:** Task 12 starts from Alembic head `20260915_01`.
+The Task-12 migration is therefore
+`backend/storage/migrations/versions/20260915_02_episodic_memory.py` with
+`down_revision = "20260915_01"`. If the real head differs at execution time,
+stop and amend this identifier/dependency before persistence work.
 
-**Contract:** An episode requires grounded actor/event/time/provenance. One event
-may activate only when those fields validate. Episode use remains lower
-precedence than current request, verified hard constraints, and Working Memory.
+**Files:** Create `backend/memory/episodic.py`; extend the family-specific source
+handling path in `backend/memory/source_handling.py` and the existing Chat/outbox
+orchestration seam; extend only the shared lifecycle/formation/activation/store
+seams required by the episode slice; add a typed episodic read contract and
+compose its selected output through the existing Context Planner/Arbiter/Memory
+Use boundary without turning episodes into semantic registry keys; evolve the
+existing `memory_episodes` table through
+`20260915_02_episodic_memory.py`; update `ALEMBIC_HEAD`; update
+`docs/evaluation/agent-memory-evaluation.md`; add unit and required PostgreSQL
+integration tests.
 
-- [ ] RED fixtures cover grounded event, missing actor/time/provenance,
-  duplicate source, source deletion, retention, and unrelated-query abstention.
-- [ ] Add the minimum typed episode representation and persistence required by
-  those fixtures; do not add free-form speculative family tables.
-- [ ] Wire episode formation -> activation -> lifecycle -> read/use with the same
-  tenant/source/suppression policy owners used by semantic Memory.
-- [ ] Run episode evaluation for extraction/grounding precision, source deletion,
-  read abstention, precedence, and prompt safety.
-- [ ] Run migration round-trip and required PostgreSQL isolation tests.
-- [ ] Review: episode support independently passes its vertical-slice gate before
-  Working Memory begins.
+**Contract:** An episode is a grounded, typed event record with actor, event,
+time, and provenance. Missing any required grounding fact refuses formation or
+activation. `memory_episodes` is the single canonical episodic table: Task 12
+alters the existing table created by `20260907_02`; it does not create a second
+canonical episode table. Existing generic `payload` may remain only for backward
+compatibility/migration safety and must not become the new policy authority or a
+free-form instruction channel.
+
+Episode formation requires a persisted family-specific
+`SourceHandlingRecord(family=EPISODIC, outcome=BACKGROUND_ELIGIBLE)` before any
+episodic model extraction. `UNHANDLED`, a semantic-family record, or a blocked
+episodic outcome grants no episodic formation authority. Task 12 must wire a
+real production producer for that episodic authority; tests may not be the only
+place capable of creating it.
+
+Episodic activation reuses existing policy owners rather than copying semantic
+truth tables. Before an inferred episode may become answer-eligible, its
+actor/event/time/provenance grounding must be conclusive, lifecycle evaluation
+at `ACTIVATION` must be eligible, current source validity and suppression
+generation must be valid, unresolved conflict must not block the event, and the
+episodic family/type rollout/evaluation gate must be conclusively passing.
+Semantic 2-turn/3-evidence thresholds do not apply to episodes: one independently
+grounded event may suffice. Model confidence alone never grants activation.
+
+Episodic read remains a separate typed contract from semantic
+`MemoryReadRequest`/`SelectedMemory`; do not encode an episode as a fake
+`canonical_key` in `semantic-registry-v2`. The episodic read path owns physical
+episode loading plus episode relevance/eligibility/abstention, using exact typed
+filters available in this slice; fuzzy/vector retrieval remains Task 14. The
+Context Planner/Arbiter composes eligible episodic selection with other planned
+context. Episode influence remains below current request and verified hard
+constraints. Working Memory precedence is a reserved ordering rule only; Task
+12 must not implement Task 13 early.
+
+### Step-3 episodic authority and release invariant
+
+This is the execution contract for how the episodic family's authority is created
+and when it becomes consumable. It clarifies ordering, not architecture.
+
+1. The episodic outbox event is written **in the same turn transaction** as the
+   semantic event and the message, and it is written with `released_at = NULL`.
+   It is owed but not claimable.
+2. After `TurnUnderstanding` (the point at which the interaction reading is
+   known), orchestration persists the family-specific
+   `SourceHandlingRecord(family=EPISODIC, outcome=BACKGROUND_ELIGIBLE)` for an
+   eligible source, bound to that event's `source_outbox_id`.
+3. **The authority record is not required to share a transaction with the outbox
+   event it authorizes.** The reading that decides eligibility does not exist
+   until the turn has been persisted, so requiring one transaction would require
+   moving understanding ahead of persistence — a different architecture, which
+   this clarification explicitly does not do.
+4. `complete_turn()` is what releases the event.
+5. The worker claims only events with `released_at IS NOT NULL`, so a source
+   cannot reach the episodic model before its authority record exists.
+6. A missing, blocked, or wrong-family record still fails closed: `UNHANDLED`
+   grants nothing, and a semantic record never authorizes episodic formation.
+
+### File Responsibility Map
+
+1. `backend/memory/episodic.py`:
+   - Owns the minimum typed episode contracts used by this vertical slice:
+     candidate/grounding facts, stored episode projection, episodic read request,
+     selected episode, and closed failure/abstention reasons.
+   - Validates required actor/event/time/provenance shape and refuses incomplete
+     grounding; no universal speculative event ontology is introduced.
+   - Owns deterministic episodic relevance/selection rules for the exact typed
+     filters implemented in Task 12; unrelated requests abstain rather than
+     returning a nearest-looking episode.
+   - Does not own tenant authorization, retention assignment, lifecycle rules,
+     source validity, suppression generation, or prompt construction.
+2. `backend/memory/source_handling.py` and Chat/outbox orchestration:
+   - Extend the proposable/recordable family path to `MemoryFamily.EPISODIC` only
+     for the Stage-5 slice.
+   - Persist a family-specific episodic handling record before the worker/model
+     is allowed to perform episodic formation. Semantic authority cannot be
+     reused as episodic authority.
+   - Family processing uses **family-specific outbox events**. One source
+     message may produce a semantic event and an episodic event as separate
+     rows, each with its own lease, idempotency key, and terminal state. Do not
+     add per-family processing state to a shared outbox event, and do not hold
+     an event leased while another family is processed. Each family's event
+     keeps the Task-7/Task-11 invariant that its Memory effect and its own
+     outbox success commit atomically.
+3. Shared formation/activation/lifecycle seams:
+   - Reuse the existing positive-handling gate and pre-model secret/safety
+     boundary.
+   - Reuse `RetentionAssignmentPolicy` as the sole retention owner and
+     `MemoryLifecyclePolicy` as the sole lifecycle owner. Episodic code supplies
+     typed facts; it does not duplicate those policies.
+   - Episodic activation consumes current source validity and suppression
+     generation from canonical state, not hard-coded defaults.
+   - Add a family/type-specific episodic activation gate, default off until the
+     Task-12 evaluation record is conclusive. Do not treat the semantic inferred
+     activation flag as evidence that episodic activation was evaluated.
+4. Episodic PostgreSQL persistence and migration:
+   - Evolve existing `memory_episodes`; do not create another canonical table.
+   - Add only columns/constraints/indexes required to persist typed grounding,
+     provenance, lifecycle/retention/suppression state, deterministic
+     idempotency, and tenant isolation for the fixtures below.
+   - Follow existing owner-scoped RLS (`ENABLE` + `FORCE`) and least-privilege
+     grants for the runtime roles that actually require episodic access.
+   - Update `backend/storage/postgres.py` `ALEMBIC_HEAD` to `20260915_02` only
+     after the migration exists and round-trip verification is GREEN.
+5. Episodic read/use and orchestration:
+   - Keep semantic `MemoryReadEngine`/registry-v2 exact-key semantics intact.
+   - Add a separate episodic selection seam and let Context Planner/Arbiter
+     request/compose it through the existing neutral generation boundary.
+   - Admit only structured selected episode fields needed for answering; raw
+     evidence/source text, deleted-source provenance, and source handling rows
+     never become prompt instructions or citations.
+   - Enforce response precedence: current request and verified hard constraints
+     beat episodes. Reserve the future Working Memory slot without adding a
+     Working Memory component in this task.
+6. `docs/evaluation/agent-memory-evaluation.md`:
+   - Add the Task-12 episodic gate with explicit required evidence. Missing or
+     skipped mandatory evidence is `INCONCLUSIVE`, never PASS.
+   - Record extraction/grounding quality plus the deterministic safety/correctness
+     gates below. Inferred episodic activation stays off until this record is
+     conclusively passing for the implemented episode type(s).
+
+### Acceptance & Test Evidence Checklist
+
+- [x] **Step 1 — RED first:** add fixtures for one grounded event and negative
+  cases for missing actor, missing event, missing/invalid time, missing
+  provenance, `UNHANDLED`, wrong-family handling, duplicate/redelivered source,
+  stale suppression generation, invalid/deleted source, retention expiry,
+  unresolved conflict, and unrelated-query abstention. Prove the required cases
+  fail before implementation.
+- [x] **Step 2 — Typed representation + canonical persistence:** implement the
+  minimum episode contracts and evolve existing `memory_episodes`; preserve one
+  canonical episodic source of truth and deterministic idempotency. Do not add a
+  second episode table or arbitrary JSON policy authority.
+- [x] **Step 3 — Production authority reachability:** extend the source-handling
+  producer/orchestration path so a real Chat source can persist an EPISODIC
+  `BACKGROUND_ELIGIBLE` record before model exposure. Prove `UNHANDLED`, blocked,
+  and semantic-only records make zero episodic model calls/writes.
+- [x] **Step 4 — Formation/activation/lifecycle GREEN:** wire grounded episodic
+  formation through shared retention/lifecycle/source/suppression owners. One
+  grounded event may activate only when the episodic family/type gate is
+  conclusive and enabled; missing lifecycle facts fail closed. No semantic
+  2-turn/3-evidence threshold is copied into episodic policy.
+- [x] **Step 5 — Read/use GREEN:** add the separate typed episodic read selection
+  and compose it through Context Planner/Arbiter. Prove relevant grounded
+  episodes can be used, unrelated queries abstain, current request/hard
+  constraints win on conflict, raw evidence is absent from prompt/citation
+  output, and Working Memory is not implemented early.
+- [x] **Step 6 — Deletion/retention/idempotency:** prove source deletion and
+  invalidation suppress source-bound episode use, stale generations cannot
+  resurrect a forgotten/revoked event, expired episode state is ineligible, and
+  duplicate delivery/re-extraction does not create duplicate canonical events or
+  increase authority.
+- [x] **Step 7 — Evaluation gate:** record grounded extraction quality and require
+  zero failures in mandatory authority/privacy/correctness fixtures: no formation
+  without positive episodic handling, no activation with incomplete grounding,
+  no deleted/invalid-source leakage, no unrelated-query admission, no precedence
+  inversion, and no prompt-instruction/citation leakage. Missing/skipped required
+  PostgreSQL or evaluation evidence yields `INCONCLUSIVE`.
+- [x] **Step 8 — PostgreSQL migration/isolation:** run migration upgrade/downgrade/
+  upgrade round-trip from `20260915_01` to `20260915_02`; verify exact runtime
+  grants, FORCE RLS, owner isolation, cross-owner denial, source-deletion
+  behavior, retention, idempotency, and episodic read/use integration with no
+  required PostgreSQL test skipped.
+- [x] **Step 9 — Focused verification:** run episode unit tests, source-handling
+  tests, shared lifecycle/activation regression tests, orchestration/context
+  regression tests, PostgreSQL episodic vertical-slice tests, `compileall`, and
+  `git diff --check`. Existing semantic Memory behavior must remain GREEN.
+- [x] **Step 10 — Review checkpoint:** episode support independently passes its
+  vertical-slice gate before Task 13 starts. A GREEN test suite without a
+  conclusive Task-12 evaluation record is not sufficient to enable inferred
+  episodic activation.
 
 ## Task 13: Stage 5 Working Memory Vertical Slice
 
@@ -1895,6 +2063,133 @@ and keeps registry validation separate from lifecycle validation without adding 
 
 Plan version 0.18 was **Approved on 2026-09-15 by the repository owner**. It keeps the v0.17 Task-11 shape while correcting four load-bearing contracts before execution: registry-v2 does not own retention assignment; an eligible `MemoryLifecyclePolicy` ACTIVATION-stage decision is required before inferred activation; unresolved-conflict state is loaded from authoritative `memory_assertions.has_unresolved_conflict`; and worker pruning RLS is narrowed to pending `memory.write.committed` rows. The approval gate is now satisfied for this exact amendment.
 
-Approved spec v0.8 remains the design authority. Exact plan v0.18 is now the repository-owner-approved execution authority for Task 11 and later stages, superseding v0.16 for the remaining implementation sequence.
+Plan version 0.19 was **Approved on 2026-09-15 by the repository owner**. It changes the Task-12 execution contract only: rebases the episodic migration on current head `20260915_01`; evolves the existing `memory_episodes` table instead of creating a second canonical store; requires a production-reachable family-specific EPISODIC source-handling authority before model formation; separates episodic read selection from semantic registry-v2 reads; freezes grounded activation around actor/event/time/provenance plus shared lifecycle/source/suppression owners; reserves Working Memory precedence without implementing Task 13; and defines the minimum Task-12 evaluation/PostgreSQL gate required before inferred episodic activation or Task 13 progression.
+
+Plan version 0.20 was **Approved on 2026-09-15 by the repository owner**. It is a
+wording-only correction to the Task-12 File Responsibility Map, issued by the
+owner before Task-12 implementation began. v0.19 said that if one source is
+eligible for multiple Memory families, family processing "must preserve one
+source-event completion boundary" and that "the outbox event cannot be marked
+terminal merely because one family finished while another eligible family
+remains unprocessed" — which implies per-family progress state on a shared
+outbox event. v0.20 replaces that sentence with the owner's decision: family
+processing uses **family-specific outbox events**, so one source message may
+produce a semantic event and an episodic event as separate rows, each with its
+own lease, idempotency key, and terminal state; no per-family state is added to
+a shared event and no event is held leased while another family is processed.
+No other Task-12 text changes: the migration identifier, the
+`memory_episodes` evolution, the production episodic authority requirement, the
+separate episodic read contract, the activation contract, and the ten acceptance
+steps are unchanged. This amendment adds no Memory family, key, public API,
+persistence operation, or ADR-level decision, and the episodic outbox-event
+split is an implementation consequence of the existing `(source_outbox_id,
+family)` authority key rather than a new architecture decision.
+
+Plan version 0.21 was **Approved on 2026-09-15 by the repository owner**. It is a
+clarification of the Task-12 Step-3 execution contract, issued by the owner while
+Step 3 was in review, and it adds no component, flag, coordinator, or ADR-level
+decision. It records the ordering the implementation actually has: the episodic
+outbox event is created in the turn transaction with `released_at = NULL`; the
+family-specific `SourceHandlingRecord(family=EPISODIC, outcome=BACKGROUND_ELIGIBLE)`
+is persisted after `TurnUnderstanding` and **is not required to share a
+transaction** with the event it authorizes, because the interaction reading that
+decides eligibility does not exist until the turn is persisted; `complete_turn()`
+releases the event; the worker claims only released events; and a missing,
+blocked, or wrong-family record still fails closed before episodic model exposure.
+
+Approved spec v0.8 remains the design authority. Exact plan v0.21 is now the repository-owner-approved execution authority for Task 12 and later stages, superseding v0.20 for the remaining implementation sequence.
+
+**Task-12 Step 3 completed, 2026-09-15.** Ticked because the production flow is
+proved end to end on live PostgreSQL, not because the code exists. The evidence is
+`backend/tests/integration/test_step3_episodic_authority_e2e.py`: a real normal
+chat turn writes a semantic and an episodic event as separate rows; the episodic
+event is `released_at IS NULL` and unclaimable at the moment `generate_from_context`
+runs (which is after persistence and after `TurnUnderstanding`, before
+`complete_turn`); the `EPISODIC / BACKGROUND_ELIGIBLE` authority is already bound to
+that event's own `source_outbox_id` at that same instant; `complete_turn` releases
+it; the worker claims it by identity; the family-aware loader answers
+`MemoryFamily.EPISODIC`; and with the authority row removed the worker refuses the
+released event without a single model call. **Task-12 Steps 5, 7 and 10 completed, 2026-09-15.**
+
+- **Step 5.** `EpisodeContextComposer` (in `backend/memory/context.py`, beside the
+  Memory composer) projects a governed episodic selection into bounded structured
+  text; `ContextArbiter.arbitrate` accepts `episodic_selection` and appends that
+  block **last**, which is the precedence rule rather than a formatting choice;
+  the orchestrator selects episodes through a separate typed `EpisodeReadRequest`
+  over a bounded 90-day window and never through `requested_memory_keys`. Evidence:
+  `unit/memory/test_episodic_context.py` (5 cases — appended after the Memory
+  block, abstention adds nothing, no selection changes nothing, episodes are never
+  citations, and only actor/event/time reach the prompt while the raw source text
+  and a phone number in it are absent).
+- **Step 7.** `docs/evaluation/agent-memory-evaluation.md` §8 now records the gate
+  as **`CONCLUSIVE PASS`** for the mandatory authority/privacy/correctness
+  fixtures, each mapped to the test node that proves it. The **extraction-quality**
+  claim is explicitly *not* made: there is no approved episodic extraction dataset
+  and this record does not invent one. That is why `MEMORY_EPISODIC_ACTIVATION_ENABLED`
+  stays `False` and captured episodes stay shadow — the safety gate is conclusive,
+  the quality gate is not, and the two are reported separately rather than merged
+  into one number.
+- **Step 10.** Review checkpoint: the episodic vertical slice passes its
+  authority, privacy, precedence, idempotency and fail-closed gates, so Task 13 may
+  begin. A GREEN suite alone is still not sufficient to enable inferred episodic
+  activation; that needs the quality dataset named above.
+
+Verification for the whole task, all green: unit root files **769 passed / 1
+skipped**; `memory + memory_write_pipeline + orchestration + generation` **887
+passed**; `boundaries` **35 passed**; `integration` **291 passed** with no required
+skips; `compileall -q backend` exit 0; `git diff --check` clean. Nothing staged or
+committed — Git delivery remains the repository owner's.
+
+**Task-12 Step 4 completed, 2026-09-15.** Ticked because the worker's episodic
+branch is proved end to end on live PostgreSQL, not because the code exists. The
+evidence is
+`test_step3_episodic_authority_e2e.py::test_the_worker_runs_the_episodic_branch_and_persists_a_shadow_episode`:
+a claimed episodic event passes the family-aware authority gate, is grounded from
+the turn itself, forms through `EpisodeFormationEngine` (which reuses
+`RetentionAssignmentPolicy` and `MemoryLifecyclePolicy`), is evaluated by
+`EpisodeActivationPolicy`, and is persisted through
+`BackgroundMemoryCommit.commit_episode` — the same coordinator, lock order and
+fence as the semantic path. With `MEMORY_EPISODIC_ACTIVATION_ENABLED=False` **and**
+the family/type evaluation gate not conclusive, the row is `shadow` and never
+`active`; the source event is `succeeded` in the same transaction; the semantic
+model adapter is called zero times; and the shadow episode is not answer-eligible.
+No permutation matrix was added.
+
+**Task-12 execution status, 2026-09-15 — partial, and the plan stays `Approved`
+rather than `Completed`.** Steps 1, 2, 6, 8 and 9 are ticked because their
+evidence exists; Steps 3, 4, 5, 7 and 10 are **unticked and not implemented**. The
+distinction matters: a tick asserts evidence for that specific step, and the
+remaining steps are not done rather than merely unrecorded.
+
+Evidence for the ticked steps: `backend/tests/unit/memory/test_episodic.py` (43
+cases, proven RED first with `ModuleNotFoundError`), the evolved
+`memory_episodes` schema with `FORCE` RLS and enumerated least-privilege grants,
+`backend/tests/integration/test_episodic_vertical_slice.py` (15 live cases), a
+migration upgrade/downgrade/upgrade round-trip from `20260915_01` to
+`20260915_02` with no required test skipped, and a mutation proof that removing
+the episode-invalidation statement from `PostgresConversationRepository.delete`
+fails the deletion-propagation test.
+
+What is missing, and why the task is not complete:
+
+- **Step 3** — `MemoryFamily.EPISODIC` is now proposable and
+  `propose_source_handling` accepts it, but no production path persists an
+  `EPISODIC` / `BACKGROUND_ELIGIBLE` record alongside a family-specific episodic
+  outbox event. Episodic formation is therefore reachable only from tests.
+- **Step 4** — the formation engine and activation policy exist and are
+  unit-verified, but neither is wired into the worker or the recorder.
+- **Step 5** — Context Planner/Arbiter do not request or compose episodic
+  selection, so episodes never reach generation context.
+- **Step 7** — the Task-12 gate is recorded in
+  `docs/evaluation/agent-memory-evaluation.md` §8 with its mandatory zero-failure
+  fixtures green, but its status is `INCONCLUSIVE`: grounded extraction quality
+  has no dataset, and two mandatory component rows are unimplemented.
+- **Step 10** — the review checkpoint cannot be claimed while Steps 3–5 are open.
+
+Consequently `MEMORY_INFERRED_ACTIVATION_ENABLED` remains `False` and the
+episodic family/type gate remains default-off, which is the fail-closed state the
+plan requires while the gate is inconclusive. Nothing in this partial state
+weakens an existing contract: the semantic slice's own suites were re-run and
+remain green.
 Task checkbox state is execution evidence only; it does not replace task review,
 verification, or repository-owner change-set review.

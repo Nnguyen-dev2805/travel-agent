@@ -86,8 +86,8 @@ def build_worker(
         uow_factory=lambda: PostgresMemoryUnitOfWork(engine),
         commit_coordinator=commit_coordinator,
         inferred_activation_enabled=resolved.MEMORY_INFERRED_ACTIVATION_ENABLED,
-        source_handling_loader=lambda owner, outbox_id: load_source_handling(
-            engine, owner, outbox_id, "semantic"
+        source_handling_loader=lambda owner, outbox_id, family: load_source_handling(
+            engine, owner, outbox_id, family
         ),
     )
 
@@ -105,9 +105,11 @@ def build_worker(
         ),
         retention_days=resolved.MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS,
         cleanup_batch_size=resolved.MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE,
-        source_handling_loader=lambda owner, outbox_id: load_source_handling(
-            engine, owner, outbox_id, "semantic"
+        source_handling_loader=lambda owner, outbox_id, family: load_source_handling(
+            engine, owner, outbox_id, family
         ),
+        episodic_activation_enabled=resolved.MEMORY_EPISODIC_ACTIVATION_ENABLED,
+        episodic_commit_coordinator=commit_coordinator,
     )
     return worker, owned_provider
 

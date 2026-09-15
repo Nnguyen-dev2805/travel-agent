@@ -168,7 +168,7 @@ def _recorder(**overrides) -> BackgroundMemoryRecorder:
     """
     overrides.setdefault(
         "source_handling_loader",
-        lambda owner, outbox_id: _eligible_record(outbox_id),
+        lambda owner, outbox_id, family: _eligible_record(outbox_id),
     )
     return BackgroundMemoryRecorder(**overrides)
 

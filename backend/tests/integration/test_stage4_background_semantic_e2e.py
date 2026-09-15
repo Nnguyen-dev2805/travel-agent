@@ -90,8 +90,8 @@ def _evaluated_gate(_canonical_key: str) -> bool:
 
 def _source_handling_loader(engine):
     """Load the persisted source-handling authority record for one outbox event."""
-    return lambda owner, outbox_id: load_source_handling(
-        engine, owner, outbox_id, "semantic"
+    return lambda owner, outbox_id, family: load_source_handling(
+        engine, owner, outbox_id, family
     )
 
 
@@ -247,8 +247,8 @@ def test_stage4_background_e2e_shadow_by_default(clean):
         uow_factory=lambda: PostgresMemoryUnitOfWork(clean),
         commit_coordinator=commit_coordinator,
         inferred_activation_enabled=False,  # Default rollout
-        source_handling_loader=lambda owner, outbox_id: load_source_handling(
-            clean, owner, outbox_id, "semantic"
+        source_handling_loader=lambda owner, outbox_id, family: load_source_handling(
+            clean, owner, outbox_id, family
         ),
     )
 
@@ -376,8 +376,8 @@ def test_stage4_multi_turn_promotes_conversation_scope_when_enabled(clean):
         commit_coordinator=commit_coordinator,
         inferred_activation_enabled=True,  # Activation enabled
         type_evaluation_gate=_evaluated_gate,
-        source_handling_loader=lambda owner, outbox_id: load_source_handling(
-            clean, owner, outbox_id, "semantic"
+        source_handling_loader=lambda owner, outbox_id, family: load_source_handling(
+            clean, owner, outbox_id, family
         ),
     )
 
@@ -500,8 +500,8 @@ def test_stage4_multi_conversation_promotes_user_scope_when_enabled(clean):
         commit_coordinator=commit_coordinator,
         inferred_activation_enabled=True,
         type_evaluation_gate=_evaluated_gate,
-        source_handling_loader=lambda owner, outbox_id: load_source_handling(
-            clean, owner, outbox_id, "semantic"
+        source_handling_loader=lambda owner, outbox_id, family: load_source_handling(
+            clean, owner, outbox_id, family
         ),
     )
     outbox_repo = PostgresOutboxRepository(clean)
@@ -626,10 +626,31 @@ def test_stage4_post_forget_resurrection_fails_closed(clean):
         type_evaluation_gate=_evaluated_gate,
     )
 
-    res = recorder._record_core(
+    # The positive source-handling precondition, stated explicitly. The gate
+    # refuses an absent record (`UNHANDLED` grants nothing, `ADR 0038:59`), so a
+    # test that omits it measures the gate rather than the behaviour it means to
+    # assert.
+    from backend.memory.source_handling import (
+        MemoryFamily,
+        SourceHandlingOutcome,
+        SourceHandlingReason,
+        SourceHandlingRecord,
+    )
+
+    positive_handling = SourceHandlingRecord(
+        source_outbox_id="cout_resurrect",
+        source_message_id="ms_resurrect",
+        family=MemoryFamily.SEMANTIC,
+        outcome=SourceHandlingOutcome.BACKGROUND_ELIGIBLE,
+        reason_code=SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE,
+        recorded_at=MOMENT,
+    )
+
+    res = recorder._prepare_core(
         cand,
         source_outbox_id="cout_resurrect",
         source_message_id="ms_resurrect",
+        source_handling_record=positive_handling,
     )
 
     assert res.target_status == VersionStatus.SHADOW

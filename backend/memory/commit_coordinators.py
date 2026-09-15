@@ -10,6 +10,7 @@ conversation -> outbox (worker only) -> memory rows
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 from backend.conversations.models import (
@@ -73,6 +74,22 @@ class BackgroundMemoryCommitRequest:
     expected_version_id: str | None
     source_validity: SourceValidity | None
     fence: FenceContext
+
+
+@dataclass(frozen=True)
+class BackgroundEpisodeCommitRequest:
+    """One episodic effect to commit under the worker's fence.
+
+    Deliberately not a variant of `BackgroundMemoryCommitRequest`: an episode has
+    no assertion, no version and no normalized registry value, so expressing it as
+    a semantic request would mean inventing those fields. What the two share is the
+    fence and the lock order, and that is shared by reusing the same coordinator.
+    """
+
+    episode: Any
+    owner_user_id: str
+    fence: Any
+    status: Any
 
 
 class ExplicitMemoryTurnCommit:
@@ -412,3 +429,54 @@ class BackgroundMemoryCommit:
                 raise FencedWriteError(FenceReason.LEASE_LOST)
 
             return results
+
+    def commit_episode(self, request: "BackgroundEpisodeCommitRequest") -> bool:
+        """Persist one episode and complete its source event atomically.
+
+        Same lock order and same fence as `commit_many` (ADR 0036):
+        bind tenant -> lock conversation/deletion_epoch -> outbox lease -> rows.
+        The episode row and the outbox success commit together, so a family's
+        effect can never be visible without its event being terminal, and an event
+        can never be terminal without its effect.
+
+        Reusing this coordinator rather than adding one is the point: the fence is
+        the worker's authority and it must not have two implementations.
+        """
+        owner_user_id = request.owner_user_id
+        fence = request.fence
+
+        bind_tenant = self._get_bind_tenant()
+        lock_conversation = self._get_lock_conversation()
+        check_outbox_lease = self._get_check_outbox_lease()
+        mark_outbox_succeeded = self._get_mark_outbox_succeeded()
+
+        from backend.memory.postgres_store import record_episode_on
+
+        with self._get_transaction_context() as connection:
+            bind_tenant(connection, owner_user_id)
+            lock_conversation(
+                connection,
+                fence.conversation_id,
+                fence.expected_epoch,
+                owner_user_id,
+            )
+            lease_ok, reason = check_outbox_lease(
+                connection, fence.outbox_id, fence.lease_owner
+            )
+            if not lease_ok:
+                assert reason is not None
+                raise FencedWriteError(reason)
+
+            record_episode_on(
+                connection,
+                candidate=request.episode,
+                created_at=datetime.now(timezone.utc),
+                status=request.status,
+            )
+
+            succeeded = mark_outbox_succeeded(
+                connection, fence.outbox_id, fence.lease_owner
+            )
+            if not succeeded:
+                raise FencedWriteError(FenceReason.LEASE_LOST)
+            return True

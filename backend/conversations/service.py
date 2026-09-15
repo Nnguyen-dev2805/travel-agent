@@ -32,7 +32,7 @@ from backend.conversations.models import (
     OutboxIntent,
     TraceVisibility,
     TransitionResult,
-    coerce_outbox_intent,
+    coerce_outbox_intents,
     generate_conversation_id,
     generate_message_id,
     require_text,
@@ -144,7 +144,7 @@ class ConversationService:
         role: MessageRole | str = MessageRole.USER,
         source: MessageSource | str | None = MessageSource.UI,
         trace_visibility: TraceVisibility | str | None = None,
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> tuple[Conversation, Message, Message]:
         """Atomically create a standalone conversation and its first turn.
 
@@ -160,7 +160,7 @@ class ConversationService:
             ConversationStorageError: Storage failed.
         """
         owner = require_text(owner_user_id, "owner_user_id")
-        outbox_intent = coerce_outbox_intent(outbox_event)
+        outbox_intent = coerce_outbox_intents(outbox_event)
         moment = utc_now()
 
         for remaining in reversed(range(MAX_IDENTITY_ATTEMPTS)):
@@ -267,7 +267,7 @@ class ConversationService:
         owner_user_id: str,
         source: MessageSource | str | None = None,
         trace_visibility: TraceVisibility | str | None = None,
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> Message:
         """Append one message to an existing conversation.
 
@@ -294,7 +294,7 @@ class ConversationService:
         """
         self._require_conversation_for_owner(conversation_id, owner_user_id)
 
-        outbox_intent = coerce_outbox_intent(outbox_event)
+        outbox_intent = coerce_outbox_intents(outbox_event)
 
         draft = MessageDraft(
             conversation_id=conversation_id,
@@ -351,7 +351,7 @@ class ConversationService:
         owner_user_id: str,
         user_content: str,
         assistant_placeholder: str = "",
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> tuple[Message, Message]:
         """Open one turn: a user message and a pending assistant row together.
 
@@ -370,7 +370,7 @@ class ConversationService:
                 budget, or storage failed.
         """
         self._require_conversation_for_owner(conversation_id, owner_user_id)
-        outbox_intent = coerce_outbox_intent(outbox_event)
+        outbox_intent = coerce_outbox_intents(outbox_event)
 
         for remaining in reversed(range(MAX_IDENTITY_ATTEMPTS)):
             try:
@@ -467,13 +467,23 @@ class ConversationService:
             ) from error
 
     def get_turn_outbox_id(
-        self, conversation_id: str, message_id: str, owner_user_id: str
+        self,
+        conversation_id: str,
+        message_id: str,
+        owner_user_id: str,
+        event_type: str | None = None,
     ) -> str | None:
-        """Return the authoritative outbox_id allocated for this turn, if any."""
+        """Return the authoritative outbox_id allocated for this turn, if any.
+
+        `event_type` names the family whose event is wanted when a turn carries
+        more than one; see `find_turn_outbox_id_on`.
+        """
         identifier = require_text(conversation_id, "conversation_id")
         message = require_text(message_id, "message_id")
         owner = require_text(owner_user_id, "owner_user_id")
-        return self._conversations.get_turn_outbox_id(identifier, message, owner)
+        return self._conversations.get_turn_outbox_id(
+            identifier, message, owner, event_type
+        )
 
     def list_messages(
         self,

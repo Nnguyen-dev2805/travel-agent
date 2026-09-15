@@ -19,6 +19,7 @@ from typing import (
 )
 
 from backend.conversations.models import (
+    EPISODIC_EXTRACT_EVENT_TYPE,
     MEMORY_EXTRACT_EVENT_TYPE,
     ConversationValidationError,
     MessageRole,
@@ -32,6 +33,7 @@ from backend.conversations.repository import (
 )
 from backend.memory.source_handling import (
     MemoryFamily,
+    SourceHandlingProposalOutcome,
     SourceHandlingOutcome,
     SourceHandlingProposal,
     SourceHandlingReason,
@@ -200,6 +202,8 @@ class ConversationOrchestrator:
         context_arbiter: Optional[Any] = None,
         memory_read_enabled: bool = False,
         memory_use_enabled: bool = False,
+        episodic_read_engine: Optional[Any] = None,
+        episodic_read_enabled: bool = False,
         **_ignored: Any,
     ) -> None:
         self._rag_service = rag_service
@@ -226,6 +230,8 @@ class ConversationOrchestrator:
             self._context_arbiter = ContextArbiter()
         self._memory_read_enabled = memory_read_enabled
         self._memory_use_enabled = memory_use_enabled
+        self._episodic_read_engine = episodic_read_engine
+        self._episodic_read_enabled = episodic_read_enabled
 
     @property
     def context_planner(self) -> ContextPlanner:
@@ -236,6 +242,87 @@ class ConversationOrchestrator:
         reading the planner back.
         """
         return self._planner
+
+    def _outbox_intents(self, *, payload: dict) -> tuple[OutboxIntent, ...]:
+        """The family-specific outbox events one turn writes.
+
+        One event per family, each with its own lease, idempotency and terminal
+        state. They are written together, in the same transaction as the message,
+        because the turn-readiness barrier releases each of them at completion;
+        nothing here is shared between the families, so one family's failure or
+        success says nothing about the other's.
+
+        Emitting the episodic event is gated by the same background-capture flag
+        as the semantic one, and that is the correct semantics rather than a
+        convenience: `outbox_enabled` means "capture this turn's source for
+        background formation", which is one act with two family-specific
+        consumers. What keeps episodic capture safe is not this flag but the
+        separate episodic activation gate, which is default-off, so captured
+        episodic candidates stay shadow until their own evaluation passes.
+        """
+        intents = [
+            OutboxIntent(event_type=MEMORY_EXTRACT_EVENT_TYPE, payload=payload)
+        ]
+        if self._outbox_enabled:
+            intents.append(
+                OutboxIntent(
+                    event_type=EPISODIC_EXTRACT_EVENT_TYPE, payload=payload
+                )
+            )
+        return tuple(intents)
+
+    def _record_episodic_source_handling(
+        self,
+        conversations: Any,
+        *,
+        conversation_id: str,
+        owner_user_id: str,
+        user_message: Any,
+        understanding: Any,
+    ) -> None:
+        """Persist the episodic family's own authority for this source.
+
+        Written after understanding, because eligibility depends on the
+        interaction reading — which is only known once the turn has been
+        persisted. That is still *before model exposure*: the event is released
+        only by `complete_turn`, and the worker cannot claim an unreleased event,
+        so a source can never reach the episodic model without this record
+        already existing.
+
+        Only a positive outcome is recorded. There is no `BACKGROUND_BLOCKED`
+        member in the durable outcome vocabulary, and inventing one would be a
+        new contract; absence is `UNHANDLED`, which already denies, so a
+        non-eligible source is refused by the same rule that refuses an unknown
+        one.
+        """
+        if self._source_handling_recorder is None:
+            return
+        proposal = propose_source_handling(
+            source_message_id=user_message.message_id,
+            family=MemoryFamily.EPISODIC,
+            reason_code=_source_handling_reason_for(understanding.interaction_mode),
+        )
+        if proposal.outcome is not SourceHandlingProposalOutcome.BACKGROUND_ELIGIBLE:
+            return
+        source_outbox_id = conversations.get_turn_outbox_id(
+            conversation_id,
+            user_message.message_id,
+            owner_user_id,
+            EPISODIC_EXTRACT_EVENT_TYPE,
+        )
+        if not source_outbox_id:
+            return
+        self._source_handling_recorder(
+            owner_user_id,
+            SourceHandlingRecord(
+                source_outbox_id=source_outbox_id,
+                source_message_id=user_message.message_id,
+                family=MemoryFamily.EPISODIC,
+                outcome=SourceHandlingOutcome.BACKGROUND_ELIGIBLE,
+                reason_code=SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE,
+                recorded_at=utc_now(),
+            ),
+        )
 
     def handle_turn(
         self,
@@ -253,12 +340,9 @@ class ConversationOrchestrator:
         conversations = self._conversation_service_provider()
 
         if conversation_id is None:
-            outbox_event = None
+            outbox_event: tuple[OutboxIntent, ...] | None = None
             if self._outbox_enabled or self._explicit_actions_enabled:
-                outbox_event = OutboxIntent(
-                    event_type=MEMORY_EXTRACT_EVENT_TYPE,
-                    payload={},
-                )
+                outbox_event = self._outbox_intents(payload={})
             conversation, user_message, pending_message = (
                 conversations.create_conversation_with_initial_turn(
                     owner_user_id=owner_user_id,
@@ -289,13 +373,10 @@ class ConversationOrchestrator:
                     )
                 raise ConversationNotFoundError("The conversation does not exist.")
 
-            outbox_event = None
+            outbox_event: tuple[OutboxIntent, ...] | None = None
             if self._outbox_enabled or self._explicit_actions_enabled:
-                outbox_event = OutboxIntent(
-                    event_type=MEMORY_EXTRACT_EVENT_TYPE,
-                    payload={
-                        "conversation_id": conversation_id,
-                    },
+                outbox_event = self._outbox_intents(
+                    payload={"conversation_id": conversation_id}
                 )
 
             if outbox_event is not None:
@@ -358,6 +439,17 @@ class ConversationOrchestrator:
                 reason_code=_source_handling_reason_for(
                     understanding.interaction_mode
                 ),
+            )
+
+            # Task 12: the episodic family's authority is its own record, bound
+            # to its own event. A semantic record never authorizes episodic
+            # formation, so this is not a duplicate of the proposal above.
+            self._record_episodic_source_handling(
+                conversations,
+                conversation_id=conversation_id,
+                owner_user_id=owner_user_id,
+                user_message=user_message,
+                understanding=understanding,
             )
 
             # Shadow evidence only: the proposal is recorded, and the effective
@@ -846,11 +938,39 @@ class ConversationOrchestrator:
             if understanding is not None and hasattr(understanding, "current_memory_override_keys")
             else ()
         )
+        # The episodic read is a separate typed contract, so it is a separate
+        # selection rather than more `requested_memory_keys`: an episode has no
+        # registry key, and giving it a fake one would make every semantic policy
+        # apply to something it was never written for.
+        episodic_selection = None
+        if (
+            mode in (ContextMode.MEMORY_ONLY, ContextMode.BOTH)
+            and self._episodic_read_enabled
+            and self._episodic_read_engine is not None
+            and owner_user_id is not None
+            and conversation_id is not None
+        ):
+            from datetime import datetime, timedelta, timezone
+
+            from backend.memory.context import EPISODIC_LOOKBACK_DAYS
+            from backend.memory.episodic import EpisodeReadRequest
+
+            now = datetime.now(timezone.utc)
+            episodic_selection = self._episodic_read_engine.select(
+                EpisodeReadRequest(
+                    owner_user_id=owner_user_id,
+                    conversation_id=conversation_id,
+                    occurred_after=now - timedelta(days=EPISODIC_LOOKBACK_DAYS),
+                    occurred_before=now + timedelta(days=1),
+                )
+            )
+
         generation_context = self._context_arbiter.arbitrate(
             mode=mode,
             rag_bundle=rag_bundle,
             memory_selection=memory_selection,
             current_memory_override_keys=override_keys,
+            episodic_selection=episodic_selection,
         )
 
         result = self._rag_service.generate_from_context(message, generation_context)

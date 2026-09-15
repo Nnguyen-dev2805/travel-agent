@@ -292,6 +292,29 @@ class RuntimeContainer:
                 self.engine, owner, record
             )
 
+        if source_handling_recorder is None and resolved_outbox:
+            # Task 12: the durable authority record must be writable on the
+            # background-capture path, not only on the explicit-action path. A
+            # deployment that captures sources for background formation with
+            # explicit actions off still needs it, or every family's formation is
+            # refused as `UNHANDLED` and the capture is inert — the exact failure
+            # mode a guard proven only against pre-seeded records produces.
+            from backend.memory.write_pipeline.postgres import record_source_handling
+
+            source_handling_recorder = lambda owner, record: record_source_handling(
+                self.engine, owner, record
+            )
+
+        episodic_read_enabled = bool(
+            getattr(self._settings, "MEMORY_EPISODIC_READ_ENABLED", False)
+        )
+        episodic_read_engine = None
+        if episodic_read_enabled:
+            from backend.memory.episodic import EpisodicReadEngine
+            from backend.memory.postgres_store import PostgresEpisodeStore
+
+            episodic_read_engine = EpisodicReadEngine(PostgresEpisodeStore(self.engine))
+
         memory_read_enabled = bool(
             getattr(self._settings, "MEMORY_READ_ENABLED", False)
         )
@@ -331,6 +354,8 @@ class RuntimeContainer:
             context_arbiter=context_arbiter,
             memory_read_enabled=memory_read_enabled,
             memory_use_enabled=memory_use_enabled,
+            episodic_read_engine=episodic_read_engine,
+            episodic_read_enabled=episodic_read_enabled,
         )
 
     def readiness_probe(self) -> PostgresReadinessProbe:

@@ -59,6 +59,7 @@ class WorkerReason(str, Enum):
     UNEXPECTED_FAILURE = "unexpected_failure"
     WRONG_EVENT_FAMILY = "wrong_event_family"
     SOURCE_HANDLING_DENIED = "source_handling_denied"
+    EPISODIC_RECORDED = "episodic_recorded"
 
     @property
     def is_lease_loss(self) -> bool:

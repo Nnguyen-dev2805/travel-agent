@@ -118,11 +118,17 @@ _PROPOSAL_OUTCOME_BY_REASON: dict[SourceHandlingReason, SourceHandlingProposalOu
     ),
 }
 
-#: Families Stage 1 may propose background handling for (`plan v0.6:465-467`).
-#: The other values are canonical vocabulary that becomes operational only in
-#: the stage that evaluates that family's formation behavior.
+#: Families a proposal may be made for. The other values are canonical
+#: vocabulary that becomes operational only in the stage that evaluates that
+#: family's formation behaviour.
+#:
+#: `EPISODIC` joined at the Stage-5 slice (plan v0.20 Task 12), which is the
+#: stage that evaluates episodic formation — the same rule that admitted
+#: `SEMANTIC` in Stage 1. `WORKING` and `PROCEDURAL` stay out until their own
+#: stages, so a caller cannot obtain background permission for a family whose
+#: formation rules nobody has written yet.
 STAGE_ONE_PROPOSABLE_FAMILIES: frozenset[MemoryFamily] = frozenset(
-    {MemoryFamily.SEMANTIC}
+    {MemoryFamily.SEMANTIC, MemoryFamily.EPISODIC}
 )
 
 

@@ -248,9 +248,21 @@ class FakeConversationRepository:
         return stored
 
     def get_turn_outbox_id(
-        self, conversation_id: str, message_id: str, owner_user_id: str
+        self,
+        conversation_id: str,
+        message_id: str,
+        owner_user_id: str,
+        event_type: str | None = None,
     ) -> str | None:
-        self.calls.append(("get_turn_outbox_id", conversation_id, message_id, owner_user_id))
+        self.calls.append(
+            (
+                "get_turn_outbox_id",
+                conversation_id,
+                message_id,
+                owner_user_id,
+                event_type,
+            )
+        )
         return self.outbox_by_turn.get((conversation_id, message_id, owner_user_id))
 
     def list_messages(
@@ -1132,7 +1144,15 @@ def test_get_turn_outbox_id_delegates_to_repository(service, repository):
     outbox_id = service.get_turn_outbox_id("cv_123", "msg_456", DEFAULT_OWNER)
 
     assert outbox_id == "cout_abc"
-    assert ("get_turn_outbox_id", "cv_123", "msg_456", DEFAULT_OWNER) in repository.calls
+    # The family is named (Task 12): a turn can carry more than one family's
+    # event, so a lookup without it could return another family's row.
+    assert (
+        "get_turn_outbox_id",
+        "cv_123",
+        "msg_456",
+        DEFAULT_OWNER,
+        None,
+    ) in repository.calls
 
 
 def test_get_turn_outbox_id_validates_required_identifiers(service):

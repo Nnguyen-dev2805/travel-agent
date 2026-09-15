@@ -16,7 +16,24 @@ from typing import Any, Callable, Protocol, Sequence
 # The event family this queue's Memory worker is allowed to process. It lives
 # beside `OutboxIntent` because that is the module both the producer and this
 # consumer already import; see its docstring for why the claim filters on it.
-from backend.conversations.models import MEMORY_EXTRACT_EVENT_TYPE
+from backend.conversations.models import (
+    EPISODIC_EXTRACT_EVENT_TYPE,
+    MEMORY_EXTRACT_EVENT_TYPE,
+    MEMORY_EXTRACT_EVENT_TYPES,
+)
+from backend.memory.source_handling import MemoryFamily
+
+#: Which Memory family each queued event type belongs to.
+#:
+#: The queue names families by event type; the source-handling authority names
+#: them by `MemoryFamily`. One mapping, in the layer that already imports both, so
+#: the worker's gate cannot look up the wrong family's record — a semantic record
+#: must never authorize episodic formation, and vice versa.
+MEMORY_FAMILY_BY_EVENT_TYPE: dict[str, MemoryFamily] = {
+    MEMORY_EXTRACT_EVENT_TYPE: MemoryFamily.SEMANTIC,
+    EPISODIC_EXTRACT_EVENT_TYPE: MemoryFamily.EPISODIC,
+}
+
 
 
 class OutboxStatus(str, Enum):
@@ -216,7 +233,7 @@ class InMemoryOutboxRepository:
         """
         return (
             event.released_at is not None
-            and event.event_type == MEMORY_EXTRACT_EVENT_TYPE
+            and event.event_type in MEMORY_EXTRACT_EVENT_TYPES
         )
 
     def save_event(self, event: OutboxEvent) -> None:
@@ -568,7 +585,7 @@ class PostgresOutboxRepository:
                         # The family boundary. Without it a second event family
                         # on this shared queue would be claimed and extracted as
                         # if it were a conversation range.
-                        self._table.c.event_type == MEMORY_EXTRACT_EVENT_TYPE,
+                        self._table.c.event_type.in_(MEMORY_EXTRACT_EVENT_TYPES),
                         # ADR 0027: a blocked event is not claimable at all, in
                         # either branch. The gate applies to the whole condition
                         # rather than to `pending` alone, so a `leased` row whose
@@ -674,7 +691,7 @@ class PostgresOutboxRepository:
                 not_(active_lease_exists),
                 # The family boundary, applied before any row is locked so an
                 # event of another family is never even a candidate.
-                self._table.c.event_type == MEMORY_EXTRACT_EVENT_TYPE,
+                self._table.c.event_type.in_(MEMORY_EXTRACT_EVENT_TYPES),
                 # ADR 0027: an event whose turn is not finished is invisible to
                 # the worker, whatever its status. Applied to the whole condition
                 # so the lease-expiry branch is gated too.

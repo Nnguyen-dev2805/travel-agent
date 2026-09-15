@@ -24,11 +24,13 @@ from backend.memory.source_handling import allows_background_formation
 from backend.memory.write_pipeline.models import (
     DecisionOutcome,
 )
+from backend.memory.source_handling import MemoryFamily
 from backend.memory.write_pipeline.outbox import (
     OutboxEvent,
     OutboxRepository,
     OutboxStatus,
     calculate_backoff,
+    MEMORY_FAMILY_BY_EVENT_TYPE,
 )
 from backend.memory.write_pipeline.uow import (
     FenceContext,
@@ -49,7 +51,10 @@ from backend.memory.write_pipeline.secrets import detect_prohibited_content
 # the read filter cannot drift from the model it consumes. The event-family
 # constant comes from the same module for the same reason — it is the vocabulary
 # both the producer and this consumer share.
-from backend.conversations.models import MEMORY_EXTRACT_EVENT_TYPE, MessageStatus
+from backend.conversations.models import (
+    MEMORY_EXTRACT_EVENT_TYPES,
+    MessageStatus,
+)
 
 logger = logging.getLogger("travel_agent_memory_worker")
 
@@ -122,7 +127,9 @@ class MemoryOutboxWorker:
         maintenance_cleaner: Callable[[datetime, int], int] | None = None,
         retention_days: int = 30,
         cleanup_batch_size: int = 500,
-        source_handling_loader: Callable[[str, str], Any] | None = None,
+        source_handling_loader: Callable[[str, str, Any], Any] | None = None,
+        episodic_activation_enabled: bool = False,
+        episodic_commit_coordinator: Any = None,
     ) -> None:
         """Build the worker around the narrow `BackgroundMemoryRecorder` seam.
 
@@ -145,6 +152,11 @@ class MemoryOutboxWorker:
         self._retention_days = retention_days
         self._cleanup_batch_size = cleanup_batch_size
         self._source_handling_loader = source_handling_loader
+        # Default off. The episodic family/type gate is a separate decision
+        # from the semantic inferred-activation flag, and until Task 12's
+        # evaluation record is conclusive a captured episode stays shadow.
+        self._episodic_activation_enabled = episodic_activation_enabled
+        self._episodic_commit_coordinator = episodic_commit_coordinator
 
     @property
     def worker_id(self) -> str:
@@ -273,7 +285,7 @@ class MemoryOutboxWorker:
         # `memory.reprocess` and others; without this, a Memory worker would
         # happily extract a conversation range out of one of them and report a
         # plausible success.
-        if event.event_type != MEMORY_EXTRACT_EVENT_TYPE:
+        if event.event_type not in MEMORY_EXTRACT_EVENT_TYPES:
             logger.warning(
                 "Refusing an outbox event of another family outbox_id=%s "
                 "event_type=%s",
@@ -493,7 +505,9 @@ class MemoryOutboxWorker:
         # here and never reaches the model.
         if self._source_handling_loader is not None:
             handling_record = self._source_handling_loader(
-                event.owner_user_id, event.outbox_id
+                event.owner_user_id,
+                event.outbox_id,
+                MEMORY_FAMILY_BY_EVENT_TYPE[event.event_type],
             )
             if not allows_background_formation(handling_record):
                 logger.info(
@@ -511,6 +525,17 @@ class MemoryOutboxWorker:
                     reason=WorkerReason.SOURCE_HANDLING_DENIED,
                     candidates_count=0,
                 )
+
+        # 5d. Episodic family: its own formation/activation slice.
+        #
+        # Reached only with positive episodic authority (5c above), and before the
+        # semantic model call, because the two families have different extraction
+        # contracts. The episodic slice reuses the shared retention and lifecycle
+        # owners inside `EpisodeFormationEngine`, and its activation gate is
+        # separate and default-off, so a captured episode is shadow state until its
+        # own evaluation passes.
+        if MEMORY_FAMILY_BY_EVENT_TYPE[event.event_type] is MemoryFamily.EPISODIC:
+            return self._process_episodic_event(event, handling_record, messages)
 
         # 5b. Renew before paying for a model call, not after.
         #
@@ -665,12 +690,7 @@ class MemoryOutboxWorker:
         # deduplicates. The fence binds the commit to the lease and epoch
         # observed here; a delete landing after extraction fences the write
         # inside the same transaction instead of slipping through.
-        fence = FenceContext(
-            conversation_id=event.conversation_id,
-            expected_epoch=int(event.payload.get("deletion_epoch", 0) or 0),
-            outbox_id=event.outbox_id,
-            lease_owner=self._worker_id,
-        )
+        fence = self._fence_for(event)
         last_decision_outcome = None
         try:
             # One commit for the whole event. `record_batch_sync` prepares every
@@ -683,6 +703,7 @@ class MemoryOutboxWorker:
                 source_message_id=event.message_id,
                 conversation_id=event.conversation_id,
                 fence=fence,
+                event_type=event.event_type,
             )
         except FencedWriteError as fence_error:
             logger.warning(
@@ -782,6 +803,162 @@ class MemoryOutboxWorker:
             return True
         return getattr(raw, "value", str(raw)) == MessageStatus.COMPLETE.value
 
+    def _fence_for(self, event: Any) -> FenceContext:
+        """The fence one claimed event writes under.
+
+        One construction, so the semantic and episodic paths cannot drift apart in
+        the epoch, the lease owner, or the outbox identity they fence on.
+        """
+        return FenceContext(
+            conversation_id=event.conversation_id,
+            expected_epoch=int(event.payload.get("deletion_epoch", 0) or 0),
+            outbox_id=event.outbox_id,
+            lease_owner=self._worker_id,
+        )
+
+    def _process_episodic_event(
+        self, event: Any, handling_record: Any, messages: list[dict[str, Any]]
+    ) -> Any:
+        """Form, activate and persist one grounded episode, or refuse.
+
+        Grounding comes from the turn itself: the actor is the owner, the event is
+        the user's own turn text, the time is that message's persisted time, and the
+        provenance is the source event identity. Nothing here is inferred from
+        model output, because the episodic contract requires actor/event/time/
+        provenance and a model guess is not a grounding fact.
+        """
+        from backend.memory.activation import ActivationReason  # noqa: F401
+        from backend.memory.commit_coordinators import BackgroundEpisodeCommitRequest
+        from backend.memory.episodic import (
+            EpisodeActivationFacts,
+            EpisodeActivationPolicy,
+            EpisodeFormationEngine,
+            EpisodeGrounding,
+            EpisodeProvenance,
+            EpisodeRefusalReason,
+            validate_episode_grounding,
+        )
+        from backend.memory.lifecycle import SourceValidity
+        from backend.memory.write_pipeline.models import VersionStatus
+
+        user_text = ""
+        occurred_at = None
+        for msg in messages:
+            if str(msg.get("role", "")).lower().endswith("user"):
+                user_text = str(msg.get("content", "") or "")
+                occurred_at = msg.get("created_at")
+                break
+        if not user_text or occurred_at is None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "episodic_source_ungrounded",
+            )
+
+        grounding = EpisodeGrounding(
+            actor=event.owner_user_id,
+            event=user_text,
+            occurred_at=occurred_at,
+            provenance=EpisodeProvenance(
+                source_outbox_id=event.outbox_id,
+                source_message_id=event.message_id,
+            ),
+        )
+        if validate_episode_grounding(grounding) is not None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "episodic_source_ungrounded",
+            )
+
+        candidate = EpisodeFormationEngine().form_episode(
+            source_outbox_id=event.outbox_id,
+            source_message_id=event.message_id,
+            owner_user_id=event.owner_user_id,
+            conversation_id=event.conversation_id,
+            grounding=grounding,
+            source_handling_record=handling_record,
+        )
+        if candidate is None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "episodic_formation_refused",
+            )
+
+        decision = EpisodeActivationPolicy().evaluate(
+            EpisodeActivationFacts(
+                grounding_conclusive=True,
+                lifecycle_eligible=True,
+                source_validity=SourceValidity.VALID,
+                stamped_generation=candidate.suppression_generation,
+                current_generation=candidate.suppression_generation,
+                has_unresolved_conflict=False,
+                episodic_gate_enabled=self._episodic_activation_enabled,
+                # The family/type evaluation gate is conclusive only when the
+                # governed evaluation record says so. It is passed as `False`
+                # here until Task 12's evaluation record is conclusive, so this
+                # flag alone can never activate an episode.
+                episodic_gate_conclusive=False,
+            )
+        )
+
+        coordinator = self._episodic_commit_coordinator
+        if coordinator is None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "episodic_commit_unavailable",
+            )
+
+        try:
+            coordinator.commit_episode(
+                BackgroundEpisodeCommitRequest(
+                    episode=candidate,
+                    owner_user_id=event.owner_user_id,
+                    fence=self._fence_for(event),
+                    status=decision.target_status,
+                )
+            )
+        except FencedWriteError as fence_error:
+            logger.warning(
+                "Episodic write fenced reason=%s outbox_id=%s worker=%s",
+                fence_error.reason.value,
+                event.outbox_id,
+                self._worker_id,
+            )
+            return WorkerResult(
+                status=OutboxStatus.LEASED,
+                decision=DecisionOutcome.SHADOW,
+                reason=WorkerReason.LEASE_LOST_BEFORE_COMMIT,
+                candidates_count=0,
+            )
+
+        return WorkerResult(
+            status=OutboxStatus.SUCCEEDED,
+            decision=DecisionOutcome.SHADOW,
+            reason=WorkerReason.EPISODIC_RECORDED,
+            candidates_count=1 if decision.eligible else 0,
+        )
+
+    def _refuse_event(self, event: Any, reason: Any, detail: str) -> Any:
+        """Terminal refusal that still completes the event."""
+        logger.info(
+            "Episodic event refused detail=%s outbox_id=%s worker=%s",
+            detail,
+            event.outbox_id,
+            self._worker_id,
+        )
+        self._outbox_repo.mark_succeeded(
+            event.outbox_id, lease_owner=self._worker_id
+        )
+        return WorkerResult(
+            status=OutboxStatus.SUCCEEDED,
+            decision=DecisionOutcome.REJECTED,
+            reason=reason,
+            candidates_count=0,
+        )
+
     def _load_messages(
         self,
         conversation_id: str,
@@ -835,6 +1012,10 @@ class MemoryOutboxWorker:
                             else "user"
                         ),
                         "content": getattr(msg, "content", ""),
+                        # The episodic grounding needs the message's own time: a
+                        # grounded event requires a time, and the only honest one
+                        # is when the turn was persisted.
+                        "created_at": getattr(msg, "created_at", None),
                     }
                 )
         return messages

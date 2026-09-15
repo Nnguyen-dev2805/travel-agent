@@ -1466,7 +1466,13 @@ def test_an_unknown_reading_fails_closed():
 def test_outbox_intent_created_when_explicit_actions_enabled_even_if_outbox_disabled(
     rag, conversations, journal
 ):
-    """Owner Correction 1: Outbox intent created when explicit_actions_enabled OR outbox_enabled."""
+    """Owner Correction 1: Outbox intent created when explicit_actions_enabled OR outbox_enabled.
+
+    The turn now writes a *tuple* of family-specific events (Task 12), so the
+    assertion is on the set of families rather than on one intent. With background
+    capture off, only the semantic family's event is written: the episodic event
+    is a background-capture act and has no reason to exist when capture is off.
+    """
     orchestrator = ConversationOrchestrator(
         rag_service=rag,
         conversation_service_provider=lambda: conversations,
@@ -1479,8 +1485,37 @@ def test_outbox_intent_created_when_explicit_actions_enabled_even_if_outbox_disa
         principal=DEFAULT_PRINCIPAL,
     )
     assert len(conversations.outbox_events) == 1
-    conv_id, msg_id, outbox_intent = conversations.outbox_events[0]
-    assert outbox_intent.event_type == "memory.extract.conversation_range"
+    conv_id, msg_id, outbox_intents = conversations.outbox_events[0]
+    assert [intent.event_type for intent in outbox_intents] == [
+        "memory.extract.conversation_range"
+    ]
+
+
+def test_a_captured_turn_writes_one_outbox_event_per_memory_family(
+    rag, conversations, journal
+):
+    """Task 12: family-specific events, never one shared multi-family row.
+
+    Each family gets its own event with its own lease, idempotency and terminal
+    state, so one family finishing cannot mark another family's work done.
+    """
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag,
+        conversation_service_provider=lambda: conversations,
+        outbox_enabled=True,
+    )
+    orchestrator.handle_turn(
+        message="Hello",
+        conversation_id=CONVERSATION,
+        principal=DEFAULT_PRINCIPAL,
+    )
+
+    assert len(conversations.outbox_events) == 1
+    _, _, outbox_intents = conversations.outbox_events[0]
+    assert [intent.event_type for intent in outbox_intents] == [
+        "memory.extract.conversation_range",
+        "memory.extract.episodic",
+    ]
 
 
 def test_explicit_actions_disabled_runs_baseline_rag(rag, conversations, journal):

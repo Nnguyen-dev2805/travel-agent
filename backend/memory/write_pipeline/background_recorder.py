@@ -37,6 +37,9 @@ from backend.memory.source_handling import (
     SourceHandlingRecord,
     allows_background_formation,
 )
+from backend.memory.write_pipeline.outbox import (
+    MEMORY_FAMILY_BY_EVENT_TYPE,
+)
 from backend.memory.write_pipeline.models import (
     AssertionIdentity,
     Authority,
@@ -189,7 +192,7 @@ class BackgroundMemoryRecorder:
         activation_policy: MemoryActivationPolicy | None = None,
         lifecycle_policy: MemoryLifecyclePolicy | None = None,
         retention_policy: RetentionAssignmentPolicy | None = None,
-        source_handling_loader: Callable[[str, str], SourceHandlingRecord | None] | None = None,
+        source_handling_loader: Callable[[str, str, Any], SourceHandlingRecord | None] | None = None,
         inferred_activation_enabled: bool = False,
         type_evaluation_gate: Callable[[str], bool] | None = None,
     ) -> None:
@@ -266,6 +269,7 @@ class BackgroundMemoryRecorder:
         fence: FenceContext | None = None,
         source_handling_record: SourceHandlingRecord | None = None,
         source_validity: SourceValidity = SourceValidity.VALID,
+        event_type: str | None = None,
     ) -> BackgroundRecordResult:
         """Prepare one candidate's outcome without committing it.
 
@@ -302,7 +306,11 @@ class BackgroundMemoryRecorder:
             )
             if lookup_outbox_id is not None:
                 sh_record = self._source_handling_loader(
-                    mem_candidate.owner_user_id, lookup_outbox_id
+                    mem_candidate.owner_user_id,
+                    lookup_outbox_id,
+                    MEMORY_FAMILY_BY_EVENT_TYPE.get(
+                        event_type, MemoryFamily.SEMANTIC
+                    ),
                 )
 
         # Absence is `UNHANDLED`, and `UNHANDLED` is not permission (ADR 0038:59,
@@ -624,6 +632,7 @@ class BackgroundMemoryRecorder:
         fence: FenceContext,
         source_handling_record: SourceHandlingRecord | None = None,
         source_validity: SourceValidity = SourceValidity.VALID,
+        event_type: str | None = None,
     ) -> tuple[BackgroundRecordResult, ...]:
         """Record every candidate of one outbox event through a single commit.
 
@@ -647,6 +656,7 @@ class BackgroundMemoryRecorder:
                 fence,
                 source_handling_record=source_handling_record,
                 source_validity=source_validity,
+                event_type=event_type,
             )
             for candidate in candidates
         )

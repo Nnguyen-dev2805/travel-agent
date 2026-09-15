@@ -235,7 +235,45 @@ idempotency_table = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
-_EVENT_ID_PREFIX = "mevt_"
+#: The canonical episodic store (plan v0.20 Task 12).
+#:
+#: One table, evolved from the placeholder `20260907_02` created, never a second
+#: canonical episode store. `actor`/`event`/`source_*` are required grounding
+#: facts whose column defaults exist only for migration safety — the empty
+#: string is refused by every grounding validator, so a pre-existing row is
+#: ineligible rather than silently grounded. `status` defaults to `shadow` for
+#: the same reason: a schema change must never make a row answer-eligible.
+#:
+#: `payload` is carried but is not policy authority for anything.
+episodes_table = Table(
+    "memory_episodes",
+    metadata,
+    Column("episode_id", Text(), primary_key=True),
+    Column("owner_user_id", Text(), nullable=False),
+    Column("conversation_id", Text(), nullable=False),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("payload", JSONB(), nullable=False, server_default="{}"),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("actor", Text(), nullable=False, server_default=""),
+    Column("event", Text(), nullable=False, server_default=""),
+    Column("source_message_id", Text(), nullable=False, server_default=""),
+    Column("source_outbox_id", Text(), nullable=False, server_default=""),
+    Column(
+        "retention_mode",
+        Text(),
+        nullable=False,
+        server_default="conversation_bound",
+    ),
+    Column("status", Text(), nullable=False, server_default="shadow"),
+    Column("sensitivity", Text(), nullable=False, server_default="ordinary_personal"),
+    Column("suppression_generation", Integer(), nullable=False, server_default="1"),
+    Column("unresolved_conflict", Boolean(), nullable=False, server_default="false"),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column("invalidated_at", DateTime(timezone=True), nullable=True),
+)
+
+_EPISODE_ID_PREFIX = "epi_"
+
 _OUTBOX_ID_PREFIX = "mout_"
 _DECISION_ID_PREFIX = "mdc_"
 _ASSERTION_ID_PREFIX = "mas_"

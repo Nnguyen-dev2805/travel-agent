@@ -12,7 +12,7 @@ repository therefore never has to interpret an identifier.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, Sequence
 
 from backend.conversations.models import (
     DEFAULT_HISTORY_LIMIT,
@@ -87,7 +87,7 @@ class ConversationRepository(Protocol):
         message: MessageDraft,
         message_id: str,
         assistant_message_id: str,
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> tuple[Conversation, Message, Message]:
         """Atomically persist a new conversation and its first turn.
 
@@ -140,7 +140,7 @@ class ConversationRepository(Protocol):
         message: MessageDraft,
         message_id: str,
         owner_user_id: str,
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> Message:
         """Persist one message under a server-generated identity.
 
@@ -166,7 +166,7 @@ class ConversationRepository(Protocol):
         owner_user_id: str,
         user_content: str,
         assistant_placeholder: str = "",
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> tuple[Message, Message]:
         """Allocate one turn in one transaction under one parent-row lock.
 

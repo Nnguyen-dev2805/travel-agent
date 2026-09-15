@@ -107,6 +107,11 @@ def test_delete_issues_propagation_statements_in_one_transaction():
             _FakeResult(rowcount=1),
             _FakeResult(),
             _FakeResult(),
+            # The episodic invalidation (plan v0.20 Task 12). Deleting a
+            # conversation must stop its recorded events being eligible in the
+            # same transaction that tombstones it, exactly as it already does for
+            # `memory_evidence`.
+            _FakeResult(),
         ]
     )
     repo = PostgresConversationRepository(_FakeEngine(connection))
@@ -118,6 +123,7 @@ def test_delete_issues_propagation_statements_in_one_transaction():
     assert "UPDATE conversations SET retention_state" in sql
     assert "UPDATE conversation_outbox SET status" in sql
     assert "UPDATE memory_evidence SET invalidated_at" in sql
+    assert "UPDATE memory_episodes SET invalidated_at" in sql
     assert "deletion_epoch" in sql
 
 

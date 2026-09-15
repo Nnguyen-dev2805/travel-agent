@@ -1123,6 +1123,12 @@ def test_the_worker_grants_are_the_enumerated_minimum(fresh_db, pg_engine):
         # read and append a decision, never rewrite one.
         ("memory_source_handling", "SELECT"),
         ("memory_source_handling", "INSERT"),
+        # The episodic slice (migration 20260915_02). See
+        # `test_the_worker_memory_grants_are_the_derived_minimum` for the
+        # statement each verb comes from.
+        ("memory_episodes", "SELECT"),
+        ("memory_episodes", "INSERT"),
+        ("memory_episodes", "UPDATE"),
     }, f"unexpected worker grant set: {sorted(granted)}"
 
 
@@ -1367,6 +1373,13 @@ def test_the_runtime_role_grants_are_the_enumerated_minimum(fresh_db, pg_engine)
         ("memory_write_idempotency", "SELECT"),
         ("memory_write_idempotency", "INSERT"),
         ("memory_write_idempotency", "UPDATE"),
+        # The episodic slice (migration 20260915_02): the answer path reads
+        # episodes, and deleting a conversation must invalidate that
+        # conversation's episodes in the same transaction as its tombstone —
+        # exactly the `memory_evidence` precedent above. The runtime never
+        # inserts or deletes an episode.
+        ("memory_episodes", "SELECT"),
+        ("memory_episodes", "UPDATE"),
     }, f"unexpected runtime grant set: {sorted(granted)}"
 
 
@@ -1483,6 +1496,13 @@ def test_the_worker_memory_grants_are_the_derived_minimum(fresh_db, pg_engine):
         # The durable source-handling authority path (migration 20260912_03).
         ("memory_source_handling", "SELECT"),
         ("memory_source_handling", "INSERT"),
+        # The episodic slice (migration 20260915_02). `SELECT` for the
+        # provenance-idempotency read before an insert, `INSERT` to form one, and
+        # `UPDATE` for the activation status transition. No `DELETE`: an episode
+        # is revoked, not erased (ADR 0037).
+        ("memory_episodes", "SELECT"),
+        ("memory_episodes", "INSERT"),
+        ("memory_episodes", "UPDATE"),
     }, f"unexpected worker memory grant set: {sorted(granted)}"
 
 
@@ -1527,7 +1547,7 @@ def test_the_worker_memory_grants_round_trip(fresh_db, pg_engine):
                 "WHERE grantee = 'travel_worker' AND table_name LIKE 'memory\\_%'"
             )
         ).scalar()
-    assert restored == 17
+    assert restored == 20
 
 
 def test_source_handling_table_rejects_duplicate_authority_key(fresh_db, pg_engine):

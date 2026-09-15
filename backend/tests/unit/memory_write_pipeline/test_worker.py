@@ -166,7 +166,7 @@ class FakeConversationService:
         return self.deletion_epochs.get(conversation_id, 0)
 
 
-def _eligible_source_handling_loader(owner, outbox_id):
+def _eligible_source_handling_loader(owner, outbox_id, family):
     """Return a persisted positive source-handling record for one outbox event.
 
     Background formation is authorized only by a persisted
@@ -811,6 +811,7 @@ def test_worker_delegates_to_background_recorder_record_sync():
             fence=None,
             source_handling_record=None,
             source_validity=None,
+            event_type=None,
         ):
             candidates = tuple(candidates)
             self.calls.append((candidates, fence))
@@ -1595,7 +1596,7 @@ def test_an_unhandled_source_never_reaches_the_model():
     model = FakeExtractionModel(candidates=[candidate])
     worker, outbox, uow, model_fake, conv_svc = _setup_worker(
         model=model,
-        source_handling_loader=lambda owner, outbox_id: None,
+        source_handling_loader=lambda owner, outbox_id, family: None,
     )
 
     conv_svc.conversations["conv_1"] = {
