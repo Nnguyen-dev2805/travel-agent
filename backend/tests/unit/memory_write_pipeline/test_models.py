@@ -370,6 +370,7 @@ def test_version_status_adds_revoked():
         "active",
         "superseded",
         "revoked",
+        "shadow",
     }
 
 

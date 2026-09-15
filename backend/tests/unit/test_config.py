@@ -304,3 +304,13 @@ def test_memory_use_requires_memory_read():
     # Invalid: use True without read True
     with pytest.raises(ValueError, match="MEMORY_USE_ENABLED requires MEMORY_READ_ENABLED"):
         Settings(MEMORY_READ_ENABLED=False, MEMORY_USE_ENABLED=True)
+
+
+# --- Stage-4 Memory Inferred Activation and Outbox Prune flags ---------------
+
+
+def test_stage4_memory_flags_defaults():
+    settings = Settings()
+    assert settings.MEMORY_INFERRED_ACTIVATION_ENABLED is False
+    assert settings.MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS == 30
+    assert settings.MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE == 500

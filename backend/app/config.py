@@ -146,6 +146,17 @@ class Settings(BaseModel):
             )
         return v
 
+    # Stage-4 Background Formation and Activation feature gates (ADR 0038 / Plan v0.18)
+    MEMORY_INFERRED_ACTIVATION_ENABLED: bool = _env_flag(
+        "MEMORY_INFERRED_ACTIVATION_ENABLED", False
+    )
+    MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS: int = int(
+        os.getenv("MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS", "30")
+    )
+    MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE: int = int(
+        os.getenv("MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE", "500")
+    )
+
     # Stage-1 context-planner rollout gate. While this is false the planner still
     # proposes a context plan, but the effective normal-query source plan stays
     # the existing RAG-only baseline, so a proposal of `NONE` cannot skip

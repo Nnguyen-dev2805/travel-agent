@@ -25,14 +25,14 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Plan version | 0.16 — Task-10 production Memory-reachability and context-authority remediation |
+| Plan version | 0.18 — Task-11 authority-owner, activation lifecycle, conflict-state, and prune-RLS contract correction |
 | Date | 2026-09-12 |
 | Last amended | 2026-09-15 |
 | Specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.8, Approved 2026-09-15 |
 | Required ADRs | ADR 0036, 0037, 0038, 0039, 0040 — Accepted 2026-09-12 |
 | Execution owner | Coding agent under repository-owner instruction |
 | Decision owner | Repository owner |
-| Approval | Repository owner approved exact spec v0.8 and plan v0.16 on 2026-09-15 for the focused Task-10 remediation. |
+| Approval | Repository owner approved exact plan v0.18 on 2026-09-15. Spec v0.8 remains Approved 2026-09-15. |
 | Scope | Stages 1–7 of the target architecture, with independent rollout gates and evidence-based stop conditions |
 | Verification | Task-local CORE tests gate architectural progression. Deferred hardening remains mandatory before final production-readiness proof, including required PostgreSQL integration tests without required skips, exhaustive ADR validation where specified, evaluation gates, full backend suite, frontend regression suite, `compileall`, `git diff --check`, and exact change-set review. |
 
@@ -1465,42 +1465,73 @@ below must pass before Task 10 returns to verification.
 
 ## Task 11: Stage 4 Background Semantic Formation, Activation, and Outbox Bound
 
-**Files:** Create `backend/memory/formation.py` and `activation.py`; modify
-`background_recorder.py`, `worker.py`, Memory evaluation modules, Postgres store,
-config, `docs/evaluation/agent-memory-evaluation.md`, and deployment runbook;
-add formation/activation/worker integration tests.
+**Files:** Create `backend/memory/formation.py` and `backend/memory/activation.py`; create migration `backend/storage/migrations/versions/20260915_01_worker_outbox_prune_grants.py`; update `backend/storage/postgres.py` (`ALEMBIC_HEAD`); modify `backend/memory/write_pipeline/background_recorder.py`, `backend/memory/write_pipeline/worker.py`, `backend/memory/write_pipeline/postgres.py`, `backend/memory/write_pipeline/uow.py`, `backend/app/config.py`, `docs/evaluation/agent-memory-evaluation.md`, and `docs/runbooks/deployment.md`; add formation, activation, worker maintenance, and migration/integration tests.
 
-**Contracts:** Background formation requires positive family handling. Semantic
-conversation-scope inference needs two independent agreeing user turns; user-scope
-inference needs three independent evidence items across at least two conversations,
-with no unresolved conflict. Redelivery/re-extraction of one source never
-increases support.
+**Contracts:** Background formation requires positive family handling (`allows_background_formation`). Semantic conversation-scope inference requires at least two independent agreeing user turns; user-scope inference requires at least three independent evidence items across at least two distinct conversations, with no unresolved conflict (`has_unresolved_conflict == False`). Redelivery or re-extraction of one source never increases support. `memory_outbox` cleanup is a worker maintenance pass pruning only pending projection intent (`event_type = 'memory.write.committed' AND status = 'pending' AND created_at < retention_cutoff`); canonical Memory rows are never deleted by this cleanup.
 
-- [ ] RED fixtures prove missing handling, duplicate delivery, same-source
-  re-extraction, secret input, stale generation, deleted source, and unresolved
-  contradiction cannot activate.
-- [ ] Split formation, consolidation, activation: formation creates immutable
-  evidence/candidate; existing resolver consolidates; activation is a separate
-  deterministic policy; `BackgroundMemoryCommit` owns commit.
-- [ ] Add `MEMORY_INFERRED_ACTIVATION_ENABLED=False`; shadow evaluation may run
-  while active inferred versions remain impossible.
-- [ ] Bound `memory_outbox` **before any broad Memory-write enablement**. Tasks
-  8–10 may have exercised explicit writes in controlled evaluation, but their
-  default-off mutation flag is not eligible for broad rollout until this step
-  is GREEN. Because the outbox is rebuildable
-  projection intent rather than canonical Memory and no consumer exists yet,
-  add `MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS=30` and
-  `MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE=500`. A worker maintenance pass
-  deletes pending projection events older than the retention cutoff in bounded
-  batches and records only closed prune reason/count telemetry. Canonical Memory
-  is sufficient to rebuild a later projection; cleanup is never Memory deletion.
-- [ ] Active inference requires a conclusive passing evaluation; missing/skipped
-  evidence is `INCONCLUSIVE`. Promotion is per semantic key/type: evidence that
-  `hotel_atmosphere` is safe does not authorize inferred activation of
-  `budget_level`, `default_departure_city`, or any other registry-v2 key.
-- [ ] Run worker/PostgreSQL retry/fence/idempotency tests without required skips.
-- [ ] Review: zero background-without-positive-handling and zero post-forget
-  resurrection failures.
+### File Responsibility Map
+
+1. `backend/memory/formation.py`:
+   - Consumes released outbox events with positive `SourceHandlingOutcome.BACKGROUND_ELIGIBLE`; absence of record (`UNHANDLED`) or non-eligible handling outcome strictly refuses formation (zero background processing without positive handling).
+   - Pre-model secret scan rejects prohibited content before model exposure.
+   - Model extraction across the 8 closed-schema registry-v2 keys.
+   - Keeps authority owners separate: registry-v2 validates governed key/value/cardinality/allowed scope/sensitivity floor; `RetentionAssignmentPolicy` assigns `retention_mode`; `MemoryLifecyclePolicy.evaluate(stage=LifecycleStage.FORMATION)` evaluates lifecycle eligibility. Registry code must not own or re-derive retention policy.
+   - Emits immutable `MemoryEvidence` and `MemoryCandidate` objects.
+   - Does NOT decide activation, lifecycle mutation, or commit; does NOT add speculative services or components.
+2. `backend/memory/activation.py`:
+   - `MemoryActivationPolicy`: Pure deterministic domain policy (no database connections, direct SQL/ORM queries, I/O, or model calls).
+   - Evaluates typed `ActivationFacts` (scope, target conversation, unresolved conflict flag, candidate evidence identity, loaded active evidence identities, rollout flag, type evaluation status).
+   - Thresholds:
+     - Conversation-scope inferred preference: at least two independent agreeing user turns (distinct `source_message_id`s in that conversation) and `has_unresolved_conflict == False`.
+     - User-scope inferred preference: at least three independent evidence items across at least two distinct conversations and `has_unresolved_conflict == False`.
+     - Provenance identity deduplication: redelivery or re-extraction of the same source message or outbox event never increases support.
+     - Inferred constraints remain `VersionStatus.SHADOW` until policy-specific evidence/impact gates pass.
+     - Procedural Memory is never activated from Chat evidence.
+     - Model confidence/output alone never authorizes activation.
+   - Evaluates rollout flag `MEMORY_INFERRED_ACTIVATION_ENABLED` (default `False`). When False, candidate mutations remain `VersionStatus.SHADOW` and cannot become answer-eligible active versions.
+   - Enforces per-key/type promotion: passing evaluation on `hotel_atmosphere` does not authorize inferred activation for other keys.
+   - Does not replace lifecycle authority: before `MemoryActivationPolicy` can authorize `ACTIVE`, the orchestration facade must obtain an eligible `MemoryLifecyclePolicy.evaluate(stage=LifecycleStage.ACTIVATION, facts=...)` result. A lifecycle denial or missing required lifecycle fact keeps the candidate non-active/fail-closed.
+3. `backend/memory/write_pipeline/background_recorder.py`:
+   - Serves as the background Memory orchestration facade:
+     `positive source handling -> formation -> resolver/consolidation -> activation -> BackgroundMemoryCommit`.
+   - Calls store/UoW evidence-loading query seam to supply prior evidence identities to `MemoryActivationPolicy` and loads authoritative `memory_assertions.has_unresolved_conflict` state for the assertion; it must not infer conflict state from evidence, model output, or resolver reason text.
+   - Builds the typed lifecycle facts from canonical candidate/store state and requires `MemoryLifecyclePolicy.evaluate(stage=LifecycleStage.ACTIVATION, ...)` to be eligible before applying the separate activation-threshold policy.
+   - Reuses existing `resolve_change` without duplicate mutation truth tables.
+   - Hands consolidated mutation and target version status (`ACTIVE` vs `SHADOW`) to `BackgroundMemoryCommit`.
+4. `backend/memory/write_pipeline/worker.py`:
+   - Focused strictly on queue mechanics: queue claim, lease renewal, retry backoff, deletion epoch/conversation fence, dead-lettering, and maintenance pass scheduling.
+   - Schedules and executes the bounded projection-outbox maintenance pass at the end of each batch or idle polling interval.
+   - Does NOT implement Memory formation, consolidation, or activation domain logic.
+5. `backend/memory/write_pipeline/postgres.py` & `uow.py`:
+   - Store/UoW evidence-loading query seam: `get_active_evidence_for_assertion(connection, owner_user_id: str, assertion_id: str) -> Sequence[EvidenceIdentity]` returning uninvalidated evidence rows (`invalidated_at IS NULL`).
+   - Store/UoW conflict-state seam reads authoritative `memory_assertions.has_unresolved_conflict` for the assertion. A missing assertion means there is no persisted unresolved conflict for that not-yet-materialized assertion; existing assertions use only the stored boolean, never a derived substitute.
+   - Bounded outbox cleanup query:
+     Deletes only `event_type = 'memory.write.committed' AND status = 'pending' AND created_at < :retention_cutoff`, ordered by `created_at ASC`, limited to `MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE`.
+   - Canonical Memory rows (`memory_assertions`, `memory_versions`, `memory_evidence`, `memory_decisions`, `memory_events`) must NEVER be deleted by this cleanup.
+6. `backend/storage/migrations/versions/20260915_01_worker_outbox_prune_grants.py` & `backend/storage/postgres.py`:
+   - PostgreSQL migration granting `travel_worker` only the required `SELECT, DELETE` privileges on `memory_outbox`; no `INSERT`/`UPDATE` expansion is introduced by this migration.
+   - Adds worker-specific permissive RLS policies for the maintenance read/delete path with `USING (event_type = 'memory.write.committed' AND status = 'pending')`. The age cutoff remains a bound query predicate because it is configuration-driven; RLS must still prevent the worker from seeing/deleting non-projection or non-pending rows through this maintenance authority.
+   - Updates `ALEMBIC_HEAD` to `20260915_01`.
+7. `backend/app/config.py`:
+   - `MEMORY_INFERRED_ACTIVATION_ENABLED: bool = False`
+   - `MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS: int = 30`
+   - `MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE: int = 500`
+
+### Acceptance & Test Evidence Checklist
+
+- [x] RED fixtures prove missing handling (`UNHANDLED`), non-eligible source handling outcomes (`EXPLICIT_APPLIED`, `EXPLICIT_REFUSED`, `EXPLICIT_NOOP`, `FORGET_APPLIED`, `FORGET_REFUSED`), duplicate outbox delivery, same-source re-extraction, prohibited secret input, stale generation, deleted source, and unresolved contradiction cannot activate.
+- [x] Implement `backend/memory/formation.py`: enforces positive source handling (`allows_background_formation`), pre-model secret scan, 8-key closed registry extraction, registry-owned key/value/cardinality/scope/sensitivity validation, `RetentionAssignmentPolicy`-owned retention assignment, and separate `MemoryLifecyclePolicy` formation validation; emits immutable `MemoryEvidence` and `MemoryCandidate` with zero speculative services/components.
+- [x] Implement store/UoW activation-input seams on `MemoryWriteStore`/`PostgresMemoryUnitOfWork`: load active (uninvalidated) evidence identities and authoritative `memory_assertions.has_unresolved_conflict` for an assertion. Conflict state must come from the stored assertion flag, not be reconstructed from evidence/resolver/model output. Pure activation/lifecycle policies consume these facts without direct SQL, ORM, or database access.
+- [x] Implement `backend/memory/activation.py`: pure deterministic domain policy enforcing 2 agreeing turns for conversation scope, 3 evidence items across at least 2 conversations for user scope, provenance deduplication (redelivery contributes zero support), shadow-only for inferred constraints, refusal for procedural memory, and shadow-only when `MEMORY_INFERRED_ACTIVATION_ENABLED=False`; require an eligible `MemoryLifecyclePolicy` ACTIVATION-stage decision before any inferred candidate can become `ACTIVE`.
+- [x] Refactor `backend/memory/write_pipeline/background_recorder.py` as the background Memory orchestration facade: positive source handling -> formation -> resolver/consolidation (`resolve_change`) -> activation policy -> `BackgroundMemoryCommit`; reuses existing `resolve_change` and `BackgroundMemoryCommit` without duplicate mutation truth tables.
+- [x] Keep `backend/memory/write_pipeline/worker.py` focused on queue claim, lease renewal, retry backoff, deletion epoch/conversation fence, dead-lettering, and maintenance pass scheduling.
+- [x] Add migration `20260915_01_worker_outbox_prune_grants.py` granting only required `SELECT, DELETE` privileges and worker-specific SELECT/DELETE RLS authority constrained to `event_type = 'memory.write.committed' AND status = 'pending'`; update `backend/storage/postgres.py` `ALEMBIC_HEAD` to `20260915_01`; verify migration round-trip, exact grants, and RLS denial for non-projection/non-pending rows in PostgreSQL integration tests.
+- [x] Implement bounded projection-outbox maintenance pass in `backend/memory/write_pipeline/postgres.py` and `worker.py`: prune only `event_type = 'memory.write.committed' AND status = 'pending' AND created_at < retention_cutoff`, in bounded batches using `MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE=500` and `MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS=30`; prove canonical Memory rows (`memory_assertions`, `memory_versions`, `memory_evidence`, `memory_decisions`) are never deleted; record closed prune telemetry.
+- [x] Add `MEMORY_INFERRED_ACTIVATION_ENABLED=False` to `backend/app/config.py`; shadow evaluation runs while active inferred versions remain impossible in production runtime.
+- [x] Active inference requires a conclusive passing evaluation in `docs/evaluation/agent-memory-evaluation.md`; missing/skipped evidence is `INCONCLUSIVE`. Promotion is per semantic key/type: evidence that `hotel_atmosphere` is safe does not authorize inferred activation of `budget_level`, `default_departure_city`, or any other registry-v2 key.
+- [x] Run worker/PostgreSQL retry, fence, lease expiry, idempotency, and live Stage-4 vertical slice integration tests without required skips.
+- [x] Review: zero background-without-positive-handling, zero post-forget resurrection failures, and zero canonical Memory deletion from outbox maintenance.
+
 
 ## Task 12: Stage 5 Episodic Memory Vertical Slice
 
@@ -1850,8 +1881,20 @@ for the Read/Use rollout flags. It also requires production-path evidence that
 uses the real `TurnUnderstanding -> ContextPlanner` chain rather than a forced
 test planner.
 
-Approved spec v0.8 plus this exact plan v0.16 are the current execution authority
-for the remaining staged Agent Memory program. Plan v0.16 supersedes v0.15 as
-current execution authority for Task 10 and later stages.
+Plan version 0.17 was drafted on 2026-09-15 for Task 11 but was **not repository-owner approved** before review found additional authority-boundary gaps. It proposed:
+it locks `memory_outbox` cleanup as a worker maintenance pass with a new PostgreSQL migration
+`20260915_01_worker_outbox_prune_grants.py` granting the minimum required `SELECT, DELETE` privileges
+and permissive RLS policy on `memory_outbox` to `travel_worker`; updates `ALEMBIC_HEAD` to `20260915_01`; pins the
+cleanup query criteria to `event_type = 'memory.write.committed' AND status = 'pending' AND created_at < retention_cutoff`
+in bounded batches using `MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE=500` without ever deleting canonical Memory;
+adds a store/UoW evidence-loading seam (`get_active_evidence_for_assertion`) so `MemoryActivationPolicy`
+remains a pure deterministic domain policy without querying PostgreSQL directly; maintains `BackgroundMemoryRecorder`
+as the background Memory orchestration facade (`positive source handling -> formation -> resolver/consolidation -> activation -> BackgroundMemoryCommit`);
+keeps `worker.py` focused on queue claim/lease/retry/fence/backoff/dead-letter and maintenance scheduling;
+and keeps registry validation separate from lifecycle validation without adding speculative services or components.
+
+Plan version 0.18 was **Approved on 2026-09-15 by the repository owner**. It keeps the v0.17 Task-11 shape while correcting four load-bearing contracts before execution: registry-v2 does not own retention assignment; an eligible `MemoryLifecyclePolicy` ACTIVATION-stage decision is required before inferred activation; unresolved-conflict state is loaded from authoritative `memory_assertions.has_unresolved_conflict`; and worker pruning RLS is narrowed to pending `memory.write.committed` rows. The approval gate is now satisfied for this exact amendment.
+
+Approved spec v0.8 remains the design authority. Exact plan v0.18 is now the repository-owner-approved execution authority for Task 11 and later stages, superseding v0.16 for the remaining implementation sequence.
 Task checkbox state is execution evidence only; it does not replace task review,
 verification, or repository-owner change-set review.

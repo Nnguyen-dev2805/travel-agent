@@ -218,8 +218,17 @@ current status rather than assumed safe:
 
 - No approved Stage-1 fixture set, so no metric above is conclusive. Creating
   one is a prerequisite for enabling planner enforcement.
-- Formation, consolidation/lifecycle, read/use and runtime layers
-  (`spec:876-879`) belong to Tasks 6–16 and are not evaluated here.
+- Episodic and Working Memory layers (Stage 5, Tasks 12–13) are not evaluated here.
 - The context-mode evaluation currently measures the *proposal* against the
   grounding requirement. It does not yet measure answer quality under each mode,
   because only `RAG_ONLY` is reachable.
+
+## 7. Stage 4 — Background Semantic Formation, Activation, and Outbox Bound
+
+Required by `spec:876-879` and `plan v0.18` Task 11.
+
+| Component | Implementation | Validation | Runtime authority now | Known limitations / target | Revisit or promotion condition |
+| --- | --- | --- | --- | --- | --- |
+| `MemoryFormationEngine` | `IMPLEMENTED` | Unit & live PostgreSQL verified | Authoritative for background formation from positive source handling | Evaluates positive handling, pre-model secret scan, 8-key extraction, and lifecycle eligibility at formation stage. Emits candidates. | Conclusive evaluation dataset required before enabling active inference. |
+| `MemoryActivationPolicy` | `IMPLEMENTED` | Unit & live PostgreSQL verified | `SHADOW_ONLY` while `MEMORY_INFERRED_ACTIVATION_ENABLED=false` | Pure deterministic policy enforcing conversation-scope (>= 2 agreeing turns) and user-scope (>= 3 evidence across >= 2 conversations) promotion thresholds without direct DB queries. | Active inference requires a conclusive passing evaluation per semantic key/type; missing/skipped evidence is `INCONCLUSIVE`. Passing one key (e.g. `hotel_atmosphere`) does not authorize `budget_level` or any other registry-v2 key. |
+| Outbox Maintenance Pass | `IMPLEMENTED` | Live PostgreSQL verified | Authoritative for bounded outbox pruning | Prunes only `event_type = 'memory.write.committed' AND status = 'pending' AND created_at < cutoff` in batches up to 500 rows. Canonical Memory rows are never deleted. | Monitor outbox backlog signals and prune telemetry in production. |

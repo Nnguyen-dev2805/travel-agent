@@ -1113,7 +1113,9 @@ def test_the_worker_grants_are_the_enumerated_minimum(fresh_db, pg_engine):
         ("memory_evidence", "INSERT"),
         ("memory_decisions", "INSERT"),
         ("memory_events", "INSERT"),
+        ("memory_outbox", "DELETE"),
         ("memory_outbox", "INSERT"),
+        ("memory_outbox", "SELECT"),
         ("memory_write_idempotency", "SELECT"),
         ("memory_write_idempotency", "INSERT"),
         ("memory_write_idempotency", "UPDATE"),
@@ -1472,7 +1474,9 @@ def test_the_worker_memory_grants_are_the_derived_minimum(fresh_db, pg_engine):
         ("memory_evidence", "INSERT"),
         ("memory_decisions", "INSERT"),
         ("memory_events", "INSERT"),
+        ("memory_outbox", "DELETE"),
         ("memory_outbox", "INSERT"),
+        ("memory_outbox", "SELECT"),
         ("memory_write_idempotency", "SELECT"),
         ("memory_write_idempotency", "INSERT"),
         ("memory_write_idempotency", "UPDATE"),
@@ -1523,7 +1527,7 @@ def test_the_worker_memory_grants_round_trip(fresh_db, pg_engine):
                 "WHERE grantee = 'travel_worker' AND table_name LIKE 'memory\\_%'"
             )
         ).scalar()
-    assert restored == 15
+    assert restored == 17
 
 
 def test_source_handling_table_rejects_duplicate_authority_key(fresh_db, pg_engine):
@@ -1577,3 +1581,38 @@ def test_source_handling_rls_forces_tenant_scoping(fresh_db, pg_engine):
             )
         ).scalar()
     assert forbidden == 0
+
+
+def test_worker_memory_outbox_prune_grants_and_rls(fresh_db, pg_engine):
+    """The worker role may only prune pending projection events, not arbitrary rows.
+
+    Migration 20260915_01 grants SELECT and DELETE on memory_outbox to travel_worker,
+    constrained by RLS to (event_type = 'memory.write.committed' AND status = 'pending').
+    """
+    _upgrade_to_head(pg_engine, _test_dsn())
+
+    with pg_engine.connect() as connection:
+        # 1. Verify exact grants for travel_worker on memory_outbox
+        worker_grants = {
+            row[0]
+            for row in connection.execute(
+                sa.text(
+                    "SELECT privilege_type FROM information_schema.role_table_grants "
+                    "WHERE table_name = 'memory_outbox' AND grantee = 'travel_worker'"
+                )
+            )
+        }
+        assert worker_grants == {"INSERT", "SELECT", "DELETE"}, f"unexpected outbox grants: {worker_grants}"
+
+        # 2. Verify RLS policy existence on memory_outbox
+        policies = {
+            row[0]
+            for row in connection.execute(
+                sa.text(
+                    "SELECT polname FROM pg_policy "
+                    "WHERE polrelid = 'memory_outbox'::regclass"
+                )
+            )
+        }
+        assert "worker_memory_outbox_prune" in policies
+        assert "worker_memory_outbox_select" in policies

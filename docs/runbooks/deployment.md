@@ -268,10 +268,20 @@ processed serially, so a large batch plus a slow provider is what makes this mat
 `status = 'dead_letter'` and their `last_error`. Re-queueing is a deliberate
 operator action, never automatic.
 
-**Both feature gates stay `false`** until shadow observation is reviewed. With
-them off the worker polls an empty queue and forms no memory. Enabling
-`MEMORY_SHADOW_EXTRACT_ENABLED` is the next stage; enabling
-`MEMORY_WRITE_PIPELINE_ENABLED` is a separate owner decision after that.
+**Feature gates stay `false` by default.** With them off, background memory
+extraction remains in shadow mode (or disabled) and forms no answer-eligible active
+memory. Specifically:
+- `MEMORY_INFERRED_ACTIVATION_ENABLED` defaults to `false`. When false, background
+  semantic formation produces only `VersionStatus.SHADOW` candidates and cannot
+  activate memory.
+- `MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS` (default 30) and
+  `MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE` (default 500) configure the worker's
+  periodic maintenance pass, which bounds `memory_outbox` by pruning expired pending
+  projection events (`event_type = 'memory.write.committed' AND status = 'pending'`).
+  Canonical Memory rows (`memory_assertions`, `memory_versions`, `memory_evidence`,
+  `memory_decisions`, `memory_events`) are never deleted by maintenance cleanup.
+- Enabling `MEMORY_INFERRED_ACTIVATION_ENABLED` requires an owner decision based on
+  conclusive evaluation evidence documented in `docs/evaluation/agent-memory-evaluation.md`.
 
 **Stuck conversation.** If one conversation stops being claimed while others
 proceed, an advisory lock may be held. Advisory locks are transaction-scoped, so a

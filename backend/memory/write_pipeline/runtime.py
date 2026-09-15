@@ -27,6 +27,7 @@ from typing import Any, Callable
 from backend.app.config import Settings, assert_credential_isolation, get_settings
 from backend.conversations.postgres_repository import PostgresConversationRepository
 from backend.conversations.service import ConversationService
+from backend.memory.commit_coordinators import BackgroundMemoryCommit
 from backend.memory.write_pipeline.background_recorder import BackgroundMemoryRecorder
 from backend.memory.write_pipeline.model_adapter import MemoryExtractionModel
 from backend.memory.write_pipeline.observability import (
@@ -35,7 +36,10 @@ from backend.memory.write_pipeline.observability import (
     WorkerCounters,
 )
 from backend.memory.write_pipeline.outbox import PostgresOutboxRepository
-from backend.memory.write_pipeline.postgres import PostgresMemoryUnitOfWork
+from backend.memory.write_pipeline.postgres import (
+    PostgresMemoryUnitOfWork,
+    load_source_handling,
+)
 from backend.memory.write_pipeline.provider import OpenAICompatibleProvider
 from backend.memory.write_pipeline.worker import MemoryOutboxWorker
 from backend.storage.postgres import assert_least_privilege_role, create_engine
@@ -74,8 +78,17 @@ def build_worker(
     conversation_service = ConversationService(
         conversation_repository=PostgresConversationRepository(engine)
     )
+    commit_coordinator = BackgroundMemoryCommit(
+        engine=engine,
+        memory_write_store=PostgresMemoryUnitOfWork(engine),
+    )
     recorder = BackgroundMemoryRecorder(
-        uow_factory=lambda: PostgresMemoryUnitOfWork(engine)
+        uow_factory=lambda: PostgresMemoryUnitOfWork(engine),
+        commit_coordinator=commit_coordinator,
+        inferred_activation_enabled=resolved.MEMORY_INFERRED_ACTIVATION_ENABLED,
+        source_handling_loader=lambda owner, outbox_id: load_source_handling(
+            engine, owner, outbox_id, "semantic"
+        ),
     )
 
     worker = MemoryOutboxWorker(
@@ -87,6 +100,14 @@ def build_worker(
         lease_duration_seconds=resolved.WORKER_LEASE_SECONDS,
         max_attempts=resolved.WORKER_MAX_ATTEMPTS,
         backoff_base_seconds=resolved.WORKER_BACKOFF_BASE_SECONDS,
+        maintenance_cleaner=lambda cutoff, batch_size: PostgresMemoryUnitOfWork(engine).prune_projection_outbox(
+            retention_cutoff=cutoff, batch_size=batch_size
+        ),
+        retention_days=resolved.MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS,
+        cleanup_batch_size=resolved.MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE,
+        source_handling_loader=lambda owner, outbox_id: load_source_handling(
+            engine, owner, outbox_id, "semantic"
+        ),
     )
     return worker, owned_provider
 

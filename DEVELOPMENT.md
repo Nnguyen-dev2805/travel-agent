@@ -42,6 +42,9 @@ local untracked `.env` only when a local workflow needs environment values.
 | `MEMORY_WRITE_EVAL_FIXTURES_PATH` | Backend settings and evaluation harness | Evaluation benchmark fixtures path | No secret by itself | Defaults to `docs/evaluation/fixtures/memory/write-pipeline-hotel-atmosphere-v0.1` |
 | `MEMORY_READ_ENABLED` | Backend settings, orchestration, and runtime container | Enabling Stage-3 governed semantic memory read engine (ADR 0039) | No secret by itself | Defaults to `false`. Rollout gate for memory selection and explicit inspect |
 | `MEMORY_USE_ENABLED` | Backend settings, orchestration, and runtime container | Enabling memory context admission into prompt generation (ADR 0039) | No secret by itself | Defaults to `false`. Invariant: requires `MEMORY_READ_ENABLED=true`, otherwise application refuses to start |
+| `MEMORY_INFERRED_ACTIVATION_ENABLED` | Backend settings, background worker, and memory activation | Enabling activation of eligible inferred semantic memories (ADR 0038) | No secret by itself | Defaults to `false`. When false, all inferred candidates remain shadow-only |
+| `MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS` | Backend settings and background worker maintenance | Retention days for committed pending projection outbox events | No secret by itself | Defaults to `30` |
+| `MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE` | Backend settings and background worker maintenance | Batch size for bounded outbox maintenance pruning | No secret by itself | Defaults to `500` |
 
 Do not print, paste, or commit real credential values in logs, examples,
 issues, screenshots, terminal output, or documentation.

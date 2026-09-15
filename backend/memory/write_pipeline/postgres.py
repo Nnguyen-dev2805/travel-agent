@@ -46,6 +46,7 @@ from backend.memory.write_pipeline.models import (
     AssertionIdentity,
     Authority,
     DecisionOutcome,
+    EvidenceIdentity,
     MemoryChangeSet,
     MemoryDecisionDraft,
     MemoryEvidence,
@@ -1312,6 +1313,143 @@ class PostgresMemoryUnitOfWork(MemoryUnitOfWork, MemoryWriteStore):
             set_tenant(connection, owner_user_id)
             require_tenant_context(connection)
             return pg_get_assertion_generation(connection, owner_user_id, canonical_key)
+
+    def get_active_evidence_for_assertion_on(
+        self,
+        connection: Connection,
+        *,
+        owner_user_id: str,
+        assertion_id: str,
+    ) -> Sequence[EvidenceIdentity]:
+        """Return all active (uninvalidated) evidence identities for an assertion on connection."""
+        stmt = (
+            select(
+                evidence_table.c.evidence_id,
+                evidence_table.c.conversation_id,
+                evidence_table.c.source_message_id,
+            )
+            .where(
+                evidence_table.c.owner_user_id == owner_user_id,
+                evidence_table.c.assertion_id == assertion_id,
+                evidence_table.c.invalidated_at.is_(None),
+            )
+            .order_by(evidence_table.c.observed_at.asc())
+        )
+        rows = connection.execute(stmt).fetchall()
+        return tuple(
+            EvidenceIdentity(
+                evidence_id=r[0],
+                conversation_id=r[1],
+                source_message_id=r[2],
+            )
+            for r in rows
+        )
+
+    def get_active_evidence_for_assertion(
+        self, owner_user_id: str, assertion_id: str
+    ) -> Sequence[EvidenceIdentity]:
+        """Return all active (uninvalidated) evidence identities for an assertion."""
+        with transaction(self._engine) as connection:
+            set_tenant(connection, owner_user_id)
+            require_tenant_context(connection)
+            return self.get_active_evidence_for_assertion_on(
+                connection, owner_user_id=owner_user_id, assertion_id=assertion_id
+            )
+
+    def get_assertion_conflict_state_on(
+        self,
+        connection: Connection,
+        *,
+        owner_user_id: str,
+        assertion_id: str,
+    ) -> bool:
+        """Return stored has_unresolved_conflict flag from memory_assertions on connection."""
+        stmt = (
+            select(assertions_table.c.has_unresolved_conflict)
+            .where(
+                assertions_table.c.owner_user_id == owner_user_id,
+                assertions_table.c.assertion_id == assertion_id,
+            )
+        )
+        val = connection.execute(stmt).scalar()
+        return bool(val) if val is not None else False
+
+    def get_assertion_conflict_state(
+        self, owner_user_id: str, assertion_id: str
+    ) -> bool:
+        """Return stored has_unresolved_conflict flag from memory_assertions."""
+        with transaction(self._engine) as connection:
+            set_tenant(connection, owner_user_id)
+            require_tenant_context(connection)
+            return self.get_assertion_conflict_state_on(
+                connection, owner_user_id=owner_user_id, assertion_id=assertion_id
+            )
+
+    def get_assertion_identity_details_on(
+        self,
+        connection: Connection,
+        identity: AssertionIdentity,
+    ) -> tuple[str | None, bool]:
+        """Return (assertion_id, has_unresolved_conflict) for an assertion identity."""
+        stmt = (
+            select(
+                assertions_table.c.assertion_id,
+                assertions_table.c.has_unresolved_conflict,
+            ).where(
+                assertions_table.c.owner_user_id == identity.owner_user_id,
+                assertions_table.c.scope == identity.scope.value,
+                assertions_table.c.scope_id == identity.scope_id,
+                assertions_table.c.canonical_key == identity.canonical_key,
+                assertions_table.c.subject_key == identity.subject_key,
+                assertions_table.c.condition_fingerprint == identity.condition_fingerprint,
+            )
+        )
+        row = connection.execute(stmt).fetchone()
+        if row is None:
+            return None, False
+        return str(row[0]), bool(row[1])
+
+    def get_assertion_identity_details(
+        self,
+        identity: AssertionIdentity,
+    ) -> tuple[str | None, bool]:
+        """Return (assertion_id, has_unresolved_conflict) for an assertion identity."""
+        with transaction(self._engine) as connection:
+            set_tenant(connection, identity.owner_user_id)
+            require_tenant_context(connection)
+            return self.get_assertion_identity_details_on(connection, identity)
+
+    def prune_projection_outbox_on(
+        self,
+        connection: Connection,
+        *,
+        retention_cutoff: datetime,
+        batch_size: int,
+    ) -> int:
+        """Prune eligible pending projection outbox events up to batch_size on connection."""
+        subq = (
+            select(outbox_table.c.outbox_id)
+            .where(
+                outbox_table.c.event_type == "memory.write.committed",
+                outbox_table.c.status == "pending",
+                outbox_table.c.created_at < retention_cutoff,
+            )
+            .order_by(outbox_table.c.created_at.asc())
+            .limit(batch_size)
+            .scalar_subquery()
+        )
+        stmt = outbox_table.delete().where(outbox_table.c.outbox_id.in_(subq))
+        res = connection.execute(stmt)
+        return int(res.rowcount or 0)
+
+    def prune_projection_outbox(
+        self, *, retention_cutoff: datetime, batch_size: int
+    ) -> int:
+        """Prune eligible pending projection outbox events up to batch_size."""
+        with self._engine.begin() as connection:
+            return self.prune_projection_outbox_on(
+                connection, retention_cutoff=retention_cutoff, batch_size=batch_size
+            )
 
 
 def pg_get_assertion_generation(

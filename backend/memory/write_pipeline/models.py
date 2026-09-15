@@ -176,6 +176,7 @@ class VersionStatus(str, Enum):
     """
 
     ACTIVE = "active"
+    SHADOW = "shadow"
     SUPERSEDED = "superseded"
     REVOKED = "revoked"
 
@@ -334,6 +335,15 @@ class MemoryEvidence:
         object.__setattr__(
             self, "observed_at", _require_utc(self.observed_at, "observed_at")
         )
+
+
+@dataclass(frozen=True)
+class EvidenceIdentity:
+    """Minimal typed identity of an evidence item."""
+
+    evidence_id: str
+    conversation_id: str
+    source_message_id: str
 
 
 @dataclass(frozen=True)

@@ -552,8 +552,9 @@ def test_migration_head_is_the_latest_revision(schema):
     # path's eight columns, and by 20260912_03 (Agent Memory lifecycle
     # retention, revocation, suppression generation, and the append-only
     # source-handling authority table). See `test_postgres_migrations.py` for
-    # 20260914_01 (runtime explicit memory grants), and 20260914_02 (unresolved-conflict state).
-    assert ALEMBIC_HEAD == "20260914_02"
+    # 20260914_01 (runtime explicit memory grants), 20260914_02 (unresolved-conflict state),
+    # and 20260915_01 (worker outbox prune grants).
+    assert ALEMBIC_HEAD == "20260915_01"
 
 
 # 12. ADR 0030: claiming is serialised per conversation.

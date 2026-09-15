@@ -10,7 +10,7 @@ conversation -> outbox (worker only) -> memory rows
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 from backend.conversations.models import (
     MessageStatus,
@@ -326,8 +326,37 @@ class BackgroundMemoryCommit:
     def commit(
         self, request: BackgroundMemoryCommitRequest
     ) -> MemoryWriteResult:
-        owner_user_id = request.principal.owner_user_id
-        fence = request.fence
+        """Commit one request. See `commit_many`."""
+        return self.commit_many((request,))[0]
+
+    def commit_many(
+        self, requests: Sequence[BackgroundMemoryCommitRequest]
+    ) -> tuple[MemoryWriteResult, ...]:
+        """Commit every request of one outbox event in a single transaction.
+
+        The unit of work is the **outbox event**, not the candidate. One event can
+        legitimately carry several extracted candidates, and the source-event
+        completion below belongs to the same transaction. Committing per candidate
+        marked the event `SUCCEEDED` after the first one — which clears
+        `lease_owner` — so every later candidate failed `check_outbox_lease` with
+        `LEASE_LOST` and was dropped silently.
+
+        Canonical lock order (ADR 0036):
+        bind tenant
+        -> validate/lock conversation + deletion_epoch
+        -> validate/lock outbox lease
+        -> memory rows
+        """
+        if not requests:
+            return ()
+
+        owner_user_id = requests[0].principal.owner_user_id
+        fence = requests[0].fence
+        for request in requests:
+            if request.principal.owner_user_id != owner_user_id:
+                raise ValueError("A batched commit must share one owner.")
+            if request.fence != fence:
+                raise ValueError("A batched commit must share one fence.")
 
         bind_tenant = self._get_bind_tenant()
         lock_conversation = self._get_lock_conversation()
@@ -347,7 +376,7 @@ class BackgroundMemoryCommit:
                 owner_user_id,
             )
 
-            # 3. Validate outbox lease (worker-only fence)
+            # 3. Validate outbox lease (worker-only fence) — once for the event
             lease_ok, reason = check_outbox_lease(
                 connection,
                 fence.outbox_id,
@@ -357,17 +386,20 @@ class BackgroundMemoryCommit:
                 assert reason is not None
                 raise FencedWriteError(reason)
 
-            # 4. Apply memory mutation with fence
-            memory_result = memory_store.apply_on(
-                connection,
-                change=request.change,
-                principal=request.principal,
-                evidence=request.evidence,
-                decision=request.decision,
-                idempotency_key=request.idempotency_key,
-                expected_version_id=request.expected_version_id,
-                fence=fence,
-                source_validity=request.source_validity,
+            # 4. Apply every candidate's mutation under the same fence
+            results = tuple(
+                memory_store.apply_on(
+                    connection,
+                    change=request.change,
+                    principal=request.principal,
+                    evidence=request.evidence,
+                    decision=request.decision,
+                    idempotency_key=request.idempotency_key,
+                    expected_version_id=request.expected_version_id,
+                    fence=fence,
+                    source_validity=request.source_validity,
+                )
+                for request in requests
             )
 
             # 5. Mark outbox event as SUCCEEDED in the same transaction (ADR 0036)
@@ -379,4 +411,4 @@ class BackgroundMemoryCommit:
             if not succeeded:
                 raise FencedWriteError(FenceReason.LEASE_LOST)
 
-            return memory_result
+            return results

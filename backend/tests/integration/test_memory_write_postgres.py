@@ -1118,3 +1118,135 @@ def test_same_authority_key_with_different_content_fails_closed(uow, clean):
     )
     with _pytest.raises(MemoryWriteError):
         record_source_handling(clean, "owner_a", conflict)
+
+
+# --- Stage 4 query seams & outbox pruning integration tests -----------------
+
+
+def test_get_active_evidence_and_conflict_state_seams(uow, clean):
+    from datetime import datetime, timezone, timedelta
+    from backend.memory.activation import EvidenceIdentity
+    from backend.memory.write_pipeline.models import (
+        Authority,
+        MemoryChangeSet,
+        MemoryEvidence,
+        MemoryOperation,
+        MemoryVersionDraft,
+        SensitivityBand,
+        RetentionMode,
+    )
+
+    now = datetime.now(timezone.utc)
+    aid = "mas_stage4_test"
+
+    # Insert an assertion directly
+    with clean.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO memory_assertions "
+                "(assertion_id, owner_user_id, scope, scope_id, canonical_key, "
+                "subject_key, condition_fingerprint, has_unresolved_conflict, created_at, updated_at) "
+                "VALUES (:aid, 'owner_a', 'conversation', 'conv_1', 'travel.preference.hotel_atmosphere', "
+                "'self', '', true, :now, :now)"
+            ),
+            {"aid": aid, "now": now},
+        )
+        # Insert 2 active evidence and 1 invalidated evidence
+        conn.execute(
+            sa.text(
+                "INSERT INTO memory_evidence "
+                "(evidence_id, assertion_id, owner_user_id, conversation_id, source_message_id, "
+                "display_text, authority, observed_at, invalidated_at, created_at) "
+                "VALUES "
+                "('mev_act1', :aid, 'owner_a', 'conv_1', 'msg_1', 'text 1', 'repeated_inference', :now, null, :now), "
+                "('mev_act2', :aid, 'owner_a', 'conv_1', 'msg_2', 'text 2', 'repeated_inference', :now, null, :now), "
+                "('mev_inval', :aid, 'owner_a', 'conv_1', 'msg_0', 'text 0', 'repeated_inference', :now, :now, :now)"
+            ),
+            {"aid": aid, "now": now},
+        )
+
+    # 1. Test get_assertion_conflict_state
+    conflict_state = uow.get_assertion_conflict_state("owner_a", aid)
+    assert conflict_state is True
+
+    # Missing assertion returns False
+    missing_state = uow.get_assertion_conflict_state("owner_a", "mas_non_existent")
+    assert missing_state is False
+
+    # 2. Test get_active_evidence_for_assertion
+    active_evidence = uow.get_active_evidence_for_assertion("owner_a", aid)
+    assert len(active_evidence) == 2
+    assert active_evidence[0].evidence_id == "mev_act1"
+    assert active_evidence[1].evidence_id == "mev_act2"
+    assert all(isinstance(ev, EvidenceIdentity) for ev in active_evidence)
+
+
+def test_prune_projection_outbox_bounds_outbox_without_touching_canonical_memory(uow, clean):
+    from datetime import datetime, timezone, timedelta
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=30)
+    older = cutoff - timedelta(days=1)
+    newer = cutoff + timedelta(days=1)
+
+    with clean.begin() as conn:
+        # Insert canonical memory row
+        conn.execute(
+            sa.text(
+                "INSERT INTO memory_assertions "
+                "(assertion_id, owner_user_id, scope, scope_id, canonical_key, "
+                "subject_key, condition_fingerprint, has_unresolved_conflict, created_at, updated_at) "
+                "VALUES ('mas_canonical', 'owner_a', 'user', 'owner_a', 'travel.preference.hotel_atmosphere', "
+                "'self', '', false, :now, :now)"
+            ),
+            {"now": now},
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO memory_evidence "
+                "(evidence_id, assertion_id, owner_user_id, conversation_id, source_message_id, "
+                "display_text, authority, observed_at, invalidated_at, created_at) "
+                "VALUES ('mev_canonical', 'mas_canonical', 'owner_a', 'conv_1', 'msg_1', "
+                "'display', 'explicit_save', :now, null, :now)"
+            ),
+            {"now": now},
+        )
+
+        # Insert outbox rows:
+        # 1. Eligible to prune (event_type='memory.write.committed', status='pending', created_at < cutoff)
+        # 2. Eligible to prune
+        # 3. Newer than cutoff (created_at >= cutoff)
+        # 4. Different event_type (event_type='other.event')
+        # 5. Non-pending status (status='processed')
+        conn.execute(
+            sa.text(
+                "INSERT INTO memory_outbox "
+                "(outbox_id, owner_user_id, event_type, payload, status, created_at) "
+                "VALUES "
+                "('mout_old1', 'owner_a', 'memory.write.committed', '{}'::jsonb, 'pending', :older), "
+                "('mout_old2', 'owner_a', 'memory.write.committed', '{}'::jsonb, 'pending', :older), "
+                "('mout_new1', 'owner_a', 'memory.write.committed', '{}'::jsonb, 'pending', :newer), "
+                "('mout_diff', 'owner_a', 'other.event', '{}'::jsonb, 'pending', :older), "
+                "('mout_proc', 'owner_a', 'memory.write.committed', '{}'::jsonb, 'processed', :older)"
+            ),
+            {"older": older, "newer": newer},
+        )
+
+    # Prune with batch size 500
+    deleted_count = uow.prune_projection_outbox(retention_cutoff=cutoff, batch_size=500)
+    assert deleted_count == 2
+
+    # Verify outbox contents
+    with clean.connect() as conn:
+        remaining_outbox = {
+            r[0] for r in conn.execute(sa.text("SELECT outbox_id FROM memory_outbox")).fetchall()
+        }
+        assert "mout_old1" not in remaining_outbox
+        assert "mout_old2" not in remaining_outbox
+        assert "mout_new1" in remaining_outbox
+        assert "mout_diff" in remaining_outbox
+        assert "mout_proc" in remaining_outbox
+
+        # Canonical memory rows MUST remain completely untouched
+        assert conn.execute(sa.text("SELECT count(*) FROM memory_assertions")).scalar() >= 1
+        assert conn.execute(sa.text("SELECT count(*) FROM memory_evidence")).scalar() >= 1

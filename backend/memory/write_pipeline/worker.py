@@ -20,6 +20,7 @@ import json
 import logging
 from typing import Any, Protocol, Sequence, runtime_checkable
 
+from backend.memory.source_handling import allows_background_formation
 from backend.memory.write_pipeline.models import (
     DecisionOutcome,
 )
@@ -118,6 +119,10 @@ class MemoryOutboxWorker:
         lease_duration_seconds: float = 30.0,
         max_attempts: int = 3,
         backoff_base_seconds: float = 2.0,
+        maintenance_cleaner: Callable[[datetime, int], int] | None = None,
+        retention_days: int = 30,
+        cleanup_batch_size: int = 500,
+        source_handling_loader: Callable[[str, str], Any] | None = None,
     ) -> None:
         """Build the worker around the narrow `BackgroundMemoryRecorder` seam.
 
@@ -136,6 +141,10 @@ class MemoryOutboxWorker:
         self._lease_duration_seconds = lease_duration_seconds
         self._max_attempts = max_attempts
         self._backoff_base_seconds = backoff_base_seconds
+        self._maintenance_cleaner = maintenance_cleaner
+        self._retention_days = retention_days
+        self._cleanup_batch_size = cleanup_batch_size
+        self._source_handling_loader = source_handling_loader
 
     @property
     def worker_id(self) -> str:
@@ -200,6 +209,30 @@ class MemoryOutboxWorker:
             conversation_id, reason=reason.value
         )
 
+    def run_maintenance_pass(self) -> int:
+        """Run bounded projection outbox cleanup pass."""
+        if self._maintenance_cleaner is None:
+            return 0
+        cutoff = utc_now() - timedelta(days=self._retention_days)
+        try:
+            pruned_count = self._maintenance_cleaner(cutoff, self._cleanup_batch_size)
+            if pruned_count > 0:
+                logger.info(
+                    "Projection outbox maintenance pass pruned %d events cutoff=%s",
+                    pruned_count,
+                    cutoff.isoformat(),
+                )
+            return pruned_count
+        except Exception as error:
+            # Constraint 16: operational logs carry typed codes and bounded
+            # counts, never exception text. The class name is a bounded
+            # identifier; the message is not, and may echo stored content.
+            logger.warning(
+                "Projection outbox maintenance pass failed failure_class=%s",
+                type(error).__name__,
+            )
+            return 0
+
     def run_batch(
         self,
         limit: int = 10,
@@ -215,6 +248,7 @@ class MemoryOutboxWorker:
         results: list[WorkerResult] = []
         for event in events:
             results.append(self.process_one(event))
+        self.run_maintenance_pass()
         return results
 
     def poll_once(
@@ -448,6 +482,36 @@ class MemoryOutboxWorker:
                     candidates_count=0,
                 )
 
+        # 5c. Positive source handling authority — checked before the model call.
+        #
+        # The gate used to be reached only inside the recorder, i.e. after the
+        # provider had been paid for an extraction whose result could not be used.
+        # Worse, the recorder's copy treated a missing record as permission, so an
+        # `UNHANDLED` source was formed from and could even activate. Absence is
+        # `UNHANDLED`, and `UNHANDLED` is not permission (`ADR 0038:59`, plan
+        # constraint 8), so an unhandled or explicitly blocked source is terminal
+        # here and never reaches the model.
+        if self._source_handling_loader is not None:
+            handling_record = self._source_handling_loader(
+                event.owner_user_id, event.outbox_id
+            )
+            if not allows_background_formation(handling_record):
+                logger.info(
+                    "Background formation refused: no positive source handling "
+                    "outbox_id=%s worker=%s",
+                    event.outbox_id,
+                    self._worker_id,
+                )
+                self._outbox_repo.mark_succeeded(
+                    event.outbox_id, lease_owner=self._worker_id
+                )
+                return WorkerResult(
+                    status=OutboxStatus.SUCCEEDED,
+                    decision=DecisionOutcome.REJECTED,
+                    reason=WorkerReason.SOURCE_HANDLING_DENIED,
+                    candidates_count=0,
+                )
+
         # 5b. Renew before paying for a model call, not after.
         #
         # `run_batch` claims the whole batch up front and processes it serially, so
@@ -608,52 +672,56 @@ class MemoryOutboxWorker:
             lease_owner=self._worker_id,
         )
         last_decision_outcome = None
-        for candidate in candidates:
-            try:
-                rec_res = self._recorder.record_sync(
-                    candidate,
-                    source_outbox_id=event.outbox_id,
-                    source_message_id=event.message_id,
-                    conversation_id=event.conversation_id,
-                    fence=fence,
-                )
-            except FencedWriteError as fence_error:
-                logger.warning(
-                    "Memory write fenced reason=%s outbox_id=%s worker=%s: %s",
-                    fence_error.reason.value,
-                    event.outbox_id,
-                    self._worker_id,
-                    fence_error,
-                )
-                # A fence stops this worker. It cancels nothing (ADR 0033).
-                #
-                # This used to call `cancel_events`, which cancels every `PENDING`
-                # row of the conversation. One of the fence's six causes is "this
-                # worker lost its lease" — a fact about one worker's tenure, and
-                # nothing about whether the conversation's other turns are valid.
-                # Turn 2 and turn 3 were cancelled for it, permanently and
-                # silently: `CANCELLED` is a legitimate terminal state, so the loss
-                # was indistinguishable from a deliberate cancellation.
-                #
-                # The conversation-shaped causes need no repair here either: the
-                # transaction that invalidated the conversation cancelled its
-                # events in the same transaction, so a call would match zero rows.
-                # Cancelling is the revalidation path's job, and only there —
-                # because that is the site that *first observes* an invalid
-                # conversation, with no prior transaction to have cancelled it.
-                return WorkerResult(
-                    status=OutboxStatus.CANCELLED,
-                    decision=None,
-                    reason=WorkerReason.FENCED_BY_SOURCE_MOVE,
+        try:
+            # One commit for the whole event. `record_batch_sync` prepares every
+            # candidate and hands them to the coordinator in a single
+            # transaction, so a multi-candidate extraction cannot lose candidates
+            # to a lease the first one retired.
+            record_results = self._recorder.record_batch_sync(
+                candidates,
+                source_outbox_id=event.outbox_id,
+                source_message_id=event.message_id,
+                conversation_id=event.conversation_id,
+                fence=fence,
+            )
+        except FencedWriteError as fence_error:
+            logger.warning(
+                "Memory write fenced reason=%s outbox_id=%s worker=%s: %s",
+                fence_error.reason.value,
+                event.outbox_id,
+                self._worker_id,
+                fence_error,
+            )
+            # A fence stops this worker. It cancels nothing (ADR 0033).
+            #
+            # This used to call `cancel_events`, which cancels every `PENDING`
+            # row of the conversation. One of the fence's six causes is "this
+            # worker lost its lease" — a fact about one worker's tenure, and
+            # nothing about whether the conversation's other turns are valid.
+            # Turn 2 and turn 3 were cancelled for it, permanently and
+            # silently: `CANCELLED` is a legitimate terminal state, so the loss
+            # was indistinguishable from a deliberate cancellation.
+            #
+            # The conversation-shaped causes need no repair here either: the
+            # transaction that invalidated the conversation cancelled its
+            # events in the same transaction, so a call would match zero rows.
+            # Cancelling is the revalidation path's job, and only there —
+            # because that is the site that *first observes* an invalid
+            # conversation, with no prior transaction to have cancelled it.
+            return WorkerResult(
+                status=OutboxStatus.CANCELLED,
+                decision=None,
+                reason=WorkerReason.FENCED_BY_SOURCE_MOVE,
                 # The fence's own typed reason, so a lease loss and a deletion are
                 # distinguishable in the log without parsing a message.
                 error_detail=fence_error.reason.value,
-                    candidates_count=0,
-                    token_usage=token_usage,
-                    cost_evidence=cost_evidence,
-                    prompt_version=prompt_version,
-                    schema_version=schema_version,
-                )
+                candidates_count=0,
+                token_usage=token_usage,
+                cost_evidence=cost_evidence,
+                prompt_version=prompt_version,
+                schema_version=schema_version,
+            )
+        for rec_res in record_results:
             last_decision_outcome = rec_res.decision_outcome
 
         # 8. Mark outbox event succeeded and check return value
@@ -662,20 +730,24 @@ class MemoryOutboxWorker:
             lease_owner=self._worker_id,
         )
         if not succeeded:
-            logger.error(
-                "Failed to mark outbox event %s succeeded; lease lost",
-                event.outbox_id,
-            )
-            return WorkerResult(
-                status=OutboxStatus.CANCELLED,
-                decision=None,
-                reason=WorkerReason.MARK_SUCCEEDED_FAILED_LEASE_LOST,
-                candidates_count=len(candidates),
-                token_usage=token_usage,
-                cost_evidence=cost_evidence,
-                prompt_version=prompt_version,
-                schema_version=schema_version,
-            )
+            fresh_event = self._outbox_repo.get_event(event.outbox_id)
+            if fresh_event is not None and fresh_event.status == OutboxStatus.SUCCEEDED:
+                succeeded = True
+            else:
+                logger.error(
+                    "Failed to mark outbox event %s succeeded; lease lost",
+                    event.outbox_id,
+                )
+                return WorkerResult(
+                    status=OutboxStatus.CANCELLED,
+                    decision=None,
+                    reason=WorkerReason.MARK_SUCCEEDED_FAILED_LEASE_LOST,
+                    candidates_count=len(candidates),
+                    token_usage=token_usage,
+                    cost_evidence=cost_evidence,
+                    prompt_version=prompt_version,
+                    schema_version=schema_version,
+                )
 
         return WorkerResult(
             status=OutboxStatus.SUCCEEDED,
