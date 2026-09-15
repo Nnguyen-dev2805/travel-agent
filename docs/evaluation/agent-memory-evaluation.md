@@ -218,9 +218,10 @@ current status rather than assumed safe:
 
 - No approved Stage-1 fixture set, so no metric above is conclusive. Creating
   one is a prerequisite for enabling planner enforcement.
-- Episodic Memory (Stage 5, Task 12) is evaluated in section 8; its gate is
-  `INCONCLUSIVE` because the production authority producer and read/use
-  composition are not implemented. Working Memory (Task 13) is not evaluated here.
+- Episodic Memory (Stage 5, Task 12) is evaluated in section 8 and Working Memory
+  (Stage 5, Task 13) in section 9. Both record `CONCLUSIVE PASS` for their
+  mandatory safety fixtures and explicitly do **not** claim extraction quality,
+  which is why every episodic and Working rollout flag stays default-off.
 - The context-mode evaluation currently measures the *proposal* against the
   grounding requirement. It does not yet measure answer quality under each mode,
   because only `RAG_ONLY` is reachable.
@@ -293,13 +294,65 @@ episode type(s). Until then inferred episodic activation stays off, and the
 authority, privacy, precedence and idempotency guarantees above are what is
 actually being claimed.
 
-Required PostgreSQL evidence ran without required skips: migration
-upgrade/downgrade/upgrade round-trip from `20260915_01` to `20260915_02`, exact
-runtime grants for both roles, `FORCE` RLS, cross-owner denial, source-deletion
-propagation, idempotency, and read/use integration.
+## 9. Stage 5 — Working Memory Vertical Slice
 
-**What would make this gate conclusive:** a production-reachable episodic
-authority producer, episodic composition through Context Planner/Arbiter, and an
-owner-approved episodic extraction/grounding dataset with the per-type
-extraction quality recorded. Missing or skipped mandatory evidence is
-`INCONCLUSIVE`, never `PASS` (`spec:1203`).
+Required by `spec:298`, `spec:1037`, `spec:1043-1052`, `ADR 0038:83-84` and
+`plan v0.22` Task 13.
+
+| Component | Implementation | Validation | Runtime authority now | Known limitations / target | Revisit or promotion condition |
+| --- | --- | --- | --- | --- | --- |
+| `WorkingOpenState` / `WorkingRefusalReason` | `IMPLEMENTED` | Unit-verified | Refuses a blank goal, an over-long goal, and a non-positive cursor | The open state is a bounded goal plus a source cursor, and deliberately nothing else. `spec:298` lists summary, open goal, temporary override and unresolved question; a closed ontology invented before the evaluation says which types matter is the speculative modelling the plan refuses, exactly as the episodic family refused a universal event vocabulary. | Extend the state only when this gate's evidence names a field the current two cannot carry. |
+| `derive_open_state` | `IMPLEMENTED` | Unit-verified | Deterministic, model-free derivation from delivered turn rows | One structural rule: the open goal is the last delivered user turn that is not an answer to a question the assistant asked. Reads both `Message` rows and the worker's message dictionaries, so the synchronous and background paths share one rule rather than two that could drift. | The rule is intentionally narrower than `TurnUnderstanding`'s interrogative-marker set; Working state is a supplementary input, never the semantic interpreter. |
+| `WorkingStateTransition` | `IMPLEMENTED` | Unit-verified | Forms a candidate only when grounding, authority (inferred path), secret scan, retention assignment and `FORMATION` lifecycle all pass | The deterministic path needs no source-handling record because it is the explicit-input row of `spec:1037`, not background formation. The inferred path requires `WORKING / BACKGROUND_ELIGIBLE`; a semantic or episodic record grants nothing. | — |
+| `WorkingReplacementPolicy` | `IMPLEMENTED` | Unit & live PostgreSQL verified | Replaces only a strictly newer, same-owner, same-conversation, source-valid, generation-current candidate | The load-bearing case is `NOT_NEWER`: the worker's inferred replacement lags the turn path by construction, so without this rule a slow background event would silently undo newer deterministic state. An equal cursor with identical content is a no-op; with different content it is a conflict, because one cursor is one open state. | — |
+| `WorkingActivationPolicy` | `IMPLEMENTED` | Unit-verified; **family gate default off** | `SHADOW_ONLY` for inferred replacement; a deterministic transition may activate directly | Two shapes, not one (`spec:1037`). No semantic threshold and no episodic grounding rule is copied: the semantic 2-turn/3-evidence thresholds answer "how often has the user said this" and an episode's grounding answers "did this happen", while Working state's question is "what is open right now". | A conclusive passing Working-family evaluation. Passing the semantic or episodic gate is not evidence this one was evaluated. |
+| Working persistence (`memory_summaries`) | `IMPLEMENTED` | Live PostgreSQL verified | `travel_worker` forms and replaces; `travel_app` reads and invalidates | The `20260907_02` placeholder was **evolved**, not replaced, and no parallel `memory_working` table exists. The replacement boundary is a real unique index on `(owner_user_id, conversation_id)`, so one conversation has one canonical open state. `open_goal` defaults to `''` and `through_sequence` to `0` purely for migration safety, and both are refused by the validator, so a pre-existing row is ineligible rather than silently usable. Legacy `content` is written empty, never read, and never policy authority. | Multi-row history is deliberately not supported: Working Memory is replacement state, not a log. Revisit only with an approved history contract. |
+| `WorkingMemoryReadEngine` | `IMPLEMENTED` | Unit & live PostgreSQL verified | Selects only the lifecycle-eligible open state of one owner and conversation; abstains otherwise | The projection carries `open_goal`, `through_sequence` and the conversation identity and nothing else: no source identity, no source-handling row, no legacy `content`. | Rollout flag `MEMORY_WORKING_READ_ENABLED` stays default-off until this gate is conclusive. |
+| Dialogue-state admission | `IMPLEMENTED` | Unit-verified | Eligible open state is carried into `DialogueState` as supplementary structural context | `DialogueState` stays reconstructed-and-discarded and is not a second durable store (`spec:330-331`). Admitting an open state adds **no** turn, and the resolver still derives no topic, referent, goal or clarification semantics of its own — orchestration reads the governed state and passes it in. | — |
+| Response-time precedence | `IMPLEMENTED` | Unit-verified | Working state is composed **before** the Memory block and before episodes | `spec:1043-1052` puts working state above user-scoped soft preferences and above episodes/summaries, which is the opposite of the episodic block. That is why the two cannot share one composition helper. Working state never becomes a travel citation. | — |
+| Background WORKING authority and event | `IMPLEMENTED` | Live PostgreSQL verified | `MemoryFamily.WORKING` is proposable; the orchestrator writes `memory.extract.working` and persists the authority bound to that event | One outbox row per family, each with its own lease, idempotency and terminal state. The record is written after `TurnUnderstanding` and before `complete_turn` releases the event, and the worker claims only released events, so authority always exists before the source can be consumed. | — |
+| Worker conversation-lock grant (`20260915_04`) | `IMPLEMENTED` | Live PostgreSQL verified | `travel_worker` can take its own commit fence | A pre-existing **privilege deficit**, not a Working Memory defect: the fence's `SELECT ... FOR UPDATE` was denied to the role meant to take it, because PostgreSQL refuses every row-locking mode to a role holding only `SELECT`. The grant is column-level `UPDATE (retention_state, deletion_epoch)` — the two columns the lock reads — rather than table-level, so the worker can lock a conversation row without being able to rewrite one. | — |
+
+### Task-13 gate
+
+**Status: `CONCLUSIVE PASS` for the mandatory authority/privacy/correctness
+fixtures.** Every mandatory fixture below is green against live PostgreSQL. The
+per-type *quality* claim remains unmeasured: this repository has no approved
+Working Memory extraction dataset, and this record does not invent one.
+
+That distinction is the reason all three runtime flags stay off
+(`MEMORY_WORKING_WRITE_ENABLED`, `MEMORY_WORKING_ACTIVATION_ENABLED`,
+`MEMORY_WORKING_READ_ENABLED`). The gate that is conclusive is the **safety**
+gate — the architecture can be relied on not to form without authority, not to let
+a stale background candidate undo newer state, not to leak a deleted source, not
+to admit a shadow state, and not to invert precedence. The gate that is *not*
+claimed is the **quality** gate: whether the open states this slice derives are the
+ones a user would want kept. Activation therefore remains shadow-only, and turning
+it on needs a governed dataset of the kind the Stage-1 record is still waiting for.
+
+| # | Failure class | Evidence | Result |
+| --- | --- | --- | --- |
+| 1 | Formation without positive Working handling (`UNHANDLED`, another family's record, or a non-eligible outcome) | `unit/memory/test_working.py::test_working_formation_denies_absence_and_non_eligible_outcomes`, `::test_working_formation_requires_a_working_family_record`, `::test_the_inferred_replacement_requires_positive_working_authority`; `integration/test_step4_working_authority_e2e.py::test_without_positive_working_authority_the_worker_refuses` | **PASS** — the live case asserts zero model calls and zero rows written |
+| 2 | A stale background candidate overwriting newer deterministic state | `unit/memory/test_working.py::test_an_older_background_candidate_never_overwrites_newer_deterministic_state`; `integration/test_working_memory_vertical_slice.py::test_a_stale_background_candidate_is_refused_and_changes_nothing` | **PASS** — refused `NOT_NEWER`, canonical state untouched |
+| 3 | Deleted/invalid-source leakage | `integration/test_working_memory_vertical_slice.py::test_deleting_a_conversation_invalidates_its_open_state` | **PASS** — invalidated in the tombstone's transaction, read abstains |
+| 4 | Cross-owner or cross-conversation admission | `unit/memory/test_working.py::test_a_cross_owner_row_is_never_selected`, `::test_a_cross_conversation_row_is_never_selected`, `::test_a_cross_owner_candidate_is_refused`, `::test_a_cross_conversation_candidate_is_refused`; `integration/test_working_memory_vertical_slice.py::test_a_cross_owner_row_is_never_selected` | **PASS** (5 cases) |
+| 5 | Shadow or non-active state admitted to dialogue reconstruction | `unit/memory/test_working.py::test_a_shadow_state_is_not_selected`, `::test_a_revoked_state_is_not_selected`, `::test_an_expired_state_is_not_selected`, `::test_a_stale_generation_state_is_not_selected`, `::test_an_invalidated_state_is_not_selected` | **PASS** (5 cases) |
+| 6 | Activation while the family gate is off or inconclusive | `unit/memory/test_working.py::test_an_inferred_replacement_stays_shadow_when_the_family_gate_is_off`, `::test_an_inferred_replacement_stays_shadow_when_the_gate_is_inconclusive`; `integration/test_step4_working_authority_e2e.py::test_the_worker_runs_the_working_branch_and_persists_a_shadow_state` | **PASS** — persisted `shadow`, never `active` |
+| 7 | The semantic inferred-activation flag standing in for this family's gate | `unit/memory/test_working.py::test_the_activation_facts_do_not_accept_the_semantic_inferred_flag` | **PASS** — the field is absent from the facts contract |
+| 8 | Precedence inversion | `unit/memory/test_working_context.py::test_working_state_is_composed_before_the_memory_block`, `::test_working_state_is_composed_before_episodes`, `::test_working_state_is_composed_before_memory_in_both_mode` | **PASS** — working state ranks above soft preferences and episodes |
+| 9 | Prompt-instruction / citation leakage | `unit/memory/test_working_context.py::test_the_composed_block_carries_only_structured_fields`, `::test_working_state_never_becomes_a_travel_citation`, `::test_an_abstention_adds_nothing_to_the_context` | **PASS** — only the goal and cursor reach the prompt; source identity and the legacy `content` column are absent; never a citation |
+| 10 | Working Memory becoming a second canonical transcript | `unit/memory/test_working_context.py::test_admitting_working_state_does_not_add_a_turn`, `::test_working_state_is_carried_and_not_derived`; `unit/orchestration/test_turn_understanding.py::test_the_resolver_contributes_no_semantics_of_its_own` | **PASS** — no turn is added and the resolver derives no open state |
+| 11 | Redelivery creating a second canonical open state | `integration/test_working_memory_vertical_slice.py::test_an_identical_redelivery_is_a_noop`, `::test_a_newer_candidate_replaces_the_open_state_in_place` | **PASS** — exactly one row after both |
+| 12 | The background path bypassing the conversation lock | `integration/test_postgres_migrations.py::test_the_worker_conversation_lock_grant_is_column_scoped`; `integration/test_step4_working_authority_e2e.py::test_the_worker_runs_the_working_branch_and_persists_a_shadow_state` | **PASS** — the coordinator runs as `travel_worker` and takes the real `SELECT ... FOR UPDATE` |
+
+Required PostgreSQL evidence ran without required skips: migration
+upgrade/downgrade/upgrade round-trip from `20260915_02` through `20260915_03` to
+`20260915_04`, exact runtime grants for both roles, `FORCE` RLS, owner isolation,
+cross-owner denial, source-deletion propagation, in-place replacement, idempotency,
+the family-specific event and authority flow, and the worker's Working branch.
+
+**What would make the quality gate conclusive:** an owner-approved Working Memory
+dataset measuring whether the derived open states match what a user would want kept
+across a conversation. Until then all three Working flags stay off, and the
+authority, replacement, privacy, precedence and idempotency guarantees above are
+what is actually being claimed.

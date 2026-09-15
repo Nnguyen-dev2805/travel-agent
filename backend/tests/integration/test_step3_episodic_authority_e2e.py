@@ -35,6 +35,7 @@ import sqlalchemy as sa
 from backend.conversations.models import (
     EPISODIC_EXTRACT_EVENT_TYPE,
     MEMORY_EXTRACT_EVENT_TYPE,
+    WORKING_EXTRACT_EVENT_TYPE,
 )
 from backend.conversations.postgres_repository import PostgresConversationRepository
 from backend.conversations.service import ConversationService
@@ -247,7 +248,7 @@ class _CountingModel:
 # --- the positive flow ------------------------------------------------------
 
 
-def test_a_normal_turn_creates_both_family_events_and_authorizes_episodic(
+def test_a_normal_turn_writes_every_family_event_and_authorizes_episodic(
     schema, runtime, worker_engine
 ):
     probe = Step3Probe()
@@ -260,28 +261,35 @@ def test_a_normal_turn_creates_both_family_events_and_authorizes_episodic(
     assert outcome.reply
 
     rows = _outbox_rows(runtime, outcome.conversation.conversation_id)
-    # One row per family, not one shared row with per-family progress state.
+    # One row per family, not one shared row with per-family progress state. The
+    # set grew at Task 13; this test still owns only the episodic family's claims.
     assert [row["event_type"] for row in rows] == [
         MEMORY_EXTRACT_EVENT_TYPE,
         EPISODIC_EXTRACT_EVENT_TYPE,
+        WORKING_EXTRACT_EVENT_TYPE,
     ], rows
 
     # 1. the authority record is bound to the episodic event's own identity
     handling = _handling_rows(runtime)
-    assert len(handling) == 1, handling
-    assert handling[0]["family"] == MemoryFamily.EPISODIC.value
-    assert handling[0]["outcome"] == SourceHandlingOutcome.BACKGROUND_ELIGIBLE.value
+    episodic_handling = [
+        row for row in handling if row["family"] == MemoryFamily.EPISODIC.value
+    ]
+    assert len(episodic_handling) == 1, handling
+    assert (
+        episodic_handling[0]["outcome"]
+        == SourceHandlingOutcome.BACKGROUND_ELIGIBLE.value
+    )
     episodic_outbox_id = next(
         row["outbox_id"]
         for row in rows
         if row["event_type"] == EPISODIC_EXTRACT_EVENT_TYPE
     )
-    assert handling[0]["source_outbox_id"] == episodic_outbox_id, (
+    assert episodic_handling[0]["source_outbox_id"] == episodic_outbox_id, (
         "the episodic authority must be bound to the episodic event, never to the "
         "semantic one"
     )
 
-    # 2. the turn completed, so both events are released and claimable
+    # 2. the turn completed, so every family's event is released and claimable
     assert all(row["released_at"] is not None for row in rows), rows
 
     # 3. the worker can claim the episodic event by its own identity. The batch
@@ -381,9 +389,12 @@ def test_the_episodic_event_is_unreleased_and_unclaimable_before_complete_turn(
     )
 
     # ...and the authority record already exists at that same instant.
-    handling = observed["handling"]
-    assert len(handling) == 1, handling
-    assert handling[0]["family"] == MemoryFamily.EPISODIC.value
+    handling = [
+        row
+        for row in observed["handling"]
+        if row["family"] == MemoryFamily.EPISODIC.value
+    ]
+    assert len(handling) == 1, observed["handling"]
     assert handling[0]["outcome"] == SourceHandlingOutcome.BACKGROUND_ELIGIBLE.value
     assert handling[0]["source_outbox_id"] == episodic["outbox_id"]
 

@@ -279,7 +279,19 @@ def test_the_resolver_contributes_no_semantics_of_its_own():
     """
     state = _state_with_prior_context()
 
-    assert set(vars(state)) == {"turns", "latest_user_turn", "latest_assistant_turn"}
+    assert set(vars(state)) == {
+        "turns",
+        "latest_user_turn",
+        "latest_assistant_turn",
+        # Stage 5: eligible Working Memory is an additional governed *input* to
+        # reconstruction (`spec:324-328`). It is carried, never inferred — there
+        # is still no topic, referent or goal field the resolver computes.
+        "working_context",
+    }
+    assert state.working_context is None, (
+        "the resolver never derives an open state of its own; orchestration reads "
+        "one from the governed store and passes it in"
+    )
 
 
 # ---------------------------------------------------------------------------

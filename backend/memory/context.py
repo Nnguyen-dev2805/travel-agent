@@ -71,3 +71,26 @@ class EpisodeContextComposer:
         if not lines:
             return ""
         return EPISODIC_HEADER + "\n" + "\n".join(lines)
+
+
+WORKING_HEADER = "=== TRẠNG THÁI LÀM VIỆC HIỆN TẠI ==="
+
+
+class WorkingContextComposer:
+    """Projects an eligible Working Memory selection into bounded structured text.
+
+    Structured fields only, like the Memory and episodic composers: the open state
+    contributes what is open and how far it accounts for, never the source text it
+    was derived from and never the legacy `content` column. The selection it
+    receives already holds only those fields, so this cannot leak raw evidence even
+    by accident.
+    """
+
+    def compose(self, selection: Any) -> str:
+        lines = [
+            f"- {state.open_goal} (đến lượt {state.through_sequence})"
+            for state in selection.selected
+        ]
+        if not lines:
+            return ""
+        return WORKING_HEADER + "\n" + "\n".join(lines)

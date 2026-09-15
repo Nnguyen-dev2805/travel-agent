@@ -92,6 +92,23 @@ class BackgroundEpisodeCommitRequest:
     status: Any
 
 
+@dataclass(frozen=True)
+class BackgroundWorkingCommitRequest:
+    """One Working Memory effect to commit under the worker's fence.
+
+    Like the episodic request, deliberately not a variant of
+    `BackgroundMemoryCommitRequest`: an open state has no assertion, no version
+    and no normalized registry value. What it shares with the semantic and
+    episodic paths is the fence and the lock order, and that is shared by reusing
+    the same coordinator.
+    """
+
+    candidate: Any
+    owner_user_id: str
+    fence: Any
+    status: Any
+
+
 class ExplicitMemoryTurnCommit:
     """API-owned transaction for atomic explicit Memory + acknowledgement + source-handling + guarded terminal turn commit.
 
@@ -480,3 +497,57 @@ class BackgroundMemoryCommit:
             if not succeeded:
                 raise FencedWriteError(FenceReason.LEASE_LOST)
             return True
+
+    def commit_working_state(self, request: "BackgroundWorkingCommitRequest"):
+        """Apply one Working Memory candidate and complete its event atomically.
+
+        Same lock order and same fence as `commit_many` and `commit_episode`
+        (ADR 0036): bind tenant -> lock conversation/deletion_epoch -> outbox
+        lease -> rows. The open state and the outbox success commit together, so
+        the state can never be visible without its event being terminal and an
+        event can never be terminal without its effect.
+
+        Unlike the episodic path this returns the replacement decision rather
+        than a bool, because "the candidate was refused as stale" is a real
+        outcome the worker has to report: a superseded background candidate is
+        normal operation, not a failure, and collapsing it into `False` would
+        make the two indistinguishable in the worker's telemetry.
+        """
+        owner_user_id = request.owner_user_id
+        fence = request.fence
+
+        bind_tenant = self._get_bind_tenant()
+        lock_conversation = self._get_lock_conversation()
+        check_outbox_lease = self._get_check_outbox_lease()
+        mark_outbox_succeeded = self._get_mark_outbox_succeeded()
+
+        from backend.memory.postgres_store import record_working_state_on
+
+        with self._get_transaction_context() as connection:
+            bind_tenant(connection, owner_user_id)
+            lock_conversation(
+                connection,
+                fence.conversation_id,
+                fence.expected_epoch,
+                owner_user_id,
+            )
+            lease_ok, reason = check_outbox_lease(
+                connection, fence.outbox_id, fence.lease_owner
+            )
+            if not lease_ok:
+                assert reason is not None
+                raise FencedWriteError(reason)
+
+            decision = record_working_state_on(
+                connection,
+                candidate=request.candidate,
+                created_at=datetime.now(timezone.utc),
+                status=request.status,
+            )
+
+            succeeded = mark_outbox_succeeded(
+                connection, fence.outbox_id, fence.lease_owner
+            )
+            if not succeeded:
+                raise FencedWriteError(FenceReason.LEASE_LOST)
+            return decision

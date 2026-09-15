@@ -224,6 +224,17 @@ memory_episodes_table = Table(
     Column("conversation_id", Text(), nullable=False),
     Column("invalidated_at", DateTime(timezone=True), nullable=True),
 )
+#: The canonical Working Memory store (`20260915_03`). Deleting a conversation
+#: invalidates its open state in the same transaction as the tombstone, exactly as
+#: the evidence and episode rows above. The table keeps its historical name
+#: `memory_summaries`; only the physical name does.
+memory_summaries_table = Table(
+    "memory_summaries",
+    metadata,
+    Column("summary_id", Text(), primary_key=True),
+    Column("conversation_id", Text(), nullable=False),
+    Column("invalidated_at", DateTime(timezone=True), nullable=True),
+)
 
 _DELETION_STATES = (
     ConversationRetentionState.DELETED.value,
@@ -503,6 +514,17 @@ class PostgresConversationRepository:
                     memory_episodes_table.update()
                     .where(memory_episodes_table.c.conversation_id == conversation_id)
                     .where(memory_episodes_table.c.invalidated_at.is_(None))
+                    .values(invalidated_at=deleted_at)
+                )
+                # Task 13: the conversation's Working Memory open state is
+                # conversation-scoped, so it must not outlive the conversation it
+                # describes. Marked rather than removed — a revoke is not an erase
+                # (`ADR 0037`) — and the read path fails closed on
+                # `invalidated_at IS NOT NULL`.
+                connection.execute(
+                    memory_summaries_table.update()
+                    .where(memory_summaries_table.c.conversation_id == conversation_id)
+                    .where(memory_summaries_table.c.invalidated_at.is_(None))
                     .values(invalidated_at=deleted_at)
                 )
                 return True

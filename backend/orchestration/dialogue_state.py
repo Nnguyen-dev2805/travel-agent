@@ -36,6 +36,21 @@ _DELIVERED_ROLES = frozenset({MessageRole.USER, MessageRole.ASSISTANT})
 
 
 @dataclass(frozen=True)
+class WorkingContext:
+    """Eligible Working Memory, projected into a structure this layer may hold.
+
+    Deliberately a local structural type rather than the Memory domain's
+    `SelectedWorkingState`. Stage 1 does not depend on a Memory family
+    (`spec:327-328`), so orchestration decides whether an open state is admitted
+    and maps it here; the resolver only carries it. It is **not** a turn and never
+    joins `DialogueState.turns`.
+    """
+
+    open_goal: str
+    through_sequence: int
+
+
+@dataclass(frozen=True)
 class DialogueState:
     """The structural dialogue context of exactly one conversation.
 
@@ -49,12 +64,21 @@ class DialogueState:
     turns: tuple[Message, ...]
     latest_user_turn: Message | None
     latest_assistant_turn: Message | None
+    #: Eligible Working Memory, when one was admitted. `None` is the ordinary
+    #: case: a conversation with no eligible open state reconstructs from its
+    #: recent turns alone, and Stage 1 behaves exactly as it did before this
+    #: field existed.
+    working_context: WorkingContext | None = None
 
 
 class DialogueStateResolver:
     """Assemble structural `DialogueState` from the recent turns of one conversation."""
 
-    def resolve(self, recent_turns: Sequence[Message]) -> DialogueState:
+    def resolve(
+        self,
+        recent_turns: Sequence[Message],
+        working_context: WorkingContext | None = None,
+    ) -> DialogueState:
         """Return the state established by `recent_turns`.
 
         Only `COMPLETE` user/assistant rows are turns. A `COMPLETE` row is the
@@ -114,4 +138,12 @@ class DialogueStateResolver:
                 ),
                 None,
             ),
+            # Carried, not interpreted. The resolver still infers no topic,
+            # referent, goal, intent or clarification semantics; an eligible open
+            # state is supplementary structural context, and `TurnUnderstanding`
+            # remains the semantic interpreter of the current message
+            # (`spec:324-328`). Passing it does not add a turn: `turns` above is
+            # derived from `recent_turns` alone, so a durable open state can never
+            # become a second transcript.
+            working_context=working_context,
         )

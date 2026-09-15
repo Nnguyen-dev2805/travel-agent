@@ -25,14 +25,14 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Plan version | 0.21 — Task-12 Step-3 episodic authority/release invariant clarification |
+| Plan version | 0.22 — Task-13 Working Memory formation/store/replacement execution contract |
 | Date | 2026-09-12 |
 | Last amended | 2026-09-15 |
 | Specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.8, Approved 2026-09-15 |
 | Required ADRs | ADR 0036, 0037, 0038, 0039, 0040 — Accepted 2026-09-12 |
 | Execution owner | Coding agent under repository-owner instruction |
 | Decision owner | Repository owner |
-| Approval | Repository owner approved exact plan v0.21 on 2026-09-15. Spec v0.8 remains Approved 2026-09-15. |
+| Approval | Repository owner approved exact plan v0.22 on 2026-09-15. Spec v0.8 remains Approved 2026-09-15. |
 | Scope | Stages 1–7 of the target architecture, with independent rollout gates and evidence-based stop conditions |
 | Verification | Task-local CORE tests gate architectural progression. Deferred hardening remains mandatory before final production-readiness proof, including required PostgreSQL integration tests without required skips, exhaustive ADR validation where specified, evaluation gates, full backend suite, frontend regression suite, `compileall`, `git diff --check`, and exact change-set review. |
 
@@ -193,7 +193,8 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | `backend/tests/integration/test_rag_evaluation_flow.py` | Preserve end-to-end RAG evaluation evidence while migrating the generation result type | 10 |
 | `backend/storage/migrations/versions/20260912_03_agent_memory_lifecycle.py` | Source handling + lifecycle/retention/revoke/suppression persistence | 6 |
 | `backend/storage/migrations/versions/20260915_02_episodic_memory.py` | Evolve existing canonical episodic persistence from head `20260915_01` | 12 |
-| `backend/storage/migrations/versions/20260912_05_working_memory.py` | Working Memory persistence only | 13 |
+| `backend/storage/migrations/versions/20260915_03_working_memory.py` | Working Memory persistence: evolve the existing `memory_summaries` placeholder | 13 |
+| `backend/storage/migrations/versions/20260915_04_worker_conversation_lock_grant.py` | Remove the `travel_worker` privilege deficit that made its own commit fence unreachable: column-level `UPDATE (retention_state, deletion_epoch)` on `conversations` | 13 |
 | `backend/storage/migrations/versions/20260912_06_procedural_publication.py` | Separate procedural publication state | 15 |
 | `docs/evaluation/agent-memory-evaluation.md` | Stage metrics and promotion evidence | 4, 11–16 |
 
@@ -1726,28 +1727,199 @@ and when it becomes consumable. It clarifies ordering, not architecture.
 
 ## Task 13: Stage 5 Working Memory Vertical Slice
 
-**Files:** Create `backend/memory/working.py`; modify dialogue-state resolver,
-formation, activation, read engine; create
-`backend/storage/migrations/versions/20260912_05_working_memory.py`; update
-`ALEMBIC_HEAD`; add Working Memory and resolver tests.
+**Execution preconditions:** Task 13 starts from Alembic head `20260915_02`. Its
+migration is therefore
+`backend/storage/migrations/versions/20260915_03_working_memory.py` with
+`down_revision = "20260915_02"`. If the real head differs at execution time, stop
+and amend this identifier/dependency before persistence work; never fork a
+migration from a stale head.
+
+The canonical Working Memory store is the **existing** `memory_summaries`
+placeholder created by `20260907_02` (`summary_id`, `owner_user_id`,
+`conversation_id`, `content`, `created_at`). It has no consumer today, so Task 13
+evolves it rather than creating a parallel `memory_working` table: two canonical
+working-state stores is the same failure mode Task 12 refused for episodes. The
+domain contract and every API remain named **Working Memory**; only the physical
+table keeps its historical name.
+
+The background path needs the conversation row lock. `travel_worker` holds only
+`SELECT` on `conversations`, and PostgreSQL refuses **every** row-locking mode to a
+role holding only `SELECT` (`FOR UPDATE`, `FOR NO KEY UPDATE`, `FOR SHARE`,
+`FOR KEY SHARE` — verified against PostgreSQL 16, not assumed). Task 13 **may not
+bypass the conversation lock**: it reuses the existing `BackgroundMemoryCommit`
+lock order and fence, and the minimum persistence/grant fix lands with its own
+evidence before the background path may be called production-reachable.
+
+That fix is a **second migration**, `20260915_04_worker_conversation_lock_grant.py`
+(`down_revision = "20260915_03"`), granting column-level
+`UPDATE (retention_state, deletion_epoch)` on `conversations` to `travel_worker`.
+Column-level rather than table-level because those two columns are the whole of
+what the lock reads, and a table-level grant would let the worker rewrite any
+conversation column. The deficit is pre-existing rather than Working-Memory
+specific — the semantic background path has the same problem — and the Task-11/12
+integration tests had been working around it by running the coordinator on the
+migration role, which is not a fix.
+
+**Files:** Create `backend/memory/working.py`; modify the dialogue-state resolver,
+formation, activation and read-engine seams; extend the family-specific source
+handling and Chat/outbox orchestration seam for the WORKING family; evolve
+`memory_summaries` through `20260915_03_working_memory.py`; update
+`ALEMBIC_HEAD`; update `docs/evaluation/agent-memory-evaluation.md`; add unit and
+required PostgreSQL integration tests.
 
 **Contract:** Working Memory is governed conversation open state/summary
-replacement, not the ephemeral `DialogueState`. It becomes an additional input
-to `DialogueStateResolver` only after passing lifecycle/read eligibility; that
-does not move semantic interpretation out of `TurnUnderstanding`.
+replacement, not the ephemeral `DialogueState`. It becomes an additional input to
+`DialogueStateResolver` only after passing lifecycle/read eligibility; that does
+not move semantic interpretation out of `TurnUnderstanding`.
 
-- [ ] RED fixtures cover deterministic replacement, stale-source rejection,
-  conversation deletion, current-turn precedence, and non-duplication with
-  ephemeral dialogue state.
-- [ ] Implement typed Working Memory and source-consistent replacement; no raw
-  transcript blob becomes a durable instruction.
-- [ ] Admit only eligible Working Memory to `DialogueStateResolver`; recent turns
-  remain the immediate structural dialogue source and `TurnUnderstanding`
-  remains the semantic referent/topic/goal interpreter.
-- [ ] Run cross-conversation/non-leakage, deletion, lifecycle, and read/use
-  evaluation.
-- [ ] Review: Working Memory cannot bypass conversation scope or become a second
-  canonical transcript.
+### Formation contract — two paths, one store
+
+1. **Deterministic synchronous transition.** Working state that is derivable with
+   certainty from governed current-turn/conversation state is formed in the turn
+   path. It runs **no summarization model** (`spec:1037`, explicit-input row).
+2. **Background inferred replacement.** An inferred summary/open-state replacement
+   is formed by the worker over a **bounded completed source range**. It requires a
+   persisted family-specific
+   `SourceHandlingRecord(family=WORKING, outcome=BACKGROUND_ELIGIBLE)` **before any
+   model exposure**. A missing record is `UNHANDLED` and denies, and semantic or
+   episodic authority never substitutes for WORKING authority (`ADR 0038:59`).
+3. The background path uses a **family-specific outbox event**
+   (`memory.extract.working`): one row per family with its own lease, idempotency
+   key and terminal state. No per-family processing state is added to a shared
+   event, and no event is held leased while another family is processed.
+4. **Both paths write through the same Working Memory replacement policy and the
+   same canonical store.** Two canonical writers with different semantics are
+   forbidden; the paths differ in how a candidate is derived, not in what a valid
+   replacement means.
+
+### Source-consistent replacement contract
+
+A candidate may replace the canonical Working state for a conversation only when
+**all** of the following hold. Each failing condition is a closed, typed refusal
+reason:
+
+1. same `owner_user_id` **and** same `conversation_id` as the canonical state;
+2. the source range is a bounded, **completed** turn range — no in-flight turn and
+   no unbounded read;
+3. source validity passes;
+4. lifecycle and suppression-generation fences pass;
+5. the candidate's source cursor (`through_sequence`) is **strictly newer** than
+   the canonical state's cursor.
+
+A stale background candidate must **never** overwrite newer deterministic Working
+state. This is the rule that makes the two paths safe to run concurrently, so it is
+enforced inside the replacement policy rather than left to call-site ordering.
+
+### Activation contract
+
+Deterministic governed transition and inferred replacement are **two different
+activation shapes**. A deterministic transition may produce eligible working state
+directly; inferred Working Memory stays **shadow and default-off** until the
+Working-family evaluation gate is a conclusive PASS. Semantic 2-turn/3-evidence
+thresholds and the episodic grounding rule are **not** copied into this family.
+
+### Persistence contract
+
+- Evolve `memory_summaries`; do not create a second canonical table.
+- Add typed structured state, bounded source-range/provenance, and the
+  lifecycle/retention fields this slice requires.
+- Legacy `content` must **not** become durable instruction authority. It is kept
+  only for migration/back-compat if it is kept at all, and it is treated exactly as
+  Task 12 treats episodic `payload`: a migration-safety column, never policy
+  authority and never a prompt channel (`spec:1079`).
+- Follow existing owner-scoped RLS (`ENABLE` + `FORCE`) and least-privilege grants
+  for the runtime roles that actually require Working Memory access.
+- Update `backend/storage/postgres.py` `ALEMBIC_HEAD` to `20260915_03` only after
+  the migration exists and round-trip verification is GREEN.
+
+### File Responsibility Map
+
+1. `backend/memory/working.py`:
+   - Owns the typed Working Memory contracts used by this slice: candidate,
+     canonical state projection, the source-consistent replacement decision with
+     its closed refusal reasons, the deterministic transition derivation, and the
+     read request/selection/abstention contracts.
+   - Does not own tenant authorization, retention assignment, lifecycle rules,
+     source validity, suppression generation, or prompt construction.
+2. `backend/orchestration/dialogue_state.py`:
+   - Accepts only **eligible** Working Memory as an additional governed input.
+   - Recent turns remain the immediate structural dialogue source, and the
+     resolver still infers no topic, referent, goal, intent, or clarification
+     semantics.
+   - `DialogueState` remains reconstructed-and-discarded: it must not become a
+     second durable Working Memory store (`spec:330-331`).
+3. Shared formation/activation/lifecycle seams:
+   - Reuse the existing positive-handling gate and pre-model secret/safety
+     boundary.
+   - Reuse `RetentionAssignmentPolicy` and `MemoryLifecyclePolicy` as the sole
+     retention and lifecycle owners; Working Memory supplies typed facts.
+   - Add a family/type-specific Working activation gate, default off until the
+     Task-13 evaluation record is conclusive. The semantic inferred-activation
+     flag is not evidence that Working activation was evaluated.
+4. `backend/memory/source_handling.py` and Chat/outbox orchestration:
+   - Extend the proposable/recordable family path to `MemoryFamily.WORKING` only
+     for this slice, and add the `memory.extract.working` family-specific event.
+   - Persist WORKING authority before the worker/model may perform inferred
+     Working formation.
+5. `backend/memory/commit_coordinators.py` and the worker:
+   - Reuse `BackgroundMemoryCommit`'s lock order and fence; do not add a second
+     coordinator.
+6. Persistence and migration:
+   - Evolve `memory_summaries` through `20260915_03_working_memory.py`.
+7. `docs/evaluation/agent-memory-evaluation.md`:
+   - Add the Stage-5 Working Memory gate with explicit required evidence. Missing
+     or skipped mandatory evidence is `INCONCLUSIVE`, never PASS.
+
+### Focused Checklist
+
+- [x] **Step 1 — RED first:** add fixtures for deterministic replacement,
+  source-consistent replacement, stale-source rejection (an older background
+  candidate cannot overwrite newer deterministic state), conversation deletion,
+  current-turn precedence, cross-conversation non-leakage, and non-duplication
+  with ephemeral `DialogueState`. Prove the required cases fail before
+  implementation.
+- [x] **Step 2 — Typed representation + canonical persistence:** implement the
+  minimum Working Memory contracts and evolve `memory_summaries`. One canonical
+  store, no parallel table, and legacy `content` is never policy authority.
+- [x] **Step 3 — Deterministic transition + replacement policy GREEN:** the
+  deterministic transition derives state without a model call, and the
+  source-consistent replacement rule accepts only a newer, eligible, same-owner,
+  same-conversation candidate. No raw transcript blob becomes a durable
+  instruction.
+- [x] **Step 4 — Background formation GREEN:** extend the WORKING family through
+  source handling and the family-specific outbox event, and prove a persisted
+  `WORKING / BACKGROUND_ELIGIBLE` record is required before model exposure while
+  `UNHANDLED`, blocked, and wrong-family records deny. Prove the worker's
+  conversation lock and fence semantics are the existing ones, not a bypass.
+- [x] **Step 5 — Resolver admission GREEN:** admit only eligible Working Memory to
+  `DialogueStateResolver`; recent turns remain the immediate structural source,
+  `TurnUnderstanding` remains the semantic interpreter, and eligible working state
+  takes its own precedence tier (below current request and hard constraints, above
+  soft preferences and episodes) rather than being appended last.
+- [x] **Step 6 — Deletion/retention/idempotency/non-leakage GREEN:** prove
+  conversation deletion and source invalidation suppress Working Memory use, stale
+  generations cannot resurrect it, expired state is ineligible, redelivery does not
+  create a second canonical state or increase authority, and no cross-conversation
+  or cross-owner leakage occurs at read or in prompt output.
+- [x] **Step 7 — Evaluation gate:** record the Working Memory gate with zero
+  failures in its mandatory authority/privacy/correctness fixtures, each mapped to
+  the test node that proves it. Missing or skipped required PostgreSQL/evaluation
+  evidence is `INCONCLUSIVE`. Inferred Working activation stays off until this
+  record is conclusive.
+- [x] **Step 8 — PostgreSQL migration/isolation:** run the upgrade/downgrade/
+  upgrade round-trip from `20260915_02` to `20260915_03`; verify exact runtime
+  grants, `FORCE` RLS, owner isolation, cross-owner denial, source-deletion
+  behaviour, retention, idempotency, and Working Memory read/use integration with
+  no required PostgreSQL test skipped.
+- [x] **Step 9 — Focused verification:** run Working Memory unit tests,
+  resolver/`DialogueState` regression tests, source-handling tests, shared
+  lifecycle/activation regression tests, orchestration/context regression tests,
+  the PostgreSQL Working Memory slice, `compileall`, and `git diff --check`.
+  Existing semantic and episodic behaviour must remain GREEN.
+- [x] **Step 10 — Review checkpoint:** Working Memory independently passes its
+  vertical-slice gate, cannot bypass conversation scope, and has not become a
+  second canonical transcript. A GREEN suite without a conclusive Task-13
+  evaluation record is not sufficient to enable inferred Working activation.
 
 ## Task 14: Stage 6 Structured-Retrieval Sufficiency Gate
 
@@ -2097,7 +2269,48 @@ decides eligibility does not exist until the turn is persisted; `complete_turn()
 releases the event; the worker claims only released events; and a missing,
 blocked, or wrong-family record still fails closed before episodic model exposure.
 
-Approved spec v0.8 remains the design authority. Exact plan v0.21 is now the repository-owner-approved execution authority for Task 12 and later stages, superseding v0.20 for the remaining implementation sequence.
+Plan version 0.22 was **Approved on 2026-09-15 by the repository owner**, against
+approved spec v0.8, before Task-13 implementation began. It is an execution contract for the Working Memory
+vertical slice, issued by the owner before Task-13 implementation began, and it
+adds no Memory family, key, public API, retrieval mode, or ADR-level decision. It
+records four things the previous Task-13 text left open:
+
+1. **Execution preconditions.** Task 13 starts from head `20260915_02`, so its
+   migration is `20260915_03_working_memory.py` with
+   `down_revision = "20260915_02"`, replacing the stale `20260912_05` identifier
+   that predated the Task-12 rebase. The background path also requires the
+   conversation row lock, which `travel_worker` currently cannot take; the
+   minimum persistence/grant fix must land before the background path is called
+   production-reachable, and bypassing the lock is forbidden.
+2. **One canonical store.** Working Memory evolves the existing `memory_summaries`
+   placeholder from `20260907_02` instead of adding a parallel `memory_working`
+   table. The domain contract and every API stay named Working Memory; legacy
+   `content` is migration/back-compat only and is never durable instruction
+   authority, exactly as episodic `payload` is not.
+3. **Two formation paths, one replacement semantics.** A deterministic
+   synchronous transition derives working state that is certain from governed
+   current-turn/conversation state and runs no summarization model; the worker
+   forms inferred summary/open-state replacement over a bounded completed source
+   range, using the WORKING family's own source-handling authority and its own
+   `memory.extract.working` outbox event. Both write through the same replacement
+   policy and store, so there are not two canonical writers with different
+   semantics.
+4. **Source-consistent replacement, defined explicitly.** A candidate replaces
+   canonical state only when owner and conversation match, the source range is
+   bounded and completed, source validity passes, lifecycle and
+   suppression-generation fences pass, and the candidate's source cursor is
+   strictly newer. A stale background candidate can never overwrite newer
+   deterministic state, and that rule lives in the policy rather than in call-site
+   ordering.
+
+The task also gains an Execution-preconditions block, a File Responsibility Map,
+and a ten-step focused checklist matching the Task-12 standard, plus a separate
+Working-family activation gate that stays default-off until the Task-13
+evaluation record is conclusive.
+
+Approved spec v0.8 remains the design authority. Exact plan v0.22 is now the
+repository-owner-approved execution authority for Task 13 and later stages,
+superseding v0.21 for the remaining implementation sequence.
 
 **Task-12 Step 3 completed, 2026-09-15.** Ticked because the production flow is
 proved end to end on live PostgreSQL, not because the code exists. The evidence is
@@ -2191,5 +2404,113 @@ episodic family/type gate remains default-off, which is the fail-closed state th
 plan requires while the gate is inconclusive. Nothing in this partial state
 weakens an existing contract: the semantic slice's own suites were re-run and
 remain green.
+**Task-13 completed, 2026-09-15.** All ten steps ticked, each against evidence in
+the same change set rather than against the existence of code.
+
+- **Two formation paths, one replacement semantics.** A deterministic synchronous
+  transition derives the open state from delivered turns in the turn path and runs
+  no summarization model; the worker forms an inferred replacement over the bounded
+  completed source range the event names. Both funnel into
+  `record_working_state_on` and therefore into `WorkingReplacementPolicy`, so there
+  are not two canonical writers with different meanings. Evidence:
+  `unit/memory/test_working.py` (51 cases) and
+  `integration/test_working_memory_vertical_slice.py` (12 cases).
+- **Source-consistent replacement.** The load-bearing case is `NOT_NEWER`: the
+  worker's replacement lags the turn path by construction, and without the rule a
+  slow background event would silently undo newer deterministic state. An equal
+  cursor with identical content is a no-op; with different content it is a conflict,
+  because one cursor is one open state.
+- **One canonical store.** The `20260907_02` placeholder `memory_summaries` was
+  evolved, not replaced: no parallel `memory_working` table exists, the replacement
+  boundary is a real unique index on `(owner_user_id, conversation_id)`, and legacy
+  `content` is written empty, never read, and never policy authority — the same
+  treatment `20260915_02` gave episodic `payload`.
+- **Production reachability.** A normal chat turn writes a `memory.extract.working`
+  event with `released_at = NULL`, persists
+  `SourceHandlingRecord(family=WORKING, outcome=BACKGROUND_ELIGIBLE)` bound to that
+  event's own identity before `complete_turn` releases it, and the worker claims it
+  and runs the Working branch. Evidence:
+  `integration/test_step4_working_authority_e2e.py` (4 cases), which runs the
+  commit coordinator **as `travel_worker`** rather than on the migration role.
+- **The execution precondition was real, and is now closed.**
+  `20260915_04_worker_conversation_lock_grant.py` grants `travel_worker`
+  column-level `UPDATE (retention_state, deletion_epoch)` on `conversations`. The
+  fence's `SELECT ... FOR UPDATE` was denied to the role meant to take it — every
+  row-locking mode is refused to a role holding only `SELECT`, verified against
+  PostgreSQL 16 — so the background path was not production-reachable, for the
+  semantic family as much as the Working one. The grant is column-level, so the
+  worker can lock a conversation row without being able to rewrite one.
+- **Read/use and precedence.** Eligible open state is carried into `DialogueState`
+  as supplementary structural context without adding a turn, and is composed
+  **before** the Memory block and before episodes, which is `spec:1043-1052`'s
+  ladder rather than the episodic block's append-last position. Evidence:
+  `unit/memory/test_working_context.py` (10 cases).
+- **Flags stay off.** `MEMORY_WORKING_WRITE_ENABLED`,
+  `MEMORY_WORKING_ACTIVATION_ENABLED` and `MEMORY_WORKING_READ_ENABLED` are all
+  default-off, and the evaluation record's Working gate is a `CONCLUSIVE PASS` for
+  the mandatory safety fixtures while explicitly **not** claiming extraction
+  quality — there is no approved Working Memory dataset and the record does not
+  invent one. That is why inferred Working activation remains shadow-only.
+
+Verification for the whole task, all green: unit root files **769 passed / 1
+skipped**; `memory + memory_write_pipeline + orchestration + generation` **948
+passed**; `boundaries` **35 passed**; `integration` **308 passed** with no required
+skips; `compileall -q backend` exit 0; `git diff --check` clean. Nothing staged or
+committed — Git delivery remains the repository owner's.
+
+**Task-13 completed, 2026-09-15.** All ten steps ticked, each against evidence in
+the same change set rather than against the existence of code.
+
+- **Two formation paths, one replacement semantics.** A deterministic synchronous
+  transition derives the open state from delivered turns in the turn path and runs
+  no summarization model; the worker forms an inferred replacement over the bounded
+  completed source range the event names. Both funnel into
+  `record_working_state_on` and therefore into `WorkingReplacementPolicy`, so there
+  are not two canonical writers with different meanings. Evidence:
+  `unit/memory/test_working.py` (51 cases) and
+  `integration/test_working_memory_vertical_slice.py` (12 cases).
+- **Source-consistent replacement.** The load-bearing case is `NOT_NEWER`: the
+  worker's replacement lags the turn path by construction, and without the rule a
+  slow background event would silently undo newer deterministic state. An equal
+  cursor with identical content is a no-op; with different content it is a conflict,
+  because one cursor is one open state.
+- **One canonical store.** The `20260907_02` placeholder `memory_summaries` was
+  evolved, not replaced: no parallel `memory_working` table exists, the replacement
+  boundary is a real unique index on `(owner_user_id, conversation_id)`, and legacy
+  `content` is written empty, never read, and never policy authority — the same
+  treatment `20260915_02` gave episodic `payload`.
+- **Production reachability.** A normal chat turn writes a `memory.extract.working`
+  event with `released_at = NULL`, persists
+  `SourceHandlingRecord(family=WORKING, outcome=BACKGROUND_ELIGIBLE)` bound to that
+  event's own identity before `complete_turn` releases it, and the worker claims it
+  and runs the Working branch. Evidence:
+  `integration/test_step4_working_authority_e2e.py` (4 cases), which runs the
+  commit coordinator **as `travel_worker`** rather than on the migration role.
+- **The execution precondition was real, and is now closed.**
+  `20260915_04_worker_conversation_lock_grant.py` grants `travel_worker`
+  column-level `UPDATE (retention_state, deletion_epoch)` on `conversations`. The
+  fence's `SELECT ... FOR UPDATE` was denied to the role meant to take it — every
+  row-locking mode is refused to a role holding only `SELECT`, verified against
+  PostgreSQL 16 — so the background path was not production-reachable, for the
+  semantic family as much as the Working one. The grant is column-level, so the
+  worker can lock a conversation row without being able to rewrite one.
+- **Read/use and precedence.** Eligible open state is carried into `DialogueState`
+  as supplementary structural context without adding a turn, and is composed
+  **before** the Memory block and before episodes, which is `spec:1043-1052`'s
+  ladder rather than the episodic block's append-last position. Evidence:
+  `unit/memory/test_working_context.py` (10 cases).
+- **Flags stay off.** `MEMORY_WORKING_WRITE_ENABLED`,
+  `MEMORY_WORKING_ACTIVATION_ENABLED` and `MEMORY_WORKING_READ_ENABLED` are all
+  default-off, and the evaluation record's Working gate is a `CONCLUSIVE PASS` for
+  the mandatory safety fixtures while explicitly **not** claiming extraction
+  quality — there is no approved Working Memory dataset and the record does not
+  invent one. That is why inferred Working activation remains shadow-only.
+
+Verification for the whole task, all green: unit root files **769 passed / 1
+skipped**; `memory + memory_write_pipeline + orchestration + generation` **948
+passed**; `boundaries` **35 passed**; `integration` **308 passed** with no required
+skips; `compileall -q backend` exit 0; `git diff --check` clean. Nothing staged or
+committed — Git delivery remains the repository owner's.
+
 Task checkbox state is execution evidence only; it does not replace task review,
 verification, or repository-owner change-set review.

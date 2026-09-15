@@ -554,7 +554,7 @@ def test_migration_head_is_the_latest_revision(schema):
     # source-handling authority table). See `test_postgres_migrations.py` for
     # 20260914_01 (runtime explicit memory grants), 20260914_02 (unresolved-conflict state),
     # and 20260915_01 (worker outbox prune grants).
-    assert ALEMBIC_HEAD == "20260915_02"
+    assert ALEMBIC_HEAD == "20260915_04"
 
 
 # 12. ADR 0030: claiming is serialised per conversation.

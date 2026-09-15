@@ -279,7 +279,6 @@ def test_the_factory_and_the_constructor_agree() -> None:
 @pytest.mark.parametrize(
     "family",
     [
-        MemoryFamily.WORKING,
         MemoryFamily.PROCEDURAL,
     ],
 )
@@ -293,9 +292,9 @@ def test_a_family_without_an_evaluated_stage_cannot_receive_a_proposal(
     keep a reason (`BACKGROUND_POLICY_ELIGIBLE`) that no longer matches its
     outcome, and the closed mapping above forbids that pair.
 
-    `EPISODIC` left this set at the Stage-5 slice (plan v0.20 Task 12), which is
-    the stage that evaluates episodic formation. `WORKING` and `PROCEDURAL` stay
-    here until theirs.
+    `EPISODIC` left this set at the Stage-5 slice (plan v0.20 Task 12) and
+    `WORKING` at the Working Memory slice (plan v0.22 Task 13); each left in the
+    stage that evaluates its formation. `PROCEDURAL` stays here until its own.
     """
     with pytest.raises(ValueError):
         propose_source_handling(
@@ -317,7 +316,7 @@ def test_the_semantic_family_is_the_only_stage_one_proposable_family() -> None:
 
 
 def test_the_episodic_family_became_proposable_in_its_own_stage() -> None:
-    """Stage 5 admitted `EPISODIC`, and only that one family (Task 12)."""
+    """Stage 5 admitted `EPISODIC` (Task 12)."""
     proposal = propose_source_handling(
         source_message_id=MESSAGE_ID,
         family=MemoryFamily.EPISODIC,
@@ -326,9 +325,21 @@ def test_the_episodic_family_became_proposable_in_its_own_stage() -> None:
 
     assert proposal.family is MemoryFamily.EPISODIC
     assert proposal.outcome is SourceHandlingProposalOutcome.BACKGROUND_ELIGIBLE
+
+
+def test_the_working_family_became_proposable_in_its_own_stage() -> None:
+    """Stage 5 admitted `WORKING` at its own slice (Task 13)."""
+    proposal = propose_source_handling(
+        source_message_id=MESSAGE_ID,
+        family=MemoryFamily.WORKING,
+        reason_code=SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE,
+    )
+
+    assert proposal.family is MemoryFamily.WORKING
+    assert proposal.outcome is SourceHandlingProposalOutcome.BACKGROUND_ELIGIBLE
     assert STAGE_ONE_PROPOSABLE_FAMILIES == frozenset(
-        {MemoryFamily.SEMANTIC, MemoryFamily.EPISODIC}
-    ), "a third family must not become proposable without its own evaluated stage"
+        {MemoryFamily.SEMANTIC, MemoryFamily.EPISODIC, MemoryFamily.WORKING}
+    ), "a fourth family must not become proposable without its own evaluated stage"
 
 
 # ---------------------------------------------------------------------------

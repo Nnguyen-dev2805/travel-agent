@@ -315,6 +315,33 @@ class RuntimeContainer:
 
             episodic_read_engine = EpisodicReadEngine(PostgresEpisodeStore(self.engine))
 
+        working_read_enabled = bool(
+            getattr(self._settings, "MEMORY_WORKING_READ_ENABLED", False)
+        )
+        working_read_engine = None
+        if working_read_enabled:
+            from backend.memory.postgres_store import PostgresWorkingStore
+            from backend.memory.working import WorkingMemoryReadEngine
+
+            working_read_engine = WorkingMemoryReadEngine(
+                PostgresWorkingStore(self.engine)
+            )
+
+        # The turn path's writer. Wired only when the synchronous deterministic
+        # transition is enabled, because a writer that exists is a writer that
+        # writes: leaving it composed while the flag is off would make the flag
+        # decorative.
+        working_write_enabled = bool(
+            getattr(self._settings, "MEMORY_WORKING_WRITE_ENABLED", False)
+        )
+        working_state_writer = None
+        if working_write_enabled:
+            from backend.memory.postgres_store import record_working_state
+
+            working_state_writer = lambda candidate: record_working_state(  # noqa: E731
+                self.engine, candidate
+            )
+
         memory_read_enabled = bool(
             getattr(self._settings, "MEMORY_READ_ENABLED", False)
         )
@@ -356,6 +383,10 @@ class RuntimeContainer:
             memory_use_enabled=memory_use_enabled,
             episodic_read_engine=episodic_read_engine,
             episodic_read_enabled=episodic_read_enabled,
+            working_read_engine=working_read_engine,
+            working_read_enabled=working_read_enabled,
+            working_state_writer=working_state_writer,
+            working_write_enabled=working_write_enabled,
         )
 
     def readiness_probe(self) -> PostgresReadinessProbe:

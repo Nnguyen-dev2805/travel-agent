@@ -272,6 +272,47 @@ episodes_table = Table(
     Column("invalidated_at", DateTime(timezone=True), nullable=True),
 )
 
+#: The canonical Working Memory store (`20260915_03`). `memory_summaries` has
+#: existed since `20260907_02` as an unused placeholder; Task 13 evolves it rather
+#: than adding a parallel table, so there is one canonical open state per
+#: conversation and no second store to keep in step.
+#:
+#: `content` is bound here only so the table object matches the physical schema.
+#: Nothing in this codebase reads it or writes it: it is a migration-safety
+#: column, never policy authority.
+working_summaries_table = Table(
+    "memory_summaries",
+    metadata,
+    Column("summary_id", Text(), primary_key=True),
+    Column("owner_user_id", Text(), nullable=False),
+    Column("conversation_id", Text(), nullable=False),
+    Column("content", Text(), nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("open_goal", Text(), nullable=False, server_default=""),
+    Column("through_sequence", Integer(), nullable=False, server_default="0"),
+    Column(
+        "origin",
+        Text(),
+        nullable=False,
+        server_default="deterministic_transition",
+    ),
+    Column("source_message_id", Text(), nullable=False, server_default=""),
+    Column("source_outbox_id", Text(), nullable=False, server_default=""),
+    Column(
+        "retention_mode",
+        Text(),
+        nullable=False,
+        server_default="conversation_bound",
+    ),
+    Column("status", Text(), nullable=False, server_default="shadow"),
+    Column("sensitivity", Text(), nullable=False, server_default="ordinary_personal"),
+    Column("suppression_generation", Integer(), nullable=False, server_default="1"),
+    Column("unresolved_conflict", Boolean(), nullable=False, server_default="false"),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column("invalidated_at", DateTime(timezone=True), nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
+)
+
 _EPISODE_ID_PREFIX = "epi_"
 
 _OUTBOX_ID_PREFIX = "mout_"

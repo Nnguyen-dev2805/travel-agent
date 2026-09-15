@@ -21,6 +21,7 @@ from typing import (
 from backend.conversations.models import (
     EPISODIC_EXTRACT_EVENT_TYPE,
     MEMORY_EXTRACT_EVENT_TYPE,
+    WORKING_EXTRACT_EVENT_TYPE,
     ConversationValidationError,
     MessageRole,
     MessageSource,
@@ -204,6 +205,10 @@ class ConversationOrchestrator:
         memory_use_enabled: bool = False,
         episodic_read_engine: Optional[Any] = None,
         episodic_read_enabled: bool = False,
+        working_read_engine: Optional[Any] = None,
+        working_read_enabled: bool = False,
+        working_state_writer: Optional[Callable[[Any], Any]] = None,
+        working_write_enabled: bool = False,
         **_ignored: Any,
     ) -> None:
         self._rag_service = rag_service
@@ -232,6 +237,10 @@ class ConversationOrchestrator:
         self._memory_use_enabled = memory_use_enabled
         self._episodic_read_engine = episodic_read_engine
         self._episodic_read_enabled = episodic_read_enabled
+        self._working_read_engine = working_read_engine
+        self._working_read_enabled = working_read_enabled
+        self._working_state_writer = working_state_writer
+        self._working_write_enabled = working_write_enabled
 
     @property
     def context_planner(self) -> ContextPlanner:
@@ -252,13 +261,14 @@ class ConversationOrchestrator:
         nothing here is shared between the families, so one family's failure or
         success says nothing about the other's.
 
-        Emitting the episodic event is gated by the same background-capture flag
-        as the semantic one, and that is the correct semantics rather than a
-        convenience: `outbox_enabled` means "capture this turn's source for
-        background formation", which is one act with two family-specific
-        consumers. What keeps episodic capture safe is not this flag but the
-        separate episodic activation gate, which is default-off, so captured
-        episodic candidates stay shadow until their own evaluation passes.
+        Emitting the episodic and working events is gated by the same
+        background-capture flag as the semantic one, and that is the correct
+        semantics rather than a convenience: `outbox_enabled` means "capture this
+        turn's source for background formation", which is one act with
+        family-specific consumers. What keeps each family safe is not this flag
+        but that family's own activation gate, which is default-off, so captured
+        episodic and working candidates stay shadow until their own evaluation
+        passes.
         """
         intents = [
             OutboxIntent(event_type=MEMORY_EXTRACT_EVENT_TYPE, payload=payload)
@@ -269,25 +279,146 @@ class ConversationOrchestrator:
                     event_type=EPISODIC_EXTRACT_EVENT_TYPE, payload=payload
                 )
             )
+            intents.append(
+                OutboxIntent(
+                    event_type=WORKING_EXTRACT_EVENT_TYPE, payload=payload
+                )
+            )
         return tuple(intents)
 
-    def _record_episodic_source_handling(
+    def _read_working_selection(
+        self, *, owner_user_id: str, conversation_id: str
+    ) -> Any:
+        """The eligible open state as it stood *before* this turn, or `None`.
+
+        Read before the turn's own state is written, so a turn never feeds its own
+        output back into its own context. `None` when the path is disabled, the
+        engine is absent, or the read abstains — and `None` is the ordinary case,
+        which is why the resolver's parameter defaults to it and why the arbiter's
+        does too.
+        """
+        if (
+            not self._working_read_enabled
+            or self._working_read_engine is None
+            or owner_user_id is None
+            or conversation_id is None
+        ):
+            return None
+
+        from backend.memory.working import WorkingReadRequest
+
+        return self._working_read_engine.select(
+            WorkingReadRequest(
+                owner_user_id=owner_user_id, conversation_id=conversation_id
+            )
+        )
+
+    @staticmethod
+    def _working_context_from(selection: Any) -> Any:
+        """Project an eligible selection into the resolver's structural type.
+
+        The mapping lives here rather than in the resolver because the resolver is
+        Stage-1 code and must not depend on a Memory family (`spec:327-328`).
+        """
+        if selection is None or not getattr(selection, "selected", ()):
+            return None
+        from backend.orchestration.dialogue_state import WorkingContext
+
+        state = selection.selected[0]
+        return WorkingContext(
+            open_goal=str(state.open_goal),
+            through_sequence=int(state.through_sequence),
+        )
+
+    def _write_deterministic_working_state(
+        self,
+        *,
+        owner_user_id: str,
+        conversation_id: str,
+        recent_turns: Any,
+        user_message: Any,
+    ) -> None:
+        """Persist this turn's deterministic open state, or refuse silently.
+
+        The synchronous half of the two formation paths. It derives from the
+        delivered turns — the recent window plus this turn's own user message —
+        with no model call, which is what `spec:1037` calls a deterministic
+        conversation transition. The worker's inferred replacement uses the same
+        derivation over a bounded completed range, so both paths write through one
+        replacement policy and one canonical row.
+
+        The event identity is the turn's own outbox row when one exists, and a
+        turn-local synthetic identity when it does not. A synthetic identity is
+        honest here rather than a fake event: the deterministic path is not
+        outbox-driven, and the identity exists only so a candidate can name its
+        provenance.
+        """
+        if (
+            not self._working_write_enabled
+            or self._working_state_writer is None
+            or owner_user_id is None
+            or conversation_id is None
+        ):
+            return
+
+        from backend.conversations.models import WORKING_EXTRACT_EVENT_TYPE
+        from backend.memory.working import WorkingOrigin, WorkingStateTransition
+
+        source_outbox_id = None
+        if self._outbox_enabled:
+            source_outbox_id = self._conversations_lookup_outbox_id(
+                conversation_id, user_message.message_id, owner_user_id
+            )
+        if not source_outbox_id:
+            source_outbox_id = f"turn_{user_message.message_id}"
+
+        candidate = WorkingStateTransition().derive(
+            turns=tuple(recent_turns) + (user_message,),
+            owner_user_id=owner_user_id,
+            conversation_id=conversation_id,
+            origin=WorkingOrigin.DETERMINISTIC_TRANSITION,
+            source_outbox_id=source_outbox_id,
+            source_message_id=user_message.message_id,
+        )
+        if candidate is None:
+            return
+        self._working_state_writer(candidate)
+
+    def _conversations_lookup_outbox_id(
+        self, conversation_id: str, message_id: str, owner_user_id: str
+    ) -> str | None:
+        """Read the WORKING event's id for this turn, when background capture wrote one."""
+        from backend.conversations.models import WORKING_EXTRACT_EVENT_TYPE
+
+        conversations = self._conversation_service_provider()
+        return conversations.get_turn_outbox_id(
+            conversation_id, message_id, owner_user_id, WORKING_EXTRACT_EVENT_TYPE
+        )
+
+    def _record_family_source_handling(
         self,
         conversations: Any,
         *,
+        family: MemoryFamily,
+        event_type: str,
         conversation_id: str,
         owner_user_id: str,
         user_message: Any,
         understanding: Any,
     ) -> None:
-        """Persist the episodic family's own authority for this source.
+        """Persist one family's own authority for this source.
+
+        One writer for every family, because the rule is one rule: the record must
+        name the family whose event it authorizes, and a semantic record must
+        never be able to authorize another family's formation. Two copies of this
+        method would be two chances to bind the wrong event.
 
         Written after understanding, because eligibility depends on the
         interaction reading — which is only known once the turn has been
         persisted. That is still *before model exposure*: the event is released
         only by `complete_turn`, and the worker cannot claim an unreleased event,
-        so a source can never reach the episodic model without this record
-        already existing.
+        so a source can never reach a family's model without its record already
+        existing.
 
         Only a positive outcome is recorded. There is no `BACKGROUND_BLOCKED`
         member in the durable outcome vocabulary, and inventing one would be a
@@ -299,7 +430,7 @@ class ConversationOrchestrator:
             return
         proposal = propose_source_handling(
             source_message_id=user_message.message_id,
-            family=MemoryFamily.EPISODIC,
+            family=family,
             reason_code=_source_handling_reason_for(understanding.interaction_mode),
         )
         if proposal.outcome is not SourceHandlingProposalOutcome.BACKGROUND_ELIGIBLE:
@@ -308,7 +439,7 @@ class ConversationOrchestrator:
             conversation_id,
             user_message.message_id,
             owner_user_id,
-            EPISODIC_EXTRACT_EVENT_TYPE,
+            event_type,
         )
         if not source_outbox_id:
             return
@@ -317,7 +448,7 @@ class ConversationOrchestrator:
             SourceHandlingRecord(
                 source_outbox_id=source_outbox_id,
                 source_message_id=user_message.message_id,
-                family=MemoryFamily.EPISODIC,
+                family=family,
                 outcome=SourceHandlingOutcome.BACKGROUND_ELIGIBLE,
                 reason_code=SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE,
                 recorded_at=utc_now(),
@@ -413,8 +544,15 @@ class ConversationOrchestrator:
                 owner_user_id,
                 before_sequence=user_message.sequence,
             )
+            working_selection = self._read_working_selection(
+                owner_user_id=owner_user_id,
+                conversation_id=conversation_id,
+            )
             try:
-                dialogue_state = self._dialogue_state.resolve(recent_turns)
+                dialogue_state = self._dialogue_state.resolve(
+                    recent_turns,
+                    self._working_context_from(working_selection),
+                )
             except ConversationValidationError as error:
                 # The resolver refuses a window spanning more than one
                 # conversation. That is this server's invariant failing, so it
@@ -441,16 +579,34 @@ class ConversationOrchestrator:
                 ),
             )
 
-            # Task 12: the episodic family's authority is its own record, bound
-            # to its own event. A semantic record never authorizes episodic
-            # formation, so this is not a duplicate of the proposal above.
-            self._record_episodic_source_handling(
-                conversations,
-                conversation_id=conversation_id,
+            # Tasks 12-13: each additional family's authority is its own record,
+            # bound to its own event. A semantic record never authorizes another
+            # family's formation, so neither call is a duplicate of the proposal
+            # above.
+            # Task 13: the synchronous deterministic transition. No model call —
+            # the open state is derived from delivered turns — and it runs through
+            # the same replacement policy and canonical row as the worker's
+            # inferred replacement.
+            self._write_deterministic_working_state(
                 owner_user_id=owner_user_id,
+                conversation_id=conversation_id,
+                recent_turns=recent_turns,
                 user_message=user_message,
-                understanding=understanding,
             )
+
+            for family, event_type in (
+                (MemoryFamily.EPISODIC, EPISODIC_EXTRACT_EVENT_TYPE),
+                (MemoryFamily.WORKING, WORKING_EXTRACT_EVENT_TYPE),
+            ):
+                self._record_family_source_handling(
+                    conversations,
+                    family=family,
+                    event_type=event_type,
+                    conversation_id=conversation_id,
+                    owner_user_id=owner_user_id,
+                    user_message=user_message,
+                    understanding=understanding,
+                )
 
             # Shadow evidence only: the proposal is recorded, and the effective
             # mode stays the RAG-only baseline while enforcement is off. Nothing
@@ -727,6 +883,7 @@ class ConversationOrchestrator:
                     owner_user_id=owner_user_id,
                     conversation_id=conversation_id,
                     understanding=understanding,
+                    working_selection=working_selection,
                 )
         except Exception as error:
             # Phase two: record the failure rather than leaving an orphan turn.
@@ -892,6 +1049,7 @@ class ConversationOrchestrator:
         owner_user_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
         understanding: Optional[Any] = None,
+        working_selection: Optional[Any] = None,
     ) -> Dict[str, Any]:
         if not self._planner.enforcement_enabled or not hasattr(
             self._rag_service, "generate_from_context"
@@ -971,6 +1129,7 @@ class ConversationOrchestrator:
             memory_selection=memory_selection,
             current_memory_override_keys=override_keys,
             episodic_selection=episodic_selection,
+            working_selection=working_selection,
         )
 
         result = self._rag_service.generate_from_context(message, generation_context)

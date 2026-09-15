@@ -1,7 +1,7 @@
 """Tenant-scoped physical projections for Memory reads."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Sequence
 
 from sqlalchemy import exists, select
@@ -13,6 +13,13 @@ from backend.memory.episodic import (
 )
 from backend.memory.lifecycle import SourceValidity
 from backend.memory.read_models import MemoryReadRequest, StoredMemoryRow
+from backend.memory.working import (
+    StoredWorkingRow,
+    WorkingCandidate,
+    WorkingReadRequest,
+    WorkingReplacementDecision,
+    WorkingReplacementPolicy,
+)
 from backend.memory.write_pipeline.models import (
     Authority,
     MemoryScope,
@@ -26,6 +33,7 @@ from backend.memory.write_pipeline.postgres import (
     episodes_table,
     evidence_table,
     versions_table,
+    working_summaries_table,
 )
 from backend.memory.write_pipeline.uow import MemoryWriteError
 from backend.storage.postgres import require_tenant_context, set_tenant
@@ -307,6 +315,209 @@ def invalidate_episodes_for_conversation_on(
         .where(
             episodes_table.c.conversation_id == conversation_id,
             episodes_table.c.invalidated_at.is_(None),
+        )
+        .values(invalidated_at=invalidated_at)
+    )
+    return int(result.rowcount or 0)
+
+
+class PostgresWorkingStore:
+    """Projects the canonical Working Memory row for one owner and conversation.
+
+    Owns physical projection and type coercion only. It never decides whether the
+    open state is answer-eligible — `MemoryLifecyclePolicy` does that inside
+    `WorkingMemoryReadEngine` — and it never exposes the legacy `content` column,
+    which is a migration-safety artifact rather than a field of this family.
+
+    `stamped_generation` and `current_generation` both come from the row's own
+    `suppression_generation`, the same simplification the episodic projection
+    makes: Working state is conversation-scoped, so it has no separate assertion
+    row that could own a generation and advance independently of it. A future
+    generation owner would change this projection, not the lifecycle policy.
+
+    `source_validity` is derived here, not stored as a decision: a row whose source
+    conversation was deleted has `invalidated_at` set by the same transaction that
+    tombstoned the conversation, so this projection reports `INVALID` and the state
+    stops being eligible.
+    """
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def get_storage_scoped(
+        self, request: WorkingReadRequest
+    ) -> Sequence[StoredWorkingRow]:
+        with self._engine.connect() as connection:
+            set_tenant(connection, request.owner_user_id)
+            require_tenant_context(connection)
+
+            rows = (
+                connection.execute(
+                    select(working_summaries_table).where(
+                        working_summaries_table.c.owner_user_id
+                        == request.owner_user_id,
+                        working_summaries_table.c.conversation_id
+                        == request.conversation_id,
+                    )
+                )
+                .mappings()
+                .all()
+            )
+
+        return tuple(_to_stored_working_row(row) for row in rows)
+
+
+def record_working_state(
+    engine: Engine,
+    candidate: WorkingCandidate,
+    *,
+    status: VersionStatus = VersionStatus.SHADOW,
+    created_at: datetime | None = None,
+) -> WorkingReplacementDecision:
+    """Apply one candidate in its own tenant-bound transaction.
+
+    The turn path's writer. It is a separate entry point from the worker's commit
+    path because the two have different transaction owners — the turn path has no
+    outbox lease to fence on — while both funnel into the same
+    `record_working_state_on` and therefore the same replacement policy. That is
+    what makes "two formation paths, one replacement semantics" true in code
+    rather than only in the plan.
+    """
+    from backend.storage.postgres import transaction
+
+    with transaction(engine) as connection:
+        set_tenant(connection, candidate.owner_user_id)
+        require_tenant_context(connection)
+        return record_working_state_on(
+            connection,
+            candidate=candidate,
+            created_at=created_at or datetime.now(timezone.utc),
+            status=status,
+        )
+
+
+def _to_stored_working_row(row) -> StoredWorkingRow:
+    """Coerce one physical row back into the domain projection."""
+    retention_mode = RetentionMode(row["retention_mode"])
+    if retention_mode is RetentionMode.USER_DURABLE:
+        source_validity = SourceValidity.NOT_REQUIRED
+    elif row["invalidated_at"] is None:
+        source_validity = SourceValidity.VALID
+    else:
+        source_validity = SourceValidity.INVALID
+
+    generation = int(row["suppression_generation"])
+    return StoredWorkingRow(
+        summary_id=str(row["summary_id"]),
+        owner_user_id=str(row["owner_user_id"]),
+        conversation_id=str(row["conversation_id"]),
+        open_goal=str(row["open_goal"]),
+        through_sequence=int(row["through_sequence"]),
+        retention_mode=retention_mode,
+        stamped_generation=generation,
+        current_generation=generation,
+        status=VersionStatus(row["status"]),
+        sensitivity=SensitivityBand(row["sensitivity"]),
+        source_validity=source_validity,
+        expires_at=row["expires_at"],
+    )
+
+
+def record_working_state_on(
+    connection,
+    *,
+    candidate: WorkingCandidate,
+    created_at: datetime,
+    status: VersionStatus = VersionStatus.SHADOW,
+) -> WorkingReplacementDecision:
+    """Apply one candidate to the canonical open state, or refuse it.
+
+    Working Memory is a **replacement**, not an append: one conversation has one
+    current open state, so this reads the existing row under a row lock, asks
+    `WorkingReplacementPolicy` whether the candidate may take its place, and then
+    either updates that row or inserts the first one. The lock is what makes the
+    decision hold: without it two writers could both read "no current state" and
+    both insert, and the unique index would turn the loser into an error rather
+    than a refusal with a reason.
+
+    Runs on a caller-owned connection so the open state, its source-handling
+    authority and the outbox success can commit in one transaction (`ADR 0036`).
+    """
+    existing = (
+        connection.execute(
+            select(working_summaries_table)
+            .where(
+                working_summaries_table.c.owner_user_id == candidate.owner_user_id,
+                working_summaries_table.c.conversation_id == candidate.conversation_id,
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .fetchone()
+    )
+    current = _to_stored_working_row(existing) if existing is not None else None
+
+    decision = WorkingReplacementPolicy().decide(
+        candidate=candidate, current=current
+    )
+    if not decision.replace:
+        return decision
+
+    values = {
+        "owner_user_id": candidate.owner_user_id,
+        "conversation_id": candidate.conversation_id,
+        # The legacy `20260907_02` column. Written empty so it stays inert: it is
+        # never read and never policy authority, exactly as `20260915_02` left
+        # episodic `payload` alone.
+        "content": "",
+        "open_goal": str(candidate.state.open_goal),
+        "through_sequence": int(candidate.state.through_sequence),
+        "origin": candidate.origin.value,
+        "source_message_id": str(candidate.provenance.source_message_id),
+        "source_outbox_id": str(candidate.provenance.source_outbox_id),
+        "retention_mode": RetentionMode(candidate.retention_mode).value,
+        "status": VersionStatus(status).value,
+        "sensitivity": SensitivityBand(candidate.sensitivity).value,
+        "suppression_generation": int(candidate.suppression_generation),
+        "unresolved_conflict": False,
+        "expires_at": None,
+        "invalidated_at": None,
+        "updated_at": created_at,
+    }
+
+    if current is None:
+        connection.execute(
+            working_summaries_table.insert().values(
+                summary_id=candidate.candidate_id, created_at=created_at, **values
+            )
+        )
+    else:
+        connection.execute(
+            working_summaries_table.update()
+            .where(working_summaries_table.c.summary_id == current.summary_id)
+            .values(**values)
+        )
+    return decision
+
+
+def invalidate_working_state_for_conversation_on(
+    connection, *, conversation_id: str, invalidated_at: datetime
+) -> int:
+    """Mark the open state of a deleted conversation ineligible.
+
+    Called from the same transaction that tombstones the conversation, cancels its
+    outbox events and invalidates its `memory_evidence` and `memory_episodes` rows
+    — the existing deletion contract (`20260910_03`). Working state is invalidated
+    rather than deleted because a revoke is not an erase (`ADR 0037`), and the read
+    path already fails closed on `invalidated_at IS NOT NULL`.
+
+    Returns the number of rows touched so the caller can record it.
+    """
+    result = connection.execute(
+        working_summaries_table.update()
+        .where(
+            working_summaries_table.c.conversation_id == conversation_id,
+            working_summaries_table.c.invalidated_at.is_(None),
         )
         .values(invalidated_at=invalidated_at)
     )

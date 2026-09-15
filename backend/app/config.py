@@ -156,6 +156,23 @@ class Settings(BaseModel):
     MEMORY_EPISODIC_ACTIVATION_ENABLED: bool = _env_flag(
         "MEMORY_EPISODIC_ACTIVATION_ENABLED", False
     )
+    # Stage-5 Working Memory gates (Plan v0.22 Task 13). Three separate flags
+    # because they gate three different things, and collapsing them would make one
+    # rollout decision silently enable another:
+    #   WRITE      - the synchronous deterministic transition persists open state;
+    #   ACTIVATION - an inferred replacement may leave shadow (the family gate);
+    #   READ       - eligible open state is admitted to dialogue reconstruction.
+    # All default off, per plan global constraint 23: a new Memory mutation path is
+    # not enabled for broad rollout while its own evaluation is outstanding.
+    MEMORY_WORKING_WRITE_ENABLED: bool = _env_flag(
+        "MEMORY_WORKING_WRITE_ENABLED", False
+    )
+    MEMORY_WORKING_ACTIVATION_ENABLED: bool = _env_flag(
+        "MEMORY_WORKING_ACTIVATION_ENABLED", False
+    )
+    MEMORY_WORKING_READ_ENABLED: bool = _env_flag(
+        "MEMORY_WORKING_READ_ENABLED", False
+    )
     MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS: int = int(
         os.getenv("MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS", "30")
     )

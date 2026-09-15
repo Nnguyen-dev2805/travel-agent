@@ -20,6 +20,7 @@ from backend.conversations.models import (
     EPISODIC_EXTRACT_EVENT_TYPE,
     MEMORY_EXTRACT_EVENT_TYPE,
     MEMORY_EXTRACT_EVENT_TYPES,
+    WORKING_EXTRACT_EVENT_TYPE,
 )
 from backend.memory.source_handling import MemoryFamily
 
@@ -32,6 +33,7 @@ from backend.memory.source_handling import MemoryFamily
 MEMORY_FAMILY_BY_EVENT_TYPE: dict[str, MemoryFamily] = {
     MEMORY_EXTRACT_EVENT_TYPE: MemoryFamily.SEMANTIC,
     EPISODIC_EXTRACT_EVENT_TYPE: MemoryFamily.EPISODIC,
+    WORKING_EXTRACT_EVENT_TYPE: MemoryFamily.WORKING,
 }
 
 

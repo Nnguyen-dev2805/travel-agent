@@ -23,7 +23,7 @@ TENANT_SETTING = "app.tenant"
 #: Single source of truth for the expected Alembic head revision. The
 #: runtime readiness probe and the migration chain both derive from this
 #: instead of carrying their own literal, so they cannot drift apart.
-ALEMBIC_HEAD = "20260915_02"
+ALEMBIC_HEAD = "20260915_04"
 
 
 class TenantContextError(Exception):

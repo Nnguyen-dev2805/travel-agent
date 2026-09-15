@@ -1494,7 +1494,7 @@ def test_outbox_intent_created_when_explicit_actions_enabled_even_if_outbox_disa
 def test_a_captured_turn_writes_one_outbox_event_per_memory_family(
     rag, conversations, journal
 ):
-    """Task 12: family-specific events, never one shared multi-family row.
+    """Tasks 12-13: family-specific events, never one shared multi-family row.
 
     Each family gets its own event with its own lease, idempotency and terminal
     state, so one family finishing cannot mark another family's work done.
@@ -1515,6 +1515,7 @@ def test_a_captured_turn_writes_one_outbox_event_per_memory_family(
     assert [intent.event_type for intent in outbox_intents] == [
         "memory.extract.conversation_range",
         "memory.extract.episodic",
+        "memory.extract.working",
     ]
 
 

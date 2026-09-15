@@ -23,7 +23,11 @@ from backend.generation.contracts import (
     GenerationCitation,
     GenerationContext,
 )
-from backend.memory.context import EpisodeContextComposer, MemoryContextComposer
+from backend.memory.context import (
+    EpisodeContextComposer,
+    MemoryContextComposer,
+    WorkingContextComposer,
+)
 from backend.memory.read_models import MemorySelection
 from backend.orchestration.turn_models import ContextMode
 from backend.rag.contracts import ContextBundle
@@ -38,9 +42,11 @@ class ContextArbiter:
         self,
         memory_composer: Optional[MemoryContextComposer] = None,
         episode_composer: Optional[EpisodeContextComposer] = None,
+        working_composer: Optional[WorkingContextComposer] = None,
     ) -> None:
         self._memory_composer = memory_composer or MemoryContextComposer()
         self._episode_composer = episode_composer or EpisodeContextComposer()
+        self._working_composer = working_composer or WorkingContextComposer()
 
     def arbitrate(
         self,
@@ -49,6 +55,7 @@ class ContextArbiter:
         memory_selection: Optional[MemorySelection] = None,
         current_memory_override_keys: tuple[str, ...] = (),
         episodic_selection: Optional[Any] = None,
+        working_selection: Optional[Any] = None,
     ) -> GenerationContext:
         """Project source records into GenerationContext according to the planned mode."""
         if mode is ContextMode.NONE:
@@ -89,7 +96,10 @@ class ContextArbiter:
                 abstention_reason=memory_selection.abstention_reason if memory_selection else None,
             )
             prompt_context = self._memory_composer.compose(admitted_selection)
-            prompt_context = self._with_episodes(prompt_context, episodic_selection)
+            prompt_context = self._with_episodes(
+                self._with_working(prompt_context, working_selection),
+                episodic_selection,
+            )
             return GenerationContext(
                 prompt_context=prompt_context,
                 citations=(),  # Memory is never a travel citation
@@ -124,9 +134,15 @@ class ContextArbiter:
                 abstention_reason=memory_selection.abstention_reason if memory_selection else None,
             )
             mem_part = self._memory_composer.compose(admitted_selection).strip()
-            combined_prompt = self._with_episodes(
-                f"{rag_part}\n\n{mem_part}", episodic_selection
+            # The Memory-side ladder is composed in precedence order first —
+            # working state, then soft preferences, then episodes — and only then
+            # joined to the travel context, which is retrieval evidence rather
+            # than a tier of that ladder.
+            mem_side = self._with_episodes(
+                self._with_working(mem_part, working_selection),
+                episodic_selection,
             )
+            combined_prompt = f"{rag_part}\n\n{mem_side}"
 
             return GenerationContext(
                 prompt_context=combined_prompt,
@@ -135,6 +151,28 @@ class ContextArbiter:
             )
 
         raise ValueError(f"Unsupported ContextMode: {mode}")
+
+    def _with_working(self, prompt_context: str, working_selection: Any) -> str:
+        """Prepend the governed Working Memory block.
+
+        **Prepending is the precedence rule, not formatting.** `spec:1043-1052`
+        puts "current conversation working state / temporary override" above
+        user-scoped soft preferences and above episodes/summaries, so working state
+        is composed before the Memory block rather than appended after it — which
+        is the opposite of the episodic block, and the reason the two cannot share
+        one helper.
+
+        Working state never becomes a citation: an open state is context, not
+        travel evidence.
+        """
+        if working_selection is None or not getattr(
+            working_selection, "selected", ()
+        ):
+            return prompt_context
+        block = self._working_composer.compose(working_selection)
+        if not block:
+            return prompt_context
+        return f"{block}\n\n{prompt_context}" if prompt_context else block
 
     def _with_episodes(self, prompt_context: str, episodic_selection: Any) -> str:
         """Append the governed episodic block, last.

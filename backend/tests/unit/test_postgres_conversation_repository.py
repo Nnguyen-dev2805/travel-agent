@@ -112,6 +112,10 @@ def test_delete_issues_propagation_statements_in_one_transaction():
             # same transaction that tombstones it, exactly as it already does for
             # `memory_evidence`.
             _FakeResult(),
+            # The Working Memory invalidation (plan v0.22 Task 13). The open state
+            # is conversation-scoped, so it must not outlive the conversation it
+            # describes.
+            _FakeResult(),
         ]
     )
     repo = PostgresConversationRepository(_FakeEngine(connection))
@@ -124,6 +128,7 @@ def test_delete_issues_propagation_statements_in_one_transaction():
     assert "UPDATE conversation_outbox SET status" in sql
     assert "UPDATE memory_evidence SET invalidated_at" in sql
     assert "UPDATE memory_episodes SET invalidated_at" in sql
+    assert "UPDATE memory_summaries SET invalidated_at" in sql
     assert "deletion_epoch" in sql
 
 

@@ -101,7 +101,7 @@ sequenceDiagram
 
 ## Storage Architecture
 
-PostgreSQL 16 is the sole relational storage engine, managed via Alembic migrations up to head revision `20260915_02` (`20260915_02_episodic_memory`). `ALEMBIC_HEAD` in `backend/storage/postgres.py` is the authoritative value.
+PostgreSQL 16 is the sole relational storage engine, managed via Alembic migrations up to head revision `20260915_04` (`20260915_04_worker_conversation_lock_grant`). `ALEMBIC_HEAD` in `backend/storage/postgres.py` is the authoritative value.
 
 ### Active Relational Tables
 1. `conversations`: Standalone conversations (`conversation_id`, `owner_user_id` NOT NULL, `title`, `retention_state`, `deletion_epoch`, timestamps).

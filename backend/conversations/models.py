@@ -542,12 +542,18 @@ MEMORY_EXTRACT_EVENT_TYPE = "memory.extract.conversation_range"
 #: family would make the queue unable to tell them apart.
 EPISODIC_EXTRACT_EVENT_TYPE = "memory.extract.episodic"
 
+#: The Working Memory family's own event (Task 13), on the same rule as the
+#: episodic one above: a family that forms through the worker gets its own row so
+#: each family keeps its own lease, idempotency key and terminal state.
+WORKING_EXTRACT_EVENT_TYPE = "memory.extract.working"
+
 #: The closed set of event families the Memory worker may claim. The claim path
 #: filters on membership of this tuple, so a future family is invisible until it
 #: is named here deliberately.
 MEMORY_EXTRACT_EVENT_TYPES: tuple[str, ...] = (
     MEMORY_EXTRACT_EVENT_TYPE,
     EPISODIC_EXTRACT_EVENT_TYPE,
+    WORKING_EXTRACT_EVENT_TYPE,
 )
 
 

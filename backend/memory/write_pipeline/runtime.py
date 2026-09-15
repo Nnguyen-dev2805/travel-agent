@@ -110,6 +110,8 @@ def build_worker(
         ),
         episodic_activation_enabled=resolved.MEMORY_EPISODIC_ACTIVATION_ENABLED,
         episodic_commit_coordinator=commit_coordinator,
+        working_activation_enabled=resolved.MEMORY_WORKING_ACTIVATION_ENABLED,
+        working_commit_coordinator=commit_coordinator,
     )
     return worker, owned_provider
 

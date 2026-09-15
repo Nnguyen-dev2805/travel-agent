@@ -130,6 +130,8 @@ class MemoryOutboxWorker:
         source_handling_loader: Callable[[str, str, Any], Any] | None = None,
         episodic_activation_enabled: bool = False,
         episodic_commit_coordinator: Any = None,
+        working_activation_enabled: bool = False,
+        working_commit_coordinator: Any = None,
     ) -> None:
         """Build the worker around the narrow `BackgroundMemoryRecorder` seam.
 
@@ -157,6 +159,11 @@ class MemoryOutboxWorker:
         # evaluation record is conclusive a captured episode stays shadow.
         self._episodic_activation_enabled = episodic_activation_enabled
         self._episodic_commit_coordinator = episodic_commit_coordinator
+        # Default off, and separate from the episodic and semantic gates for the
+        # same reason those are separate from each other: passing one family's
+        # evaluation is not evidence that this family's was evaluated.
+        self._working_activation_enabled = working_activation_enabled
+        self._working_commit_coordinator = working_commit_coordinator
 
     @property
     def worker_id(self) -> str:
@@ -536,6 +543,16 @@ class MemoryOutboxWorker:
         # own evaluation passes.
         if MEMORY_FAMILY_BY_EVENT_TYPE[event.event_type] is MemoryFamily.EPISODIC:
             return self._process_episodic_event(event, handling_record, messages)
+
+        # 5e. Working Memory family: its own formation/replacement slice.
+        #
+        # Reached only with positive Working authority (5c above), and before the
+        # semantic model call. The Working slice derives its open state
+        # deterministically from the bounded completed source range, so it spends
+        # nothing with a provider; its activation gate is separate and default-off,
+        # so an inferred replacement stays shadow until its own evaluation passes.
+        if MEMORY_FAMILY_BY_EVENT_TYPE[event.event_type] is MemoryFamily.WORKING:
+            return self._process_working_event(event, handling_record, messages)
 
         # 5b. Renew before paying for a model call, not after.
         #
@@ -939,6 +956,106 @@ class MemoryOutboxWorker:
             decision=DecisionOutcome.SHADOW,
             reason=WorkerReason.EPISODIC_RECORDED,
             candidates_count=1 if decision.eligible else 0,
+        )
+
+    def _process_working_event(
+        self, event: Any, handling_record: Any, messages: list[dict[str, Any]]
+    ) -> Any:
+        """Derive, activate and apply one Working Memory replacement, or refuse.
+
+        The open state comes from the bounded completed source range the event
+        names — the same deterministic derivation the turn path uses, applied to
+        the range's delivered turns. Nothing here is inferred from model output:
+        `ADR 0038:83-84` and `spec:1037` both describe Working activation as
+        governed deterministic transition or validated source-consistent
+        replacement, and a model guess is neither.
+
+        The origin is `INFERRED_REPLACEMENT`, which is what makes this path subject
+        to the family gate: the state is system-derived over a completed range
+        rather than stated in the current turn, so it stays shadow until the
+        Working family's evaluation is conclusive.
+        """
+        from backend.memory.commit_coordinators import BackgroundWorkingCommitRequest
+        from backend.memory.lifecycle import SourceValidity
+        from backend.memory.working import (
+            WorkingActivationFacts,
+            WorkingActivationPolicy,
+            WorkingOrigin,
+            WorkingStateTransition,
+        )
+
+        candidate = WorkingStateTransition().derive(
+            turns=messages,
+            owner_user_id=event.owner_user_id,
+            conversation_id=event.conversation_id,
+            origin=WorkingOrigin.INFERRED_REPLACEMENT,
+            source_outbox_id=event.outbox_id,
+            source_message_id=event.message_id,
+            source_handling_record=handling_record,
+        )
+        if candidate is None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "working_formation_refused",
+            )
+
+        decision = WorkingActivationPolicy().evaluate(
+            WorkingActivationFacts(
+                origin=candidate.origin,
+                lifecycle_eligible=True,
+                source_validity=SourceValidity.VALID,
+                stamped_generation=candidate.suppression_generation,
+                current_generation=candidate.suppression_generation,
+                working_gate_enabled=self._working_activation_enabled,
+                # The family/type evaluation gate is conclusive only when the
+                # governed evaluation record says so. It is passed as `False`
+                # here until Task 13's record is conclusive, so the flag alone can
+                # never activate an inferred replacement.
+                working_gate_conclusive=False,
+            )
+        )
+
+        coordinator = self._working_commit_coordinator
+        if coordinator is None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "working_commit_unavailable",
+            )
+
+        try:
+            replacement = coordinator.commit_working_state(
+                BackgroundWorkingCommitRequest(
+                    candidate=candidate,
+                    owner_user_id=event.owner_user_id,
+                    fence=self._fence_for(event),
+                    status=decision.target_status,
+                )
+            )
+        except FencedWriteError as fence_error:
+            logger.warning(
+                "Working write fenced reason=%s outbox_id=%s worker=%s",
+                fence_error.reason.value,
+                event.outbox_id,
+                self._worker_id,
+            )
+            return WorkerResult(
+                status=OutboxStatus.LEASED,
+                decision=DecisionOutcome.SHADOW,
+                reason=WorkerReason.LEASE_LOST_BEFORE_COMMIT,
+                candidates_count=0,
+            )
+
+        # A superseded candidate is normal operation, not a failure: the turn path
+        # already wrote a newer open state. It is reported as a closed reason code
+        # rather than an error so the two outcomes stay distinguishable.
+        return WorkerResult(
+            status=OutboxStatus.SUCCEEDED,
+            decision=DecisionOutcome.SHADOW,
+            reason=WorkerReason.WORKING_RECORDED,
+            candidates_count=1 if replacement.replace else 0,
+            error_detail=None if replacement.replace else replacement.reason.value,
         )
 
     def _refuse_event(self, event: Any, reason: Any, detail: str) -> Any:

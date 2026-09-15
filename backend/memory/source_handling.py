@@ -122,13 +122,18 @@ _PROPOSAL_OUTCOME_BY_REASON: dict[SourceHandlingReason, SourceHandlingProposalOu
 #: vocabulary that becomes operational only in the stage that evaluates that
 #: family's formation behaviour.
 #:
-#: `EPISODIC` joined at the Stage-5 slice (plan v0.20 Task 12), which is the
-#: stage that evaluates episodic formation — the same rule that admitted
-#: `SEMANTIC` in Stage 1. `WORKING` and `PROCEDURAL` stay out until their own
-#: stages, so a caller cannot obtain background permission for a family whose
-#: formation rules nobody has written yet.
+#: `EPISODIC` joined at the Stage-5 slice (plan v0.20 Task 12) and `WORKING` at
+#: the Stage-5 Working Memory slice (plan v0.22 Task 13) — each in the stage that
+#: evaluates that family's formation, which is the same rule that admitted
+#: `SEMANTIC` in Stage 1. `PROCEDURAL` stays out until its own stage, so a caller
+#: cannot obtain background permission for a family whose formation rules nobody
+#: has written yet.
 STAGE_ONE_PROPOSABLE_FAMILIES: frozenset[MemoryFamily] = frozenset(
-    {MemoryFamily.SEMANTIC, MemoryFamily.EPISODIC}
+    {
+        MemoryFamily.SEMANTIC,
+        MemoryFamily.EPISODIC,
+        MemoryFamily.WORKING,
+    }
 )
 
 

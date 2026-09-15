@@ -21,7 +21,12 @@ from alembic.operations import Operations
 from sqlalchemy.exc import IntegrityError
 
 from backend.storage.postgres import ALEMBIC_HEAD
-from backend.tests.integration.pg_dsn import migration_dsn, require
+from backend.tests.integration.pg_dsn import (
+    ensure_worker_login,
+    migration_dsn,
+    require,
+    worker_dsn,
+)
 
 requires_pg = pytest.mark.skipif(
     not migration_dsn(),
@@ -1129,6 +1134,10 @@ def test_the_worker_grants_are_the_enumerated_minimum(fresh_db, pg_engine):
         ("memory_episodes", "SELECT"),
         ("memory_episodes", "INSERT"),
         ("memory_episodes", "UPDATE"),
+        # The Working Memory slice (migration 20260915_03).
+        ("memory_summaries", "SELECT"),
+        ("memory_summaries", "INSERT"),
+        ("memory_summaries", "UPDATE"),
     }, f"unexpected worker grant set: {sorted(granted)}"
 
 
@@ -1172,6 +1181,55 @@ def test_the_worker_outbox_update_is_column_scoped(fresh_db, pg_engine):
         "updated_at",
         "released_at",
     }, f"unexpected worker outbox UPDATE column set: {sorted(columns)}"
+
+
+def test_the_worker_conversation_lock_grant_is_column_scoped(fresh_db, pg_engine):
+    """The fence locks the conversation row, and the grant admits exactly that.
+
+    `BackgroundMemoryCommit`'s first step is `SELECT ... FOR UPDATE` on the
+    conversation, and PostgreSQL refuses every row-locking mode to a role holding
+    only `SELECT` — verified here rather than assumed, because "the worker can take
+    its own fence" is the precondition the background path depends on.
+
+    Migration `20260915_04` grants column-level `UPDATE` on the two columns the
+    lock reads, which satisfies row locking without letting the worker rewrite a
+    conversation's title, status, or any other column.
+    """
+    _upgrade_to_head(pg_engine, _test_dsn())
+    ensure_worker_login(pg_engine)
+
+    with pg_engine.connect() as connection:
+        rows = connection.execute(
+            sa.text(
+                "SELECT column_name "
+                "FROM information_schema.role_column_grants "
+                "WHERE grantee = 'travel_worker' "
+                "AND table_name = 'conversations' "
+                "AND privilege_type = 'UPDATE'"
+            )
+        ).fetchall()
+
+    columns = {row[0] for row in rows}
+    assert columns == {"retention_state", "deletion_epoch"}, (
+        f"unexpected worker conversation UPDATE column set: {sorted(columns)}"
+    )
+
+    from backend.storage.postgres import create_engine
+
+    worker_engine = create_engine(require(worker_dsn(), "PG_WORKER_TEST_DSN"))
+    try:
+        with worker_engine.begin() as connection:
+            connection.execute(sa.text("SET LOCAL app.tenant = 'lock_probe'"))
+            # The lock the commit coordinator takes. Before `20260915_04` this
+            # raised `permission denied for table conversations`.
+            connection.execute(
+                sa.text(
+                    "SELECT retention_state, deletion_epoch FROM conversations "
+                    "FOR UPDATE"
+                )
+            )
+    finally:
+        worker_engine.dispose()
 
 
 def test_no_default_privileges_were_granted_to_the_worker(fresh_db, pg_engine):
@@ -1380,6 +1438,12 @@ def test_the_runtime_role_grants_are_the_enumerated_minimum(fresh_db, pg_engine)
         # inserts or deletes an episode.
         ("memory_episodes", "SELECT"),
         ("memory_episodes", "UPDATE"),
+        # The Working Memory slice (migration 20260915_03): the answer path
+        # reads the conversation's open state and dialogue reconstruction admits
+        # it, and deleting a conversation invalidates it in the tombstone's
+        # transaction. The runtime never inserts.
+        ("memory_summaries", "SELECT"),
+        ("memory_summaries", "UPDATE"),
     }, f"unexpected runtime grant set: {sorted(granted)}"
 
 
@@ -1503,6 +1567,13 @@ def test_the_worker_memory_grants_are_the_derived_minimum(fresh_db, pg_engine):
         ("memory_episodes", "SELECT"),
         ("memory_episodes", "INSERT"),
         ("memory_episodes", "UPDATE"),
+        # The Working Memory slice (migration 20260915_03). `SELECT` for the
+        # locked replacement read, `INSERT` for the first open state of a
+        # conversation, and `UPDATE` to replace it or move its status. No
+        # `DELETE`: working state is invalidated, not erased (ADR 0037).
+        ("memory_summaries", "SELECT"),
+        ("memory_summaries", "INSERT"),
+        ("memory_summaries", "UPDATE"),
     }, f"unexpected worker memory grant set: {sorted(granted)}"
 
 
@@ -1547,7 +1618,10 @@ def test_the_worker_memory_grants_round_trip(fresh_db, pg_engine):
                 "WHERE grantee = 'travel_worker' AND table_name LIKE 'memory\\_%'"
             )
         ).scalar()
-    assert restored == 20
+    assert restored == 23, (
+        "20 grants through the episodic slice, plus the Working Memory slice's "
+        "SELECT/INSERT/UPDATE on memory_summaries (migration 20260915_03)"
+    )
 
 
 def test_source_handling_table_rejects_duplicate_authority_key(fresh_db, pg_engine):
