@@ -42,6 +42,7 @@ class ContextArbiter:
         mode: ContextMode,
         rag_bundle: Optional[ContextBundle] = None,
         memory_selection: Optional[MemorySelection] = None,
+        current_memory_override_keys: tuple[str, ...] = (),
     ) -> GenerationContext:
         """Project source records into GenerationContext according to the planned mode."""
         if mode is ContextMode.NONE:
@@ -70,13 +71,18 @@ class ContextArbiter:
             )
 
         if mode is ContextMode.MEMORY_ONLY:
-            if memory_selection is None or not memory_selection.selected:
+            admitted = self._admit_memory(memory_selection, current_memory_override_keys)
+            if not admitted:
                 return GenerationContext(
                     prompt_context="",
                     citations=(),
                     sufficiency=ContextSufficiency.INSUFFICIENT,
                 )
-            prompt_context = self._memory_composer.compose(memory_selection)
+            admitted_selection = MemorySelection(
+                selected=admitted,
+                abstention_reason=memory_selection.abstention_reason if memory_selection else None,
+            )
+            prompt_context = self._memory_composer.compose(admitted_selection)
             return GenerationContext(
                 prompt_context=prompt_context,
                 citations=(),  # Memory is never a travel citation
@@ -84,8 +90,17 @@ class ContextArbiter:
             )
 
         if mode is ContextMode.BOTH:
-            # BOTH requires travel knowledge grounding plus user memory
+            # BOTH requires travel knowledge grounding plus user memory.
+            # Missing planned context returns INSUFFICIENT; no implicit mode downgrade.
             if rag_bundle is None or rag_bundle.insufficient_evidence:
+                return GenerationContext(
+                    prompt_context="",
+                    citations=(),
+                    sufficiency=ContextSufficiency.INSUFFICIENT,
+                )
+
+            admitted = self._admit_memory(memory_selection, current_memory_override_keys)
+            if not admitted:
                 return GenerationContext(
                     prompt_context="",
                     citations=(),
@@ -96,13 +111,13 @@ class ContextArbiter:
                 GenerationCitation(title=c.title, url=c.url)
                 for c in rag_bundle.citations
             )
-
             rag_part = f"{self.TRAVEL_HEADER}\n{rag_bundle.prompt_context.strip()}"
-            mem_part = ""
-            if memory_selection is not None and memory_selection.selected:
-                mem_part = self._memory_composer.compose(memory_selection).strip()
-
-            combined_prompt = f"{rag_part}\n\n{mem_part}" if mem_part else rag_part
+            admitted_selection = MemorySelection(
+                selected=admitted,
+                abstention_reason=memory_selection.abstention_reason if memory_selection else None,
+            )
+            mem_part = self._memory_composer.compose(admitted_selection).strip()
+            combined_prompt = f"{rag_part}\n\n{mem_part}"
 
             return GenerationContext(
                 prompt_context=combined_prompt,
@@ -111,3 +126,19 @@ class ContextArbiter:
             )
 
         raise ValueError(f"Unsupported ContextMode: {mode}")
+
+    def _admit_memory(
+        self,
+        memory_selection: Optional[MemorySelection],
+        current_memory_override_keys: tuple[str, ...],
+    ) -> tuple:
+        """Filter out overridden keys and enforce admission bound (max 8 records)."""
+        if memory_selection is None or not memory_selection.selected:
+            return ()
+        override_set = set(current_memory_override_keys)
+        filtered = [
+            item
+            for item in memory_selection.selected
+            if item.canonical_key not in override_set
+        ]
+        return tuple(filtered[:8])

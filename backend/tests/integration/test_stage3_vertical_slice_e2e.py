@@ -263,34 +263,6 @@ class RecordingRAGService:
         }
 
 
-class DynamicEvalPlanner(ContextPlanner):
-    """Context planner for vertical-slice evaluation.
-
-    Plans BOTH for travel recommendation queries and RAG_ONLY for general info queries.
-    """
-
-    def __init__(self, forced_mode: Optional[ContextMode] = None) -> None:
-        super().__init__(enforcement_enabled=True)
-        self.forced_mode = forced_mode
-
-    def plan(self, understanding: TurnUnderstandingResult) -> ContextPlan:
-        if self.forced_mode is not None:
-            return ContextPlan(proposed=self.forced_mode, effective=self.forced_mode)
-        if understanding.interaction_mode in (
-            InteractionMode.EXPLICIT_REMEMBER,
-            InteractionMode.EXPLICIT_CORRECT,
-            InteractionMode.EXPLICIT_FORGET,
-            InteractionMode.EXPLICIT_INSPECT,
-        ):
-            return ContextPlan(proposed=ContextMode.NONE, effective=ContextMode.NONE)
-
-        goal = (understanding.current_goal or "").lower()
-        # Recommendation / personalized hotel query -> BOTH
-        if any(w in goal for w in ("gợi ý", "khách sạn", "hotel", "theo gu", "sở thích", "phù hợp", "chuyến đi")):
-            return ContextPlan(proposed=ContextMode.BOTH, effective=ContextMode.BOTH)
-        return ContextPlan(proposed=ContextMode.RAG_ONLY, effective=ContextMode.RAG_ONLY)
-
-
 def _principal(owner: str = OWNER_EVAL) -> AuthenticatedPrincipal:
     return AuthenticatedPrincipal(
         owner_user_id=owner,
@@ -321,7 +293,12 @@ def create_orchestrator(
     read_engine = MemoryReadEngine(store, clock=utc_now)
     composer = MemoryContextComposer()
     arbiter = ContextArbiter(memory_composer=composer)
-    resolved_planner = planner if planner is not None else DynamicEvalPlanner()
+    resolved_planner = (
+        planner
+        if planner is not None
+        else ContextPlanner(enforcement_enabled=True)
+    )
+
 
     return ConversationOrchestrator(
         rag_service=rag_service,
@@ -680,9 +657,14 @@ def test_current_turn_input_overrides_remembered_preferences(migrated):
     rag_svc = RecordingRAGService()
     orchestrator = create_orchestrator(migrated, rag_svc)
 
-    # Store preference: budget travel
+    # Store two preferences: budget travel and quiet hotel
     orchestrator.handle_turn(
         message="Nhớ là tôi thích đi du lịch tiết kiệm nhé",
+        conversation_id=None,
+        principal=_principal(),
+    )
+    orchestrator.handle_turn(
+        message="Nhớ là tôi thích khách sạn yên tĩnh nhé",
         conversation_id=None,
         principal=_principal(),
     )
@@ -699,11 +681,26 @@ def test_current_turn_input_overrides_remembered_preferences(migrated):
     call = rag_svc.calls[-1]
     prompt_ctx = call["context"].prompt_context
 
-    # Context contains soft preference
-    assert "budget" in prompt_ctx
+    # Overridden dimension (budget_level) is suppressed from GenerationContext
+    assert "budget" not in prompt_ctx
+    # Non-overridden dimension (hotel_atmosphere = quiet) remains admitted
+    assert "quiet" in prompt_ctx
     assert "soft_preference" in prompt_ctx
     # Message explicitly requests luxury
     assert "luxury" in call["message"]
+
+    # Verify stored memory in PostgreSQL was NOT mutated by response-time suppression
+    store = PostgresMemoryStore(migrated)
+    engine = MemoryReadEngine(store, clock=utc_now)
+    sel = engine.select(
+        MemoryReadRequest(
+            owner_user_id=OWNER_EVAL,
+            requested_keys=("travel.constraint.budget_level",),
+        )
+    )
+    assert len(sel.selected) == 1
+    assert sel.selected[0].normalized_value == "budget"
+
 
 
 def test_explicit_inspect_end_to_end_on_live_postgres(migrated):

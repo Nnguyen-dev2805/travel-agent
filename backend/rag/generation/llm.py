@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union
+from typing import Optional
 
 # pyrefly: ignore [missing-import]
 from openai import OpenAI
@@ -15,7 +15,7 @@ from backend.generation.contracts import (
     GenerationContext,
     GenerationResult,
 )
-from backend.rag.contracts import ContextBundle
+
 
 logger = logging.getLogger("travel_agent_llm_generator")
 
@@ -76,45 +76,35 @@ class LLMGenerator:
             self._owned_client = None
 
     def generate(
-        self, user_message: str, context: Union[GenerationContext, ContextBundle]
+        self, user_message: str, context: GenerationContext
     ) -> GenerationResult:
-        """Generate an answer for the user message using the assembled context.
+        """Generate an answer for the user message using the assembled GenerationContext.
 
         Args:
             user_message: Raw user query string sent to the provider.
-            context: GenerationContext (or legacy ContextBundle for backward compatibility).
+            context: Source-neutral GenerationContext.
 
         Returns:
             GenerationResult with the reply, the configured model identity, and
             the citations carried through from the context.
         """
-        if isinstance(context, ContextBundle):
-            if context.insufficient_evidence:
-                return GenerationResult(
-                    reply=INSUFFICIENT_EVIDENCE_REPLY,
-                    model=settings.LLM_MODEL,
-                    citations=(),
-                )
-            gen_context = GenerationContext(
-                prompt_context=f"=== CẨM NANG DU LỊCH THAM KHẢO ===\n{context.prompt_context}",
-                citations=tuple(
-                    GenerationCitation(title=c.title, url=c.url) for c in context.citations
-                ),
-                sufficiency=ContextSufficiency.SUFFICIENT,
+        if not isinstance(context, GenerationContext):
+            raise TypeError(
+                f"context must be a GenerationContext, got {type(context).__name__}; "
+                "ContextBundle compatibility is restricted to RAGService.generate_answer()."
             )
-        else:
-            gen_context = context
 
-        if gen_context.sufficiency is ContextSufficiency.INSUFFICIENT:
+        if context.sufficiency is ContextSufficiency.INSUFFICIENT:
             return GenerationResult(
                 reply=INSUFFICIENT_EVIDENCE_REPLY,
                 model=settings.LLM_MODEL,
                 citations=(),
             )
 
-        if gen_context.prompt_context.strip():
-            system_prompt = PROMPT_TEMPLATE.format(context=gen_context.prompt_context.strip())
+        if context.prompt_context.strip():
+            system_prompt = PROMPT_TEMPLATE.format(context=context.prompt_context.strip())
         else:
+
             system_prompt = (
                 "Bạn là Trợ lý AI Du lịch Việt Nam thông minh, thân thiện và am hiểu địa phương. "
                 "Hãy trả lời câu hỏi của người dùng bằng Tiếng Việt một cách chính xác, hữu ích và tự nhiên."
@@ -138,5 +128,5 @@ class LLMGenerator:
         return GenerationResult(
             reply=reply_content,
             model=settings.LLM_MODEL,
-            citations=gen_context.citations,
+            citations=context.citations,
         )

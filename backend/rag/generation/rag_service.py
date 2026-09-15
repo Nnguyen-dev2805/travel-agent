@@ -116,32 +116,24 @@ class RAGService:
         return bundle
 
     def generate_from_context(
-        self, user_message: str, context: Union[GenerationContext, ContextBundle]
+        self, user_message: str, context: GenerationContext
     ) -> GenerationResult:
-        """Generate a response from a neutral GenerationContext (or legacy ContextBundle).
+        """Generate a response from a neutral GenerationContext.
 
         Returns a source-neutral GenerationResult.
         """
-        if isinstance(context, ContextBundle):
-            sufficiency = (
-                ContextSufficiency.INSUFFICIENT
-                if context.insufficient_evidence
-                else ContextSufficiency.SUFFICIENT
+        if not isinstance(context, GenerationContext):
+            raise TypeError(
+                f"context must be a GenerationContext, got {type(context).__name__}; "
+                "ContextBundle compatibility is restricted to generate_answer()."
             )
-            citations = tuple(
-                GenerationCitation(title=c.title, url=c.url)
-                for c in context.citations
-            )
-            gen_context = GenerationContext(
-                prompt_context=f"=== CẨM NANG DU LỊCH THAM KHẢO ===\n{context.prompt_context}",
-                citations=citations,
-                sufficiency=sufficiency,
-            )
-        else:
-            gen_context = context
+
+        user_text = user_message.strip()
+        if not user_text:
+            raise ValueError("User message content cannot be empty.")
 
         try:
-            generated = self.generator.generate(user_message.strip(), gen_context)
+            generated = self.generator.generate(user_text, context)
         except Exception as error:
             emit_event(
                 EventName.MODEL_CALL_FAILED,

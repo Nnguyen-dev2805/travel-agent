@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Version | 0.7 |
+| Version | 0.8 |
 | Date | 2026-09-12 |
-| Last amended | 2026-09-14 |
+| Last amended | 2026-09-15 |
 | Change class | Level 3 - Architecture Design |
 | Decision owner | Repository owner |
 | Scope | Chat-first, PostgreSQL-backed Agent Memory covering turn understanding, explicit/inferred write, consolidation, lifecycle, read, use, evaluation, and multi-conversation behavior |
@@ -63,8 +63,13 @@ stage-required-fact, retention-assignment, suppression-generation, and version-
 reference contracts and was approved on 2026-09-14. Version 0.7 then froze the
 final Task-6 contract details — typed source validity and its producer boundary,
 plus explicit ownership of deleted-source evidence suppression — and was
-approved on 2026-09-14. Target behavior remains unimplemented until the approved
-governing implementation plan is executed and staged verification is satisfied.
+approved on 2026-09-14. Version 0.8 closes the Task-10 gap discovered
+during implementation review: normal-query Memory need must resolve to exact
+governed keys, source-plan fulfillment must fail closed, current-turn precedence
+must be enforced before Memory composition, and the neutral generation seam must
+terminate RAG-owned compatibility at the facade. Version 0.8 was approved by the
+repository owner on 2026-09-15 and supersedes v0.7 as the current architecture
+authority.
 
 ## Problem Statement
 
@@ -351,7 +356,8 @@ topics
 entities
 current_assertions
 current_overrides
-memory_namespaces_needed
+requested_memory_keys
+current_memory_override_keys
 temporal_context
 needs_clarification
 reason_codes
@@ -369,6 +375,29 @@ deterministic safety checks
 
 The model may interpret semantics. It cannot authorize durable mutation, lower
 sensitivity, activate Memory, choose SQL, or select a database operation.
+
+For Stage-3 semantic Memory use, `requested_memory_keys` is the structured
+personalization-need contract. Every value is an exact canonical key from the
+active semantic registry. It is not a prefix, namespace fragment, free-text
+topic, or fuzzy search term. `TurnUnderstanding` owns the semantic decision that
+a normal query needs one or more Memory keys; downstream orchestration may
+validate and carry that set, but must not reconstruct it with substring matching
+or silently replace an unresolved/unknown request with every registry key.
+
+`current_memory_override_keys` is likewise a closed tuple of exact canonical
+keys. It records only remembered dimensions that the current user turn
+explicitly overrides for this response. The current user message remains the
+source of the replacement value; this field exists so response-time precedence
+can deterministically suppress same-key remembered soft state without persisting
+a new Memory or duplicating the user message into Memory context.
+
+A broad personalization request may intentionally resolve to several or all
+currently governed semantic keys only when `TurnUnderstanding` positively
+classifies that broad request. Failure to resolve an intended Memory dimension
+is never represented by "all keys". Deterministic interpretation remains
+preferred; a later bounded structured classifier may improve recall under the
+existing closed-schema rules, but absence or failure of that classifier cannot
+widen Memory access.
 
 ### TurnDisposition
 
@@ -751,10 +780,48 @@ injects deleted-source evidence. This ownership split is mandatory because
 deleted-source leakage is a zero-tolerance failure even when value retention is
 correct.
 
-`ContextPlanner` proposes only `none | rag_only | memory_only | both`.
-`ContextArbiter` is deterministic final authority over admitted sources and
-budget; `MemoryContextComposer` emits typed context, never raw evidence as
-instructions.
+`ContextPlanner` proposes only `none | rag_only | memory_only | both`. The plan
+also carries the exact `requested_memory_keys` that execution is authorized to
+read. Those keys come from validated `TurnUnderstanding` semantics; the planner
+does not discover additional keys by scanning strings, prefixes, or free-text
+topics. An empty or invalid key set cannot be widened into all registry keys.
+
+`ContextArbiter` is deterministic final authority over admitted sources,
+response-time precedence, and the bounded Memory admission contract;
+`MemoryContextComposer` emits typed context, never raw evidence as instructions.
+For the semantic Stage-3 slice, the following source-plan fulfillment contract
+is normative:
+
+| Effective mode | Required context | Result when required context is missing |
+| --- | --- | --- |
+| `none` | none | `NOT_REQUIRED` |
+| `rag_only` | bounded RAG context | `INSUFFICIENT` |
+| `memory_only` | at least one governed selected Memory | `INSUFFICIENT` |
+| `both` | both bounded RAG and governed selected Memory | `INSUFFICIENT` if either source is missing |
+
+An effective `both` plan therefore never silently degrades to RAG-only or
+Memory-only. If fallback to a different mode is desired, `ContextPlanner` must
+choose that mode explicitly before execution.
+
+Current-turn precedence is enforced before Memory composition. If
+`current_memory_override_keys` contains a selected Memory's canonical key, that
+remembered item is excluded from response context for the current turn. This is
+response-time suppression only: it neither mutates nor revokes the stored
+Memory. The raw current user message is not copied into Memory context; it
+remains the generation request and therefore supplies the overriding value.
+
+Task-9 read selection remains bounded to eight records, and `ContextArbiter`
+must independently enforce that no more than eight governed Memory records enter
+`GenerationContext`. A violated upstream bound is an internal contract failure,
+not permission to admit an unbounded selection.
+
+Source-specific generation compatibility terminates at the RAG facade.
+`RAGService.generate_answer(...)` may continue converting its RAG-owned
+`ContextBundle` into the neutral contract for backward compatibility.
+`generate_from_context(...)` and the lower-level generator consume only
+`GenerationContext`; neither accepts or imports `ContextBundle`. This keeps one
+conversion owner and prevents RAG evidence semantics from leaking below the
+neutral generation seam.
 
 Dependency direction:
 
@@ -776,11 +843,16 @@ or RAG implementations.
 1. Authenticate and resolve/create owner-scoped conversation.
 2. Allocate durable turn + extraction outbox intent.
 3. Reconstruct deterministic structural `DialogueState` from the current conversation.
-4. Interpret the current message against that state and produce validated `TurnSemantics`.
+4. Interpret the current message against that state and produce validated
+   `TurnSemantics`, including exact `requested_memory_keys` and any exact
+   `current_memory_override_keys`.
 5. Route `NORMAL_QUERY`.
-6. ContextPlanner chooses among the source modes enabled for the current stage.
-7. Execute Memory/RAG reads; `both` may run in parallel.
-8. ContextArbiter admits/rejects evidence and enforces budget.
+6. ContextPlanner chooses among the source modes enabled for the current stage
+   and carries only those validated exact Memory keys into the plan.
+7. Execute Memory/RAG reads; `both` may run in parallel. Memory Read receives
+   only the exact keys authorized by the plan.
+8. ContextArbiter enforces planned-source fulfillment, current-turn precedence,
+   and the bounded Memory admission contract before composition.
 9. Compose controlled context and generate response.
 10. Terminal normal-turn transaction stores family-specific source handling and
     completes/releases or fails/cancels the turn/outbox together.
@@ -1188,10 +1260,12 @@ definition after publication.
 
 Extend the Stage-2 `MemoryLifecyclePolicy` across read eligibility, add the exact
 structured `MemoryReadEngine`, and deliver Chat-native `explicit_inspect` through
-that governed read path. Expand the existing ContextPlanner so
-`memory_only|both` become reachable, add ContextArbiter and
-MemoryContextComposer, and prove the full explicit semantic vertical slice
-before inferred activation.
+that governed read path. Expand `TurnUnderstanding` so a normal query can emit
+exact validated `requested_memory_keys` and current-turn override keys; expand
+the existing ContextPlanner so `memory_only|both` become reachable from those
+semantics without fuzzy reconstruction; add ContextArbiter and
+MemoryContextComposer; fail closed when an effective planned source is absent;
+and prove the full explicit semantic vertical slice before inferred activation.
 
 ### Stage 4 — Background Semantic Formation/Activation
 
@@ -1319,7 +1393,22 @@ The target architecture must preserve these outcomes:
     generation under the assertion lock; `expected_version_id` remains a CAS
     precondition distinct from semantic `reference_version_id`; and
 25. semantic-registry-v2 normalization is data-driven from each key definition's
-    governed values and synonyms rather than a hotel-specific execution path.
+    governed values and synonyms rather than a hotel-specific execution path;
+26. a normal query that needs semantic Memory carries exact registry-v2
+    `requested_memory_keys`; unknown/unresolved Memory intent cannot widen to
+    every key and downstream orchestration does not perform fuzzy key matching;
+27. effective source plans are fulfilled exactly: `rag_only` requires RAG,
+    `memory_only` requires selected Memory, and `both` requires both; a missing
+    planned source yields controlled `INSUFFICIENT` rather than silent mode
+    degradation;
+28. current-turn override keys suppress same-key remembered soft context for the
+    current response without mutating stored Memory;
+29. no more than eight governed semantic Memory records can enter final
+    generation context, even if an upstream caller violates the Task-9 bound;
+    and
+30. RAG-owned `ContextBundle` compatibility terminates at
+    `RAGService.generate_answer()`; neutral `generate_from_context()` and the
+    lower-level generator consume only `GenerationContext`.
 
 ## Relationship to the 2026-09-10 Proposal
 
@@ -1383,6 +1472,15 @@ pure lifecycle policy, and names the evidence/provenance read boundary as the
 owner that suppresses deleted-source raw evidence even when a `USER_DURABLE`
 normalized value remains eligible. Version 0.7 supersedes v0.6 as the current
 approved architecture record for Task 6 and the remaining staged program.
+
+Version 0.8 was **Approved on 2026-09-15 by the repository owner**. It is a focused Task-10
+correctness amendment, not a new Memory family or retrieval architecture. It
+closes the production reachability gap for Memory use by making exact requested
+keys part of turn semantics and the context plan; makes planned-source
+fulfillment fail closed; assigns deterministic current-turn precedence and the
+eight-record admission guard to `ContextArbiter`; and closes the neutral
+generation seam below the RAG compatibility facade. Version 0.8 supersedes v0.7
+as the current approved architecture authority.
 
 ## References
 

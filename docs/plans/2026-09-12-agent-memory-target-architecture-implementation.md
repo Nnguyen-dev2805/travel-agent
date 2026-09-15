@@ -20,19 +20,19 @@ structured context to generation.
 PostgreSQL 16, pytest, existing RAG/generation seams. pgvector/full-text are not
 introduced unless Stage 6 evidence proves structured retrieval insufficient.
 
-**Spec:** [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.7 (Approved 2026-09-14)
+**Spec:** [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.8 (Approved 2026-09-15)
 
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Plan version | 0.15 — Task-10 rollout, bounded context budget, and neutral-generation compatibility clarification |
+| Plan version | 0.16 — Task-10 production Memory-reachability and context-authority remediation |
 | Date | 2026-09-12 |
 | Last amended | 2026-09-15 |
-| Specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.7, Approved 2026-09-14 |
+| Specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.8, Approved 2026-09-15 |
 | Required ADRs | ADR 0036, 0037, 0038, 0039, 0040 — Accepted 2026-09-12 |
 | Execution owner | Coding agent under repository-owner instruction |
 | Decision owner | Repository owner |
-| Approval | Repository owner approved plan v0.15 on 2026-09-15 as a Task-10 execution-contract clarification; spec v0.7 and ADR-level architecture remain unchanged. |
+| Approval | Repository owner approved exact spec v0.8 and plan v0.16 on 2026-09-15 for the focused Task-10 remediation. |
 | Scope | Stages 1–7 of the target architecture, with independent rollout gates and evidence-based stop conditions |
 | Verification | Task-local CORE tests gate architectural progression. Deferred hardening remains mandatory before final production-readiness proof, including required PostgreSQL integration tests without required skips, exhaustive ADR validation where specified, evaluation gates, full backend suite, frontend regression suite, `compileall`, `git diff --check`, and exact change-set review. |
 
@@ -212,9 +212,9 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 
 ## Acceptance-Criteria Traceability
 
-This table is the execution/review map for the 25 acceptance criteria in the
-approved governing specification v0.7. The criterion count is unchanged from
-approved v0.6; v0.7 only tightens the contracts mapped below. A criterion is not considered implemented merely
+This table is the execution/review map for the 30 acceptance criteria in draft
+specification v0.8. Criteria 1–25 preserve approved v0.7; criteria 26–30 are the
+focused Task-10 remediation delta. A criterion is not considered implemented merely
 because a task mentions the same concept; the mapped task must produce the
 corresponding verification evidence and Task 16 must confirm the final
 cross-stage behavior.
@@ -246,6 +246,11 @@ cross-stage behavior.
 | 23 | Persisted source handling uses the exact governed append-only `memory_source_handling` schema, tenant RLS, unique `(source_outbox_id, family)` authority, and no product-path update/delete | 6, 16 |
 | 24 | Suppression generation starts at `1`; governed work carries a generation stamp; storage-owned `REVOKE` works for single/set and atomically advances generation; CAS `expected_version_id` stays distinct from semantic `reference_version_id` | 6, 16 |
 | 25 | Semantic-registry-v2 normalization is data-driven from governed per-key values/synonyms while existing hotel constants remain compatibility aliases only, never special execution branches | 6, 16 |
+| 26 | Normal-query Memory need resolves to exact registry-v2 keys; unknown/unresolved intent cannot widen to all keys and downstream orchestration performs no fuzzy key matching | 10, 16 |
+| 27 | Effective `rag_only`/`memory_only`/`both` plans require exactly their planned sources; missing planned context yields `INSUFFICIENT` without silent mode degradation | 10, 16 |
+| 28 | Current-turn exact override keys suppress same-key remembered soft context for that response without mutating stored Memory | 10, 16 |
+| 29 | `ContextArbiter` independently enforces the maximum eight admitted semantic Memory records | 10, 16 |
+| 30 | `ContextBundle` compatibility exists only at `RAGService.generate_answer()`; neutral generation seams consume only `GenerationContext` | 10, 16 |
 
 ---
 
@@ -1200,10 +1205,11 @@ class MemoryReadEngine:
 
 ## Task 10: Stage 3 Context Planning, Memory Use, and Explicit Inspect
 
-**Files:** Modify `context_planner.py`; create `context_arbiter.py`,
+**Files:** Modify `turn_models.py`, `turn_understanding.py`,
+`context_planner.py`; create/modify `context_arbiter.py`,
 `backend/memory/context.py`, `backend/generation/__init__.py`, and
 `backend/generation/contracts.py`; modify `explicit_actions.py`, orchestrator,
-runtime container, config, `backend/rag/contracts.py`,
+runtime container, config, `.env.example`, `DEVELOPMENT.md`, `backend/rag/contracts.py`,
 `backend/rag/generation/llm.py`, `backend/rag/generation/rag_service.py`, and
 `backend/rag/evaluation/runtime.py`; add planner/arbiter/composer,
 generation-contract, RAG-contract/regression, and E2E tests.
@@ -1294,6 +1300,91 @@ source-neutral; final-answer generation must not return a RAG-owned result type.
    runtime/evaluation/test caller has migrated to `GenerationResult`. There is
    no deprecated compatibility phase: migration first, removal second, then a
    repository search must show no live `GeneratedAnswer` import/reference.
+
+**Task-10 v0.16 remediation delta — blocking contracts:**
+
+The v0.15 executor proved that the downstream branches can run when a test
+forces a context mode, but review found that the normal production path cannot
+derive Memory use from a normal query. The following contracts close that gap
+without introducing another planner/service layer:
+
+1. `TurnUnderstandingResult` replaces the ambiguous
+   `memory_namespaces_needed` execution input with
+   `requested_memory_keys: tuple[str, ...]`. Values are exact canonical
+   registry-v2 keys. `TurnUnderstanding` owns the semantic decision that a
+   normal query requires Memory. A broad personalization request may
+   intentionally resolve to multiple/all governed keys, but failed or unknown
+   resolution returns no Memory keys; it never defaults to all keys.
+2. Add `current_memory_override_keys: tuple[str, ...]` as exact canonical keys
+   for remembered dimensions explicitly overridden by the current request.
+   Keep the existing generic `current_overrides` field for dialogue-state
+   semantics such as "change the date"; it is not a Memory-key substitute.
+3. `ContextPlan` carries the exact requested Memory keys alongside
+   `proposed/effective` mode. Orchestration passes those exact keys directly to
+   `MemoryReadRequest`. Remove orchestrator substring/prefix matching and remove
+   the fallback from an unmatched Memory request to `registry_keys()`.
+4. The Stage-3 remediation stays deterministic-first and adds no provider call
+   to the normal-query hot path. Exact-key read intent may use a small closed,
+   code-reviewed mapping over already-governed Travel-Agent semantics; matching
+   must be boundary-aware/typed rather than substring-based. Anything the
+   closed mapping cannot resolve omits Memory rather than guessing. Model-based
+   read-intent recall is future evaluated scope, not a Task-10 blocker.
+5. `ContextArbiter` enforces exact source-plan fulfillment and response-time
+   precedence: `RAG_ONLY` requires RAG, `MEMORY_ONLY` requires selected Memory,
+   and `BOTH` requires both. Missing planned context returns
+   `ContextSufficiency.INSUFFICIENT`; no implicit mode downgrade is allowed.
+   Before composing Memory, filter out any selected item whose canonical key is
+   in `current_memory_override_keys`. This is response-only suppression and does
+   not mutate canonical Memory.
+6. `ContextArbiter` independently refuses/admission-bounds Memory above eight
+   records. `MemoryReadEngine` remains the ranking owner; the arbiter does not
+   invent a second ranking scheme. An upstream over-bound selection is an
+   internal contract violation and must never place a ninth Memory record in
+   `GenerationContext`.
+7. Close the generation seam exactly once: `RAGService.generate_answer()` is
+   the only compatibility boundary allowed to convert `ContextBundle` to
+   `GenerationContext`. `RAGService.generate_from_context()` and
+   `LLMGenerator.generate()` accept only `GenerationContext`; tests and direct
+   callers migrate accordingly. No `Union[GenerationContext, ContextBundle]`
+   remains below the facade.
+8. Canonical configuration docs must describe `MEMORY_READ_ENABLED` and
+   `MEMORY_USE_ENABLED`, their default `False` rollout state, and the invariant
+   that use cannot be enabled before read.
+
+The checked v0.15 bullets below are historical implementation evidence only.
+They do not prove the v0.16 remediation contracts; the new RED/GREEN evidence
+below must pass before Task 10 returns to verification.
+
+- [x] RED production-path test starts from a normal user query and the real
+  `TurnUnderstanding -> ContextPlanner` chain, proving a governed
+  personalization request can produce `MEMORY_ONLY` or `BOTH` without an
+  injected/forced planner.
+- [x] RED tests prove exact key propagation: unknown/unresolved Memory intent
+  yields no requested keys; no fuzzy/prefix/substring match occurs; no failed
+  match widens to all registry keys; an explicitly broad personalization intent
+  may select the closed registry set deliberately.
+- [x] RED tests prove `ContextPlan` carries the exact key tuple into
+  `MemoryReadRequest` unchanged and the orchestrator contains no independent
+  key-discovery policy.
+- [x] RED arbiter truth table proves missing RAG in `RAG_ONLY`, missing Memory in
+  `MEMORY_ONLY`, and either missing source in `BOTH` yields
+  `INSUFFICIENT`; `NONE` remains `NOT_REQUIRED`.
+- [x] RED precedence test proves a selected remembered item is omitted when its
+  canonical key appears in `current_memory_override_keys`, while the stored
+  Memory remains unchanged and other selected keys remain available.
+- [x] RED admission-bound test supplies nine selected Memory records and proves
+  the ninth can never reach `GenerationContext`; the arbiter does not re-rank
+  the valid Task-9 ordering.
+- [x] RED dependency/contract tests prove `generate_from_context()` and
+  `LLMGenerator.generate()` reject/remove `ContextBundle` compatibility and a
+  repository search finds the conversion only in `generate_answer()`.
+- [x] Replace the forced `DynamicEvalPlanner` proof for the production
+  reachability claim with at least one vertical-slice test using the real
+  `TurnUnderstanding` and `ContextPlanner`. Forced planners may remain only for
+  isolated executor truth-table tests and must not count as production wiring
+  evidence.
+- [x] Update `.env.example` and `DEVELOPMENT.md` for the two Memory Read/Use
+  rollout flags; keep their checked-in defaults disabled.
 
 - [x] RED fixtures cover `NONE`, `RAG_ONLY`, `MEMORY_ONLY`, `BOTH`, current-user
   override, Memory unavailable, RAG unavailable, and prompt-injection-like stored
@@ -1575,7 +1666,7 @@ npm --prefix frontend test -- --run
   the frontend infrastructure failure.
 
 - [ ] Final review compares the exact Git-visible change set plus untracked files
-  with all 25 spec acceptance criteria and ADR 0036–0040.
+  with all 30 spec acceptance criteria and ADR 0036–0040.
 
 ## Rollout Order
 
@@ -1748,8 +1839,19 @@ the RAG-owned `GeneratedAnswer` is removed only after all callers migrate to the
 neutral generation result. It adds no tokenizer dependency, Memory family,
 retrieval mode, or ADR-level authority.
 
-Spec v0.7 plus this exact plan v0.15 are the current approved execution authority
-for the remaining staged Agent Memory program. Plan v0.15 supersedes v0.14 as
-current execution authority.
+Plan version 0.16 was **Approved on 2026-09-15 by the repository owner**. It is a focused Task-10
+remediation drafted from review findings, not a new Memory family or retrieval
+architecture. It closes normal-query Memory reachability with exact requested
+keys, removes fuzzy/default-all key discovery from orchestration, makes planned
+source fulfillment fail closed, enforces current-turn precedence and the
+eight-record Memory admission bound in `ContextArbiter`, closes the neutral
+generation seam below `generate_answer()`, and requires canonical documentation
+for the Read/Use rollout flags. It also requires production-path evidence that
+uses the real `TurnUnderstanding -> ContextPlanner` chain rather than a forced
+test planner.
+
+Approved spec v0.8 plus this exact plan v0.16 are the current execution authority
+for the remaining staged Agent Memory program. Plan v0.16 supersedes v0.15 as
+current execution authority for Task 10 and later stages.
 Task checkbox state is execution evidence only; it does not replace task review,
 verification, or repository-owner change-set review.

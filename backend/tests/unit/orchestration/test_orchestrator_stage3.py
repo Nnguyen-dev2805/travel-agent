@@ -301,7 +301,11 @@ def test_normal_query_with_enforcement_enabled_and_mode_memory_only():
             super().__init__(enforcement_enabled=True)
 
         def plan(self, understanding: TurnUnderstandingResult) -> ContextPlan:
-            return ContextPlan(proposed=ContextMode.MEMORY_ONLY, effective=ContextMode.MEMORY_ONLY)
+            return ContextPlan(
+                proposed=ContextMode.MEMORY_ONLY,
+                effective=ContextMode.MEMORY_ONLY,
+                requested_memory_keys=understanding.requested_memory_keys,
+            )
 
     orchestrator = ConversationOrchestrator(
         rag_service=rag_svc,
@@ -353,7 +357,11 @@ def test_normal_query_with_enforcement_enabled_and_mode_both():
             super().__init__(enforcement_enabled=True)
 
         def plan(self, understanding: TurnUnderstandingResult) -> ContextPlan:
-            return ContextPlan(proposed=ContextMode.BOTH, effective=ContextMode.BOTH)
+            return ContextPlan(
+                proposed=ContextMode.BOTH,
+                effective=ContextMode.BOTH,
+                requested_memory_keys=understanding.requested_memory_keys,
+            )
 
     orchestrator = ConversationOrchestrator(
         rag_service=rag_svc,
@@ -381,7 +389,7 @@ def test_normal_query_with_enforcement_enabled_and_mode_both():
 
 
 def test_memory_use_disabled_skips_memory_in_both_mode():
-    """When memory_use_enabled=False, memory is not retrieved even if mode is BOTH."""
+    """When memory_use_enabled=False, memory is not retrieved; BOTH mode yields INSUFFICIENT."""
     conv_svc = FakeConversationService([])
     rag_svc = FakeRAGService()
 
@@ -392,7 +400,11 @@ def test_memory_use_disabled_skips_memory_in_both_mode():
             super().__init__(enforcement_enabled=True)
 
         def plan(self, understanding: TurnUnderstandingResult) -> ContextPlan:
-            return ContextPlan(proposed=ContextMode.BOTH, effective=ContextMode.BOTH)
+            return ContextPlan(
+                proposed=ContextMode.BOTH,
+                effective=ContextMode.BOTH,
+                requested_memory_keys=understanding.requested_memory_keys,
+            )
 
     orchestrator = ConversationOrchestrator(
         rag_service=rag_svc,
@@ -412,5 +424,53 @@ def test_memory_use_disabled_skips_memory_in_both_mode():
 
     assert rag_svc.generate_from_context_called is True
     assert mock_read_engine.select.called is False
-    assert "CẨM NANG DU LỊCH THAM KHẢO" in rag_svc.last_context.prompt_context
-    assert "travel.preference" not in rag_svc.last_context.prompt_context
+    # In BOTH mode, missing memory yields INSUFFICIENT without silent downgrade
+    assert rag_svc.last_context.sufficiency is ContextSufficiency.INSUFFICIENT
+
+
+def test_production_chain_without_forced_planner_routes_to_both():
+    """Real TurnUnderstanding -> ContextPlanner chain naturally routes personalization query to BOTH."""
+    conv_svc = FakeConversationService([])
+    rag_svc = FakeRAGService()
+
+    now = utc_now()
+    item = SelectedMemory(
+        version_id="ver_1",
+        canonical_key="travel.preference.hotel_atmosphere",
+        normalized_value="quiet",
+        scope=MemoryScope.USER,
+        scope_id=OWNER,
+        authority=Authority.EXPLICIT_SAVE,
+        valid_from=now,
+    )
+    mock_read_engine = MagicMock()
+    mock_read_engine.select.return_value = MemorySelection(
+        selected=(item,),
+        abstention_reason=None,
+    )
+
+    orchestrator = ConversationOrchestrator(
+        rag_service=rag_svc,
+        conversation_service_provider=lambda: conv_svc,
+        context_planner=ContextPlanner(enforcement_enabled=True),
+        context_arbiter=ContextArbiter(),
+        memory_read_enabled=True,
+        memory_use_enabled=True,
+        memory_read_engine=mock_read_engine,
+    )
+
+    outcome = orchestrator.handle_turn(
+        message="Gợi ý khách sạn theo gu của tôi",
+        conversation_id=CONVERSATION,
+        principal=_real_principal(),
+    )
+
+    assert rag_svc.generate_from_context_called is True
+    assert mock_read_engine.select.called is True
+    call_req = mock_read_engine.select.call_args[0][0]
+    assert call_req.requested_keys == (
+        "travel.preference.hotel_atmosphere",
+        "travel.preference.accommodation_type",
+        "travel.constraint.budget_level",
+    )
+    assert rag_svc.last_context.sufficiency is ContextSufficiency.SUFFICIENT

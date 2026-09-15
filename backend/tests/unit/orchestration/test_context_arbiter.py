@@ -206,3 +206,84 @@ def test_arbiter_both_insufficient_rag_yields_insufficient():
 
     # If the travel grounding source failed, whole context is insufficient
     assert ctx.sufficiency is ContextSufficiency.INSUFFICIENT
+
+
+def test_arbiter_both_missing_or_empty_memory_yields_insufficient():
+    """In BOTH mode, missing or empty memory yields INSUFFICIENT; no silent downgrade."""
+    from backend.orchestration.context_arbiter import ContextArbiter
+
+    arbiter = ContextArbiter()
+    bundle = _sample_rag_bundle(insufficient_evidence=False)
+
+    # None memory_selection
+    ctx_none = arbiter.arbitrate(ContextMode.BOTH, rag_bundle=bundle, memory_selection=None)
+    assert ctx_none.sufficiency is ContextSufficiency.INSUFFICIENT
+
+    # Empty memory_selection
+    empty_sel = MemorySelection(selected=(), abstention_reason=AbstentionReason.NO_ELIGIBLE_MEMORY)
+    ctx_empty = arbiter.arbitrate(ContextMode.BOTH, rag_bundle=bundle, memory_selection=empty_sel)
+    assert ctx_empty.sufficiency is ContextSufficiency.INSUFFICIENT
+
+
+def test_arbiter_current_memory_override_keys_suppresses_selected_item():
+    """Arbiter suppresses selected memory item whose canonical key is in override keys."""
+    from backend.orchestration.context_arbiter import ContextArbiter
+
+    arbiter = ContextArbiter()
+    mem1 = SelectedMemory(
+        version_id="ver-1",
+        canonical_key="travel.constraint.budget_level",
+        normalized_value="budget",
+        scope=MemoryScope.USER,
+        scope_id="user-1",
+        authority=Authority.EXPLICIT_SAVE,
+        valid_from=datetime(2026, 9, 15, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    mem2 = SelectedMemory(
+        version_id="ver-2",
+        canonical_key="travel.preference.hotel_atmosphere",
+        normalized_value="quiet",
+        scope=MemoryScope.USER,
+        scope_id="user-1",
+        authority=Authority.EXPLICIT_SAVE,
+        valid_from=datetime(2026, 9, 15, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    sel = MemorySelection(selected=(mem1, mem2))
+
+    ctx = arbiter.arbitrate(
+        ContextMode.MEMORY_ONLY,
+        memory_selection=sel,
+        current_memory_override_keys=("travel.constraint.budget_level",),
+    )
+
+    assert ctx.sufficiency is ContextSufficiency.SUFFICIENT
+    assert "quiet" in ctx.prompt_context
+    assert "budget" not in ctx.prompt_context
+
+
+def test_arbiter_admission_bound_caps_at_8_items():
+    """Arbiter enforces max 8 items; 9th selected record never reaches GenerationContext."""
+    from backend.orchestration.context_arbiter import ContextArbiter
+
+    arbiter = ContextArbiter()
+    items = tuple(
+        SelectedMemory(
+            version_id=f"ver-{i}",
+            canonical_key=f"key_{i}",
+            normalized_value=f"val_{i}",
+            scope=MemoryScope.USER,
+            scope_id="user-1",
+            authority=Authority.EXPLICIT_SAVE,
+            valid_from=datetime(2026, 9, 15, 12, 0, 0, tzinfo=timezone.utc),
+        )
+        for i in range(1, 10)  # 9 items
+    )
+    assert len(items) == 9
+    sel = MemorySelection(selected=items)
+
+    ctx = arbiter.arbitrate(ContextMode.MEMORY_ONLY, memory_selection=sel)
+    assert ctx.sufficiency is ContextSufficiency.SUFFICIENT
+    # Verify items 1..8 are in context, but 9 is NOT
+    for i in range(1, 9):
+        assert f"val_{i}" in ctx.prompt_context
+    assert "val_9" not in ctx.prompt_context

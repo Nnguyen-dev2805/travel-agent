@@ -227,7 +227,8 @@ def test_understanding_result_defaults_to_no_semantic_claims():
     assert result.entities == ()
     assert result.current_assertions == ()
     assert result.current_overrides == ()
-    assert result.memory_namespaces_needed == ()
+    assert result.requested_memory_keys == ()
+    assert result.current_memory_override_keys == ()
     assert result.temporal_context is None
     assert result.needs_clarification is False
     assert result.reason_codes == ()
@@ -288,3 +289,8 @@ def test_an_enforced_plan_is_not_shadow():
     plan = ContextPlan(proposed=ContextMode.RAG_ONLY, effective=ContextMode.RAG_ONLY)
 
     assert plan.is_shadow is False
+
+
+def test_context_plan_defaults_to_empty_requested_memory_keys():
+    plan = ContextPlan(proposed=ContextMode.RAG_ONLY, effective=ContextMode.RAG_ONLY)
+    assert plan.requested_memory_keys == ()

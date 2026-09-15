@@ -91,16 +91,11 @@ def _non_empty_bundle() -> ContextBundle:
     )
 
 
-def test_insufficient_evidence_returns_fixed_answer_without_provider_call():
-    """The zero-evidence path never touches the provider and returns the fixed reply."""
+def test_generator_generate_rejects_context_bundle_with_type_error():
+    """LLMGenerator.generate() rejects ContextBundle with TypeError (Plan v0.16 seam clean break)."""
     generator = LLMGenerator(client=FakeLLMClient())
-
-    answer = generator.generate("câu hỏi", _insufficient_bundle())
-
-    assert isinstance(answer, GenerationResult)
-    assert answer.reply == INSUFFICIENT_REPLY
-    assert answer.model == settings.LLM_MODEL
-    assert answer.citations == ()
+    with pytest.raises(TypeError, match="GenerationContext"):
+        generator.generate("câu hỏi", _insufficient_bundle())  # type: ignore[arg-type]
 
 
 def test_generation_context_insufficient_returns_fixed_answer():
@@ -116,12 +111,20 @@ def test_generation_context_insufficient_returns_fixed_answer():
     assert answer.citations == ()
 
 
-def test_non_empty_bundle_sends_prompt_and_provider_kwargs():
+def test_generation_context_sends_prompt_and_provider_kwargs():
     """System message contains prompt template plus context."""
     client = FakeLLMClient()
     generator = LLMGenerator(client=client)
 
-    generator.generate("Hà Nội có gì đẹp?", _non_empty_bundle())
+    ctx = GenerationContext(
+        prompt_context="[Nguồn 1: T1]\ntext1\n\n---\n\n[Nguồn 2: T2]\ntext2",
+        citations=(
+            GenerationCitation(title="T1", url="https://u1"),
+            GenerationCitation(title="T2", url="https://u2"),
+        ),
+        sufficiency=ContextSufficiency.SUFFICIENT,
+    )
+    generator.generate("Hà Nội có gì đẹp?", ctx)
 
     create_kwargs = client.chat.completions.create_calls[0]
     sys_content = create_kwargs["messages"][0]["content"]
@@ -131,6 +134,7 @@ def test_non_empty_bundle_sends_prompt_and_provider_kwargs():
     assert create_kwargs["temperature"] == 0.7
     assert create_kwargs["max_tokens"] == 800
     assert create_kwargs["model"] == settings.LLM_MODEL
+
 
 
 def test_generation_context_with_soft_memory_guidance():
@@ -165,9 +169,16 @@ def test_reply_from_provider_and_citations_carried_through():
     """Reply is the provider content; citations are carried through."""
     client = FakeLLMClient()
     generator = LLMGenerator(client=client)
-    bundle = _non_empty_bundle()
+    ctx = GenerationContext(
+        prompt_context="[Nguồn 1: T1]\ntext1\n\n---\n\n[Nguồn 2: T2]\ntext2",
+        citations=(
+            GenerationCitation(title="T1", url="https://u1"),
+            GenerationCitation(title="T2", url="https://u2"),
+        ),
+        sufficiency=ContextSufficiency.SUFFICIENT,
+    )
 
-    answer = generator.generate("câu hỏi", bundle)
+    answer = generator.generate("câu hỏi", ctx)
 
     assert isinstance(answer, GenerationResult)
     assert answer.reply == FAKE_REPLY
@@ -189,11 +200,22 @@ def test_injected_client_used_and_no_real_client_constructed(monkeypatch):
     client = FakeLLMClient()
     generator = LLMGenerator(client=client)
 
-    generator.generate("câu hỏi", _non_empty_bundle())
+    ctx_sufficient = GenerationContext(
+        prompt_context="text",
+        citations=(),
+        sufficiency=ContextSufficiency.SUFFICIENT,
+    )
+    generator.generate("câu hỏi", ctx_sufficient)
     assert len(client.chat.completions.create_calls) == 1
 
-    generator.generate("câu hỏi", _insufficient_bundle())
+    ctx_insufficient = GenerationContext(
+        prompt_context="",
+        citations=(),
+        sufficiency=ContextSufficiency.INSUFFICIENT,
+    )
+    generator.generate("câu hỏi", ctx_insufficient)
     assert len(client.chat.completions.create_calls) == 1
+
 
 
 class _NullContentClient:
@@ -279,6 +301,11 @@ def test_close_leaves_an_injected_client_alone():
 def test_unusable_provider_content_raises_generation_error(content):
     """A null/blank completion must not become an empty assistant message."""
     generator = LLMGenerator(client=_NullContentClient(content))
+    ctx = GenerationContext(
+        prompt_context="some context",
+        citations=(),
+        sufficiency=ContextSufficiency.SUFFICIENT,
+    )
 
     with pytest.raises(llm_module.GenerationError):
-        generator.generate("câu hỏi", _non_empty_bundle())
+        generator.generate("câu hỏi", ctx)

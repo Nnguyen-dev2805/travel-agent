@@ -40,6 +40,8 @@ local untracked `.env` only when a local workflow needs environment values.
 | `MEMORY_WRITE_PIPELINE_ENABLED` | Backend settings and write pipeline | Enabling basic semantic memory write pipeline (Child Plan 6) | No secret by itself | Defaults to `false`. Safe opt-in rollout gate |
 | `MEMORY_SHADOW_EXTRACT_ENABLED` | Backend settings and background worker | Enabling shadow candidate extraction worker | No secret by itself | Defaults to `false`. Hot-path decoupled worker gate |
 | `MEMORY_WRITE_EVAL_FIXTURES_PATH` | Backend settings and evaluation harness | Evaluation benchmark fixtures path | No secret by itself | Defaults to `docs/evaluation/fixtures/memory/write-pipeline-hotel-atmosphere-v0.1` |
+| `MEMORY_READ_ENABLED` | Backend settings, orchestration, and runtime container | Enabling Stage-3 governed semantic memory read engine (ADR 0039) | No secret by itself | Defaults to `false`. Rollout gate for memory selection and explicit inspect |
+| `MEMORY_USE_ENABLED` | Backend settings, orchestration, and runtime container | Enabling memory context admission into prompt generation (ADR 0039) | No secret by itself | Defaults to `false`. Invariant: requires `MEMORY_READ_ENABLED=true`, otherwise application refuses to start |
 
 Do not print, paste, or commit real credential values in logs, examples,
 issues, screenshots, terminal output, or documentation.

@@ -173,7 +173,8 @@ class TurnUnderstandingResult:
     entities: tuple[str, ...] = ()
     current_assertions: tuple[str, ...] = ()
     current_overrides: tuple[str, ...] = ()
-    memory_namespaces_needed: tuple[str, ...] = ()
+    requested_memory_keys: tuple[str, ...] = ()
+    current_memory_override_keys: tuple[str, ...] = ()
     temporal_context: str | None = None
     needs_clarification: bool = False
     reason_codes: tuple[UnderstandingReason, ...] = ()
@@ -207,6 +208,7 @@ class ContextPlan:
 
     proposed: ContextMode
     effective: ContextMode
+    requested_memory_keys: tuple[str, ...] = ()
 
     @property
     def is_shadow(self) -> bool:

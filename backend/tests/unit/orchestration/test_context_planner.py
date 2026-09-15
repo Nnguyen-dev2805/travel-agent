@@ -37,13 +37,13 @@ def _reading(
     mode: InteractionMode = InteractionMode.NORMAL_QUERY,
     *,
     needs_clarification: bool = False,
-    memory_namespaces: tuple[str, ...] = (),
+    requested_memory_keys: tuple[str, ...] = (),
     topics: tuple[str, ...] = (),
 ) -> TurnUnderstandingResult:
     return TurnUnderstandingResult(
         interaction_mode=mode,
         needs_clarification=needs_clarification,
-        memory_namespaces_needed=memory_namespaces,
+        requested_memory_keys=requested_memory_keys,
         topics=topics,
         reason_codes=(UnderstandingReason.NO_EXPLICIT_SIGNAL,),
     )
@@ -70,7 +70,7 @@ def test_memory_only_proposed_when_memory_needed_without_travel_topics():
     plan = ContextPlanner().plan(
         _reading(
             InteractionMode.NORMAL_QUERY,
-            memory_namespaces=("travel.preference.hotel_atmosphere",),
+            requested_memory_keys=("travel.preference.hotel_atmosphere",),
             topics=(),
         )
     )
@@ -81,11 +81,26 @@ def test_both_proposed_when_memory_and_travel_topics_needed():
     plan = ContextPlanner().plan(
         _reading(
             InteractionMode.NORMAL_QUERY,
-            memory_namespaces=("travel.preference.hotel_atmosphere",),
+            requested_memory_keys=("travel.preference.hotel_atmosphere",),
             topics=("hotels", "danang"),
         )
     )
     assert plan.proposed is ContextMode.BOTH
+
+
+def test_context_plan_carries_exact_requested_memory_keys():
+    keys = ("travel.preference.hotel_atmosphere", "travel.constraint.budget_level")
+    plan = ContextPlanner(enforcement_enabled=True).plan(
+        _reading(
+            InteractionMode.NORMAL_QUERY,
+            requested_memory_keys=keys,
+            topics=("hotels",),
+        )
+    )
+    assert plan.proposed is ContextMode.BOTH
+    assert plan.effective is ContextMode.BOTH
+    assert plan.requested_memory_keys == keys
+
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +143,7 @@ def test_enforcement_on_makes_all_modes_authoritative():
 
     # MEMORY_ONLY
     plan_mem = planner.plan(
-        _reading(memory_namespaces=("travel.preference.hotel_atmosphere",))
+        _reading(requested_memory_keys=("travel.preference.hotel_atmosphere",))
     )
     assert plan_mem.proposed is ContextMode.MEMORY_ONLY
     assert plan_mem.effective is ContextMode.MEMORY_ONLY
@@ -137,13 +152,14 @@ def test_enforcement_on_makes_all_modes_authoritative():
     # BOTH
     plan_both = planner.plan(
         _reading(
-            memory_namespaces=("travel.preference.hotel_atmosphere",),
+            requested_memory_keys=("travel.preference.hotel_atmosphere",),
             topics=("danang",),
         )
     )
     assert plan_both.proposed is ContextMode.BOTH
     assert plan_both.effective is ContextMode.BOTH
     assert plan_both.is_shadow is False
+
 
 
 def test_the_default_construction_is_the_safe_one():
@@ -232,3 +248,40 @@ def test_the_planner_reaches_no_model_provider_or_storage():
         for banned in forbidden
         if module == banned or module.startswith(f"{banned}.")
     ], imported
+
+
+def test_production_chain_turn_understanding_to_context_planner():
+    """Prove production chain TurnUnderstanding -> ContextPlanner derives BOTH, MEMORY_ONLY, RAG_ONLY."""
+    from backend.orchestration.turn_understanding import TurnUnderstanding
+    from backend.orchestration.dialogue_state import DialogueStateResolver
+
+    understanding_engine = TurnUnderstanding()
+    planner = ContextPlanner(enforcement_enabled=True)
+    empty_state = DialogueStateResolver().resolve([])
+
+    # 1. Hotel recommendation + personalization -> BOTH
+    u_hotel = understanding_engine.understand("Gợi ý cho tôi khách sạn tốt tại Đà Nẵng", empty_state)
+    plan_hotel = planner.plan(u_hotel)
+    assert plan_hotel.proposed is ContextMode.BOTH
+    assert plan_hotel.effective is ContextMode.BOTH
+    assert "travel.preference.hotel_atmosphere" in plan_hotel.requested_memory_keys
+
+    # 2. Trip personalization + domain cue -> BOTH
+    u_trip = understanding_engine.understand("Gợi ý khách sạn cho chuyến đi này", empty_state)
+    plan_trip = planner.plan(u_trip)
+    assert plan_trip.proposed is ContextMode.BOTH
+    assert plan_trip.effective is ContextMode.BOTH
+
+    # 3. Broad personalization without domain cue -> MEMORY_ONLY
+    u_pref = understanding_engine.understand("Gợi ý cho tôi theo sở thích", empty_state)
+    plan_pref = planner.plan(u_pref)
+    assert plan_pref.proposed is ContextMode.MEMORY_ONLY
+    assert plan_pref.effective is ContextMode.MEMORY_ONLY
+    assert len(plan_pref.requested_memory_keys) == 8
+
+    # 4. Ordinary travel query without personalization -> RAG_ONLY
+    u_general = understanding_engine.understand("Hà Nội có gì đẹp?", empty_state)
+    plan_general = planner.plan(u_general)
+    assert plan_general.proposed is ContextMode.RAG_ONLY
+    assert plan_general.effective is ContextMode.RAG_ONLY
+    assert plan_general.requested_memory_keys == ()

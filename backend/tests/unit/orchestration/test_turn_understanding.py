@@ -743,3 +743,71 @@ def test_a_long_message_after_a_question_is_not_treated_as_an_answer():
     )
 
     assert result.answers_pending_clarification is False
+
+
+# ---------------------------------------------------------------------------
+# Stage 3: Normal Query Memory Key Extraction & Precedence (Plan v0.16)
+# ---------------------------------------------------------------------------
+
+
+def test_ordinary_query_without_personalization_requests_no_memory_keys():
+    """Fail closed: ordinary queries without personalization cues never request memory."""
+    for message in [
+        "Hà Nội có gì đẹp?",
+        "Thời tiết Đà Nẵng thế nào?",
+        "Lịch trình tham quan Hội An 1 ngày",
+        "What is the capital of France?",
+    ]:
+        result = UNDERSTANDING.understand(message, EMPTY_STATE)
+        assert result.requested_memory_keys == ()
+        assert result.current_memory_override_keys == ()
+
+
+def test_broad_personalization_query_requests_all_governed_registry_keys():
+    """Broad personalization requests all 8 canonical registry-v2 keys."""
+    from backend.memory.write_pipeline.registry import registry_keys
+
+    expected = registry_keys()
+    assert len(expected) == 8
+
+    for message in [
+        "Lên kế hoạch chuyến đi theo sở thích của tôi",
+        "Gợi ý lịch trình du lịch Đà Nẵng theo gu của tôi",
+        "Tư vấn chuyến đi phù hợp với tôi",
+        "Plan a trip according to my preferences",
+    ]:
+        result = UNDERSTANDING.understand(message, EMPTY_STATE)
+        assert result.requested_memory_keys == expected
+        assert result.interaction_mode == InteractionMode.NORMAL_QUERY
+
+
+def test_domain_specific_personalization_query_requests_exact_keys():
+    """Domain-specific personalization maps to exact governed registry keys."""
+    hotel_res = UNDERSTANDING.understand("Gợi ý khách sạn theo sở thích của tôi", EMPTY_STATE)
+    assert hotel_res.requested_memory_keys == (
+        "travel.preference.hotel_atmosphere",
+        "travel.preference.accommodation_type",
+        "travel.constraint.budget_level",
+    )
+
+    transport_res = UNDERSTANDING.understand("Phương tiện di chuyển phù hợp với tôi", EMPTY_STATE)
+    assert transport_res.requested_memory_keys == ("travel.preference.transport_mode",)
+
+    food_res = UNDERSTANDING.understand("Gợi ý quán ăn theo gu của tôi", EMPTY_STATE)
+    assert food_res.requested_memory_keys == ("travel.preference.food_style",)
+
+
+def test_current_memory_override_keys_extracted_from_dimension_values():
+    """When a query mentions specific dimension values, extract into current_memory_override_keys."""
+    res_luxury = UNDERSTANDING.understand(
+        "Chuyến đi này tôi muốn nghỉ dưỡng sang trọng cao cấp (luxury), hãy gợi ý khách sạn cho tôi",
+        EMPTY_STATE,
+    )
+    assert "travel.constraint.budget_level" in res_luxury.current_memory_override_keys
+    assert "travel.preference.hotel_atmosphere" in res_luxury.requested_memory_keys
+
+    res_quiet = UNDERSTANDING.understand(
+        "Gợi ý khách sạn theo sở thích nhưng tôi thích nơi yên tĩnh",
+        EMPTY_STATE,
+    )
+    assert "travel.preference.hotel_atmosphere" in res_quiet.current_memory_override_keys

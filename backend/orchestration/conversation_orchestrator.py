@@ -826,38 +826,35 @@ class ConversationOrchestrator:
             and owner_user_id is not None
         ):
             from backend.memory.read_models import MemoryReadRequest
-            from backend.memory.write_pipeline.registry import registry_keys
 
-            requested = registry_keys()
-            if understanding is not None and getattr(
-                understanding, "memory_namespaces_needed", None
-            ):
-                matching = tuple(
-                    k
-                    for k in registry_keys()
-                    if any(
-                        k.startswith(ns) or ns in k
-                        for ns in understanding.memory_namespaces_needed
-                    )
-                )
-                if matching:
-                    requested = matching
-
-            req = MemoryReadRequest(
-                owner_user_id=owner_user_id,
-                conversation_id=conversation_id,
-                requested_keys=requested,
-                max_selected=8,
+            requested = (
+                plan.requested_memory_keys
+                if plan is not None
+                else ()
             )
-            memory_selection = self._memory_read_engine.select(req)
+            if requested:
+                req = MemoryReadRequest(
+                    owner_user_id=owner_user_id,
+                    conversation_id=conversation_id,
+                    requested_keys=requested,
+                    max_selected=8,
+                )
+                memory_selection = self._memory_read_engine.select(req)
 
+        override_keys = (
+            understanding.current_memory_override_keys
+            if understanding is not None and hasattr(understanding, "current_memory_override_keys")
+            else ()
+        )
         generation_context = self._context_arbiter.arbitrate(
             mode=mode,
             rag_bundle=rag_bundle,
             memory_selection=memory_selection,
+            current_memory_override_keys=override_keys,
         )
 
         result = self._rag_service.generate_from_context(message, generation_context)
+
         return {
             "reply": result.reply,
             "citations": [

@@ -38,6 +38,8 @@ from backend.orchestration.turn_models import (
     UnderstandingReason,
 )
 
+
+
 #: Token separators stripped from the edges of a word. Vietnamese and English
 #: cues are space-delimited, so token-sequence matching is enough and avoids a
 #: substring rule such as `nhớ` matching inside an unrelated word.
@@ -348,6 +350,305 @@ def _tail_after(tokens: list[str], index: int, span: int) -> str:
     return " ".join(tokens[index + span :]).strip()
 
 
+#: Personalization cues in Vietnamese and English (Plan v0.16).
+_PERSONALIZATION_CUES = (
+    "theo sở thích",
+    "theo gu",
+    "phù hợp với tôi",
+    "hợp với tôi",
+    "như tôi thích",
+    "cho tôi",
+    "tôi thích",
+    "tôi muốn",
+    "cho chuyến đi này",
+    "chuyến đi này",
+    "cho chuyến này",
+    "chuyến này",
+    "cho chuyến đi khác",
+    "chuyến đi khác",
+    "cho chuyến khác",
+    "chuyến khác",
+    "cho chuyến đi",
+    "my preferences",
+    "my preference",
+    "my taste",
+    "suit me",
+    "suits me",
+    "fits me",
+    "for me",
+    "personalized",
+    "this trip",
+    "for this trip",
+    "another trip",
+    "other trip",
+)
+
+#: Domain cues mapping to exact canonical registry-v2 keys.
+_HOTEL_CUES = (
+    "khách sạn",
+    "hotel",
+    "resort",
+    "homestay",
+    "chỗ ở",
+    "nơi ở",
+    "accommodation",
+    "phòng nghỉ",
+    "nhà nghỉ",
+    "biệt thự",
+    "villa",
+    "căn hộ",
+    "apartment",
+)
+
+_TRANSPORT_CUES = (
+    "di chuyển",
+    "phương tiện",
+    "máy bay",
+    "tàu hỏa",
+    "xe khách",
+    "xe buýt",
+    "ô tô",
+    "xe máy",
+    "transport",
+    "transportation",
+    "flight",
+    "train",
+    "bus",
+)
+
+_PACE_CUES = (
+    "nhịp độ",
+    "tiến độ",
+    "pace",
+    "thong thả",
+    "chậm rãi",
+    "dày đặc",
+    "kín lịch",
+)
+
+_ACTIVITY_CUES = (
+    "hoạt động",
+    "chơi gì",
+    "tham quan",
+    "ngắm cảnh",
+    "activity",
+    "activities",
+    "sightseeing",
+    "vui chơi",
+    "trải nghiệm",
+)
+
+_FOOD_CUES = (
+    "ăn uống",
+    "ẩm thực",
+    "quán ăn",
+    "nhà hàng",
+    "món ngon",
+    "món ăn",
+    "food",
+    "dining",
+    "restaurant",
+    "cuisine",
+    "cafe",
+    "cà phê",
+)
+
+_DEPARTURE_CUES = (
+    "khởi hành",
+    "xuất phát",
+    "đi từ",
+    "departure",
+    "depart from",
+    "departing from",
+)
+
+#: Value synonyms used to detect dimension overrides in the current turn.
+_DIMENSION_OVERRIDE_CUES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "travel.constraint.budget_level",
+        (
+            "sang trọng",
+            "hạng sang",
+            "luxury",
+            "tiết kiệm",
+            "bình dân",
+            "cheap",
+            "cao cấp",
+            "premium",
+            "tầm trung",
+            "midrange",
+        ),
+    ),
+    (
+        "travel.preference.hotel_atmosphere",
+        (
+            "yên tĩnh",
+            "yên bình",
+            "quiet",
+            "peaceful",
+            "calm",
+            "sôi động",
+            "nhộn nhịp",
+            "lively",
+            "vibrant",
+            "bustling",
+            "trung tâm",
+            "central",
+            "downtown",
+            "biệt lập",
+            "riêng tư",
+            "secluded",
+            "private",
+        ),
+    ),
+    (
+        "travel.preference.travel_pace",
+        (
+            "chậm rãi",
+            "thư giãn",
+            "relaxed",
+            "slow",
+            "cân bằng",
+            "vừa phải",
+            "balanced",
+            "moderate",
+            "dày đặc",
+            "kín lịch",
+            "packed",
+            "intense",
+        ),
+    ),
+    (
+        "travel.preference.transport_mode",
+        (
+            "máy bay",
+            "flight",
+            "plane",
+            "tàu hỏa",
+            "train",
+            "xe buýt",
+            "bus",
+            "coach",
+            "ô tô",
+            "car",
+            "xe hơi",
+            "xe máy",
+            "motorbike",
+            "motorcycle",
+            "đi bộ",
+            "walking",
+            "walk",
+        ),
+    ),
+    (
+        "travel.preference.activity_style",
+        (
+            "thiên nhiên",
+            "nature",
+            "văn hóa",
+            "culture",
+            "cuộc sống về đêm",
+            "nightlife",
+            "mua sắm",
+            "shopping",
+            "phiêu lưu",
+            "mạo hiểm",
+            "adventure",
+            "chụp ảnh",
+            "nhiếp ảnh",
+            "photography",
+        ),
+    ),
+    (
+        "travel.preference.food_style",
+        (
+            "món địa phương",
+            "địa phương",
+            "local",
+            "đồ ăn đường phố",
+            "quán vỉa hè",
+            "street food",
+            "fine dining",
+            "nhà hàng cao cấp",
+            "ăn chay",
+            "vegetarian",
+            "quốc tế",
+            "international",
+        ),
+    ),
+)
+
+
+#: The eight canonical registry-v2 keys in declared order (Plan v0.16).
+_CANONICAL_REGISTRY_KEYS: tuple[str, ...] = (
+    "travel.preference.hotel_atmosphere",
+    "travel.preference.accommodation_type",
+    "travel.preference.transport_mode",
+    "travel.preference.travel_pace",
+    "travel.preference.activity_style",
+    "travel.constraint.budget_level",
+    "travel.preference.food_style",
+    "travel.profile.default_departure_city",
+)
+
+
+def _extract_memory_intent(
+    tokens: list[str],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Extract requested memory keys, current turn override keys, and travel domain topics.
+
+    Deterministic-first mapping over governed semantics (Plan v0.16).
+    Fail-closed: if no personalization cue is present, returns empty requested keys tuple.
+    """
+    # 1. Detect explicit dimension overrides from mentioned values
+    override_keys: list[str] = []
+    for dim_key, cues in _DIMENSION_OVERRIDE_CUES:
+        if _first_cue(tokens, cues) >= 0:
+            override_keys.append(dim_key)
+
+    # 2. Match domain cues and collect domain topics
+    domain_keys: list[str] = []
+    domain_topics: list[str] = []
+    if _first_cue(tokens, _HOTEL_CUES) >= 0:
+        domain_topics.append("hotels")
+        domain_keys.extend([
+            "travel.preference.hotel_atmosphere",
+            "travel.preference.accommodation_type",
+            "travel.constraint.budget_level",
+        ])
+    if _first_cue(tokens, _TRANSPORT_CUES) >= 0:
+        domain_topics.append("transport")
+        domain_keys.append("travel.preference.transport_mode")
+    if _first_cue(tokens, _PACE_CUES) >= 0:
+        domain_topics.append("pace")
+        domain_keys.append("travel.preference.travel_pace")
+    if _first_cue(tokens, _ACTIVITY_CUES) >= 0:
+        domain_topics.append("activities")
+        domain_keys.append("travel.preference.activity_style")
+    if _first_cue(tokens, _FOOD_CUES) >= 0:
+        domain_topics.append("food")
+        domain_keys.append("travel.preference.food_style")
+    if _first_cue(tokens, _DEPARTURE_CUES) >= 0:
+        domain_topics.append("departure")
+        domain_keys.append("travel.profile.default_departure_city")
+
+    topics_tuple = tuple(dict.fromkeys(domain_topics))
+
+    # 3. Check personalization intent
+    has_personalization = _first_cue(tokens, _PERSONALIZATION_CUES) >= 0
+    if not has_personalization:
+        return (), tuple(override_keys), topics_tuple
+
+    if domain_keys:
+        # Preserve order while deduplicating
+        deduped = tuple(dict.fromkeys(domain_keys))
+        return deduped, tuple(override_keys), topics_tuple
+
+    # Broad personalization without narrow domain cues -> all governed registry keys
+    return _CANONICAL_REGISTRY_KEYS, tuple(override_keys), topics_tuple
+
+
+
 class TurnUnderstanding:
     """Read the current message against one conversation's structural state."""
 
@@ -467,9 +768,13 @@ class TurnUnderstanding:
 
         # 7. Deterministic escalation: an ordinary query claims nothing, and it
         #    becomes the active goal — a new request replaces the old one.
+        requested_keys, override_keys, domain_topics = _extract_memory_intent(tokens)
         return TurnUnderstandingResult(
             interaction_mode=InteractionMode.NORMAL_QUERY,
             current_goal=message,
+            topics=domain_topics,
+            requested_memory_keys=requested_keys,
+            current_memory_override_keys=override_keys,
             reason_codes=(UnderstandingReason.NO_EXPLICIT_SIGNAL,),
         )
 
@@ -525,11 +830,15 @@ class TurnUnderstanding:
             prior_answer.content, _tokens(prior_answer.content)
         ) and _looks_like_an_answer(message, tokens)
 
+        requested_keys, override_keys, domain_topics = _extract_memory_intent(tokens)
+        combined_topics = tuple(dict.fromkeys((*topics, *domain_topics)))
         return TurnUnderstandingResult(
             interaction_mode=InteractionMode.NORMAL_QUERY,
-            topics=topics,
+            topics=combined_topics,
             entities=entities,
             current_overrides=overrides,
+            requested_memory_keys=requested_keys,
+            current_memory_override_keys=override_keys,
             temporal_context=temporal_context,
             current_goal=goal,
             answers_pending_clarification=answers_pending_clarification,

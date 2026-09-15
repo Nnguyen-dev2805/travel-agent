@@ -46,6 +46,7 @@ class ContextPlanner:
         return ContextPlan(
             proposed=proposed,
             effective=effective,
+            requested_memory_keys=understanding.requested_memory_keys,
         )
 
     @staticmethod
@@ -57,7 +58,7 @@ class ContextPlanner:
         ):
             return ContextMode.NONE
 
-        has_memory = bool(understanding.memory_namespaces_needed)
+        has_memory = bool(understanding.requested_memory_keys)
         has_travel_topics = bool(understanding.topics)
         is_normal_query = understanding.interaction_mode is InteractionMode.NORMAL_QUERY
 

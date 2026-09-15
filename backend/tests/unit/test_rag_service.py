@@ -10,8 +10,10 @@ import pytest
 from backend.generation.contracts import (
     ContextSufficiency,
     GenerationCitation,
+    GenerationContext,
     GenerationResult,
 )
+
 from backend.rag.contracts import RetrievalResult
 from backend.rag.generation import rag_service as rag_service_module
 from backend.rag.generation.context import ContextAssembler
@@ -118,13 +120,15 @@ def test_build_travel_context_exposes_r6_orchestration_seam():
 def test_generate_from_context_returns_generation_result():
     results = [_result("c1", "T1", "https://u1", "text1")]
     service, _, _, generator = _make_service(results=results)
-    bundle = service.build_travel_context("Hà Nội")
+    gen_context = GenerationContext(
+        prompt_context="[Nguồn 1: T1]\ntext1",
+        citations=(GenerationCitation(title="T1", url="https://u1"),),
+        sufficiency=ContextSufficiency.SUFFICIENT,
+    )
 
-    result = service.generate_from_context("Hà Nội", bundle)
-
+    result = service.generate_from_context("Hà Nội", gen_context)
     assert isinstance(result, GenerationResult)
     assert result.reply == FAKE_REPLY
-    assert result.model == "fake-model"
     assert len(result.citations) == 1
     assert result.citations[0].title == "T1"
 
@@ -223,3 +227,18 @@ def test_default_construction_uses_module_level_defaults(monkeypatch):
     service.generate_answer("Hà Nội?")
     assert sentinel_retriever.calls == [("Hà Nội?", 4)]
     assert len(sentinel_generator.calls) == 1
+
+
+def test_generate_from_context_rejects_context_bundle():
+    """generate_from_context accepts only GenerationContext; ContextBundle raises TypeError."""
+    from backend.rag.contracts import ContextBundle
+
+    service, _, _, _ = _make_service()
+    bundle = ContextBundle(
+        prompt_context="test",
+        evidence=(),
+        citations=(),
+        insufficient_evidence=False,
+    )
+    with pytest.raises(TypeError, match="GenerationContext"):
+        service.generate_from_context("Hà Nội?", bundle)  # type: ignore[arg-type]
