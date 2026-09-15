@@ -44,12 +44,3 @@ class ContextBundle:
     evidence: tuple[RetrievalResult, ...]
     citations: tuple[CitationEvidence, ...]
     insufficient_evidence: bool
-
-
-@dataclass(frozen=True)
-class GeneratedAnswer:
-    """Generated answer with citations traceable to retrieval evidence."""
-
-    reply: str
-    model: str
-    citations: tuple[CitationEvidence, ...]

@@ -240,7 +240,7 @@ class EvaluationRunner:
                         {
                             "title": c.title,
                             "url": c.url,
-                            "evidence_ids": list(c.evidence_ids),
+                            "evidence_ids": list(getattr(c, "evidence_ids", ())),
                         }
                         for c in generated.citations
                     ]
@@ -258,7 +258,7 @@ class EvaluationRunner:
                                 if c.title and ev_item.title == c.title:
                                     matched = True
                                     break
-                                if any(eid == ev_item.chunk_id for eid in c.evidence_ids):
+                                if any(eid == ev_item.chunk_id for eid in getattr(c, "evidence_ids", ())):
                                     matched = True
                                     break
                             if not matched:

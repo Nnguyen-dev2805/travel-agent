@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from backend.app.config import Settings
 
 
@@ -277,3 +279,28 @@ def test_pg_dsn_is_unchanged_for_a_simple_password():
         pg_dsn(password="secret", host="db", port=5432, db="travel_agent", user="travel_agent")
         == "postgresql+psycopg://travel_agent:secret@db:5432/travel_agent"
     )
+
+
+# --- Stage-3 Memory Read and Use feature gates -------------------------------
+
+
+def test_memory_read_and_use_flags_default_to_false():
+    settings = Settings()
+    assert settings.MEMORY_READ_ENABLED is False
+    assert settings.MEMORY_USE_ENABLED is False
+
+
+def test_memory_use_requires_memory_read():
+    # Valid: both True
+    s1 = Settings(MEMORY_READ_ENABLED=True, MEMORY_USE_ENABLED=True)
+    assert s1.MEMORY_READ_ENABLED is True
+    assert s1.MEMORY_USE_ENABLED is True
+
+    # Valid: read True, use False
+    s2 = Settings(MEMORY_READ_ENABLED=True, MEMORY_USE_ENABLED=False)
+    assert s2.MEMORY_READ_ENABLED is True
+    assert s2.MEMORY_USE_ENABLED is False
+
+    # Invalid: use True without read True
+    with pytest.raises(ValueError, match="MEMORY_USE_ENABLED requires MEMORY_READ_ENABLED"):
+        Settings(MEMORY_READ_ENABLED=False, MEMORY_USE_ENABLED=True)

@@ -133,6 +133,19 @@ class Settings(BaseModel):
     MEMORY_EXPLICIT_ACTIONS_ENABLED: bool = _env_flag(
         "MEMORY_EXPLICIT_ACTIONS_ENABLED", False
     )
+    # Stage-3 Memory Read and Use feature gates (ADR 0039 / Plan v0.15)
+    MEMORY_READ_ENABLED: bool = _env_flag("MEMORY_READ_ENABLED", False)
+    MEMORY_USE_ENABLED: bool = _env_flag("MEMORY_USE_ENABLED", False)
+
+    @field_validator("MEMORY_USE_ENABLED", mode="after")
+    @classmethod
+    def validate_memory_use_requires_read(cls, v: bool, info) -> bool:
+        if v and not info.data.get("MEMORY_READ_ENABLED", False):
+            raise ValueError(
+                "MEMORY_USE_ENABLED requires MEMORY_READ_ENABLED to be True."
+            )
+        return v
+
     # Stage-1 context-planner rollout gate. While this is false the planner still
     # proposes a context plan, but the effective normal-query source plan stays
     # the existing RAG-only baseline, so a proposal of `NONE` cannot skip

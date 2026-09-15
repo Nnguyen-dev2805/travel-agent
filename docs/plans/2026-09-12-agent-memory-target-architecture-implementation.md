@@ -25,14 +25,14 @@ introduced unless Stage 6 evidence proves structured retrieval insufficient.
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Plan version | 0.14 — Task-9 authoritative unresolved-conflict state and read-projection clarification |
+| Plan version | 0.15 — Task-10 rollout, bounded context budget, and neutral-generation compatibility clarification |
 | Date | 2026-09-12 |
-| Last amended | 2026-09-14 |
+| Last amended | 2026-09-15 |
 | Specification | [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.7, Approved 2026-09-14 |
 | Required ADRs | ADR 0036, 0037, 0038, 0039, 0040 — Accepted 2026-09-12 |
 | Execution owner | Coding agent under repository-owner instruction |
 | Decision owner | Repository owner |
-| Approval | Repository owner approved plan v0.14 on 2026-09-14 as a Task-9 persistence/read-contract clarification; spec v0.7 and ADR-level architecture remain unchanged. |
+| Approval | Repository owner approved plan v0.15 on 2026-09-15 as a Task-10 execution-contract clarification; spec v0.7 and ADR-level architecture remain unchanged. |
 | Scope | Stages 1–7 of the target architecture, with independent rollout gates and evidence-based stop conditions |
 | Verification | Task-local CORE tests gate architectural progression. Deferred hardening remains mandatory before final production-readiness proof, including required PostgreSQL integration tests without required skips, exhaustive ADR validation where specified, evaluation gates, full backend suite, frontend regression suite, `compileall`, `git diff --check`, and exact change-set review. |
 
@@ -1254,62 +1254,121 @@ whose planned grounding source produced nothing must fail/abstain through the
 controlled insufficient-context path. `GenerationResult` likewise remains
 source-neutral; final-answer generation must not return a RAG-owned result type.
 
-- [ ] RED fixtures cover `NONE`, `RAG_ONLY`, `MEMORY_ONLY`, `BOTH`, current-user
+**Task-10 closed execution contracts:**
+
+1. Planner-authoritative execution is implemented in this task, but rollout is
+   not promoted by implementation alone. The current Stage-1 context-mode gate
+   is `INCONCLUSIVE`, so repository/deployment configuration must keep
+   `CONTEXT_PLANNER_ENFORCEMENT_ENABLED=False`. Tests may exercise an injected
+   enabled planner to prove the executor for `NONE|RAG_ONLY|MEMORY_ONLY|BOTH`,
+   but production promotion still requires an owner-approved grounding-required
+   fixture set, a conclusive gate, and zero false-`NONE` before the flag may be
+   enabled. Task 10 must not manufacture a PASS from unit-test coverage.
+2. Stage 3 uses the existing bounded source shapes as its context-admission
+   budget rather than inventing an unmeasured provider-token split. `RAG_ONLY`
+   preserves the characterized legacy travel context exactly: current retrieval
+   order, `top_k=4`, citation provenance, and assembled `prompt_context` are not
+   truncated or re-ranked by `ContextArbiter`. Memory admission is independently
+   bounded by the Task-9 `MemoryReadRequest.max_selected <= 8` contract and the
+   closed registry-v2 normalized values. `MemoryContextComposer` emits at most
+   those selected structured records in deterministic order, with no raw source
+   or evidence text. In `BOTH`, the arbiter admits the complete bounded RAG
+   context plus that bounded structured Memory context; it does not reserve an
+   arbitrary percentage for either source or drop travel evidence merely to make
+   room for Memory.
+3. Task 10 adds no tokenizer dependency, provider-specific token estimator, new
+   token-budget environment variable, or dynamic prompt compression. Exact
+   model-token accounting becomes a separate measured optimization only if the
+   bounded Stage-3 context is shown to exceed a supported model window or harm
+   quality. Such a change requires a later plan amendment rather than a magic
+   number chosen during implementation.
+4. `RAGService.generate_answer(user_message, top_k=...) -> Dict[str, Any]`
+   remains the backward-compatible public/runtime facade. Internally it projects
+   its RAG-owned `ContextBundle` into neutral `GenerationContext`, calls the
+   neutral generation seam, and serializes `GenerationResult` back to the
+   existing `{reply, model, citations}` dictionary. The new
+   `generate_from_context()` seam consumes `GenerationContext` and returns
+   `GenerationResult`; orchestrator code using the neutral seam does not depend
+   on a RAG-owned answer type.
+5. `GeneratedAnswer` is removed in this same task, but only after every direct
+   runtime/evaluation/test caller has migrated to `GenerationResult`. There is
+   no deprecated compatibility phase: migration first, removal second, then a
+   repository search must show no live `GeneratedAnswer` import/reference.
+
+- [x] RED fixtures cover `NONE`, `RAG_ONLY`, `MEMORY_ONLY`, `BOTH`, current-user
   override, Memory unavailable, RAG unavailable, and prompt-injection-like stored
   content.
-- [ ] RED rollout tests prove planner enforcement remains disabled when
+- [x] RED rollout tests prove planner enforcement remains disabled when
   `CONTEXT_PLANNER_ENFORCEMENT_ENABLED=False`; after the Task-4 quality gate is
   conclusive and passing, enabling it makes `NONE|RAG_ONLY|MEMORY_ONLY|BOTH`
   authoritative through `ContextArbiter` rather than through ad-hoc branches.
-- [ ] RED contract tests prove `GenerationContext` is source-neutral, a valid
+- [x] Keep the checked-in/runtime rollout state disabled while the canonical
+  Stage-1 evaluation record remains `INCONCLUSIVE`; implementation tests for an
+  enabled executor are not promotion evidence.
+- [x] RED contract tests prove `GenerationContext` is source-neutral, a valid
   Memory-only context is `ContextSufficiency.SUFFICIENT` with zero travel
   citations, an ordinary no-source turn can be `NOT_REQUIRED`, and a planned
   grounding source that returns nothing is `INSUFFICIENT` without falsifying
   RAG retrieval evidence.
-- [ ] Implement prompt-safe Memory composition; never inject raw source/evidence.
-- [ ] Keep `RAGService.build_travel_context()` returning the RAG-owned
+- [x] RED arbiter tests pin the Stage-3 bounded-context contract: `RAG_ONLY`
+  preserves the legacy assembled travel context and citation order exactly;
+  `MEMORY_ONLY` admits at most eight governed structured records; `BOTH` keeps
+  the complete bounded RAG context and adds only the bounded structured Memory
+  section without source-percentage allocation, travel-evidence truncation, or
+  dynamic compression.
+- [x] Implement prompt-safe Memory composition; never inject raw source/evidence.
+- [x] Keep `RAGService.build_travel_context()` returning the RAG-owned
   `ContextBundle`. Refactor the narrow generation seam so
   `generate_from_context()` consumes neutral `GenerationContext`; the existing
   `generate_answer()` path projects its own travel bundle into that contract for
   backward compatibility. Map `ContextBundle.insufficient_evidence=True` to
   `ContextSufficiency.INSUFFICIENT` rather than redefining that RAG flag. RAG
   gains no Memory import.
-- [ ] Make `LLMGenerator` return neutral `GenerationResult` and update the RAG
+- [x] Preserve `RAGService.generate_answer()` as the dict-returning compatibility
+  facade; make the neutral `generate_from_context()` seam return
+  `GenerationResult` and keep dictionary serialization at the facade boundary.
+- [x] Make `LLMGenerator` return neutral `GenerationResult` and update the RAG
   runtime/evaluation callers accordingly. Remove the now-redundant RAG-owned
   `GeneratedAnswer` contract after all call sites migrate. `RetrievalResult` and
   `CitationEvidence` stay RAG-owned so retrieval score/text/provenance do not
   leak upward into the generic generation layer.
-- [ ] Migrate the existing direct consumers/tests explicitly:
+- [x] Migrate the existing direct consumers/tests explicitly:
   `test_llm_generator.py`, `test_rag_contracts.py`, `test_rag_service.py`,
   `test_evaluation_runner.py`, and `test_rag_evaluation_flow.py`.
   `test_rag_contracts.py` is rewritten to keep testing RAG evidence/citation
   provenance while the neutral `GenerationResult` contract gets its own test;
   do not merely delete coverage with `GeneratedAnswer`.
-- [ ] `ContextArbiter` preserves RAG retrieval/citation provenance outside the
+- [x] After migration, repository search proves there are no live
+  `GeneratedAnswer` imports/references. Do not leave a deprecated alias or a
+  second answer-result contract.
+- [x] `ContextArbiter` preserves RAG retrieval/citation provenance outside the
   neutral contract, projects only final display citations plus bounded prompt
   context into `GenerationContext`, and never copies raw `RetrievalResult.text`
   or raw Memory evidence as an instruction channel.
-- [ ] Update the generator's system contract so it no longer assumes every
+- [x] Do not add a tokenizer package, token-estimation helper, context-budget
+  environment variable, source percentage split, or dynamic compression in
+  Task 10. A measured need for exact model-token budgeting is future scope.
+- [x] Update the generator's system contract so it no longer assumes every
   admitted context item is “travel guide evidence.” It must treat labeled Memory
   as soft/user-state context, let the current request override remembered soft
   preferences, and emit travel citations only for travel evidence. Characterize
   the existing RAG-only behavior before the prompt refactor and keep that slice
   GREEN.
-- [ ] Deliver `explicit_inspect` through the same governed read boundary; inspect
+- [x] Deliver `explicit_inspect` through the same governed read boundary; inspect
   exposes safe fields, never unrestricted evidence.
-- [ ] Add `MEMORY_READ_ENABLED=False` and `MEMORY_USE_ENABLED=False`; use cannot
+- [x] Add `MEMORY_READ_ENABLED=False` and `MEMORY_USE_ENABLED=False`; use cannot
   be enabled before read, and rollback disables use before read.
-- [ ] Run the complete explicit semantic vertical-slice evaluation: remember in
+- [x] Run the complete explicit semantic vertical-slice evaluation: remember in
   conversation A/use in B, unrelated abstention, conversation override,
   correction, forget, and re-remember. The evaluation matrix must exercise every
   registry-v2 key at least once, prove set-valued preferences survive
   normalization/read/use without order instability, and prove current-turn input
   overrides remembered soft preferences/constraints for that response.
-- [ ] Run RAG-only regression coverage including `test_llm_generator.py`,
+- [x] Run RAG-only regression coverage including `test_llm_generator.py`,
   `test_rag_service.py`, `test_rag_generation_imports.py`, conversation
   orchestrator/chat bindings, and the RAG evaluation flow so the neutral seam
   does not degrade the existing baseline.
-- [ ] Review: inferred activation remains impossible until this slice passes;
+- [x] Review: inferred activation remains impossible until this slice passes;
   RAG imports no Memory module, Memory imports no RAG module, and the neutral
   generation contract imports neither domain.
 
@@ -1680,8 +1739,17 @@ freezes the physical projection sources needed by the existing Task-9 read
 contract. No new Memory family, retrieval mode, vector dependency, or ADR-level
 authority is introduced.
 
-Spec v0.7 plus this exact plan v0.14 are the current approved execution authority
-for the remaining staged Agent Memory program. Plan v0.14 supersedes v0.13 as
+Plan version 0.15 was **Approved on 2026-09-15 by the repository owner**. It changes only Task 10: planner enforcement
+may be implemented but remains rollout-disabled while the canonical Stage-1 gate
+is inconclusive; Stage 3 uses the existing `top_k=4` RAG bound plus the Task-9
+eight-record Memory bound instead of inventing an unevaluated token split;
+`RAGService.generate_answer()` keeps its dictionary compatibility contract; and
+the RAG-owned `GeneratedAnswer` is removed only after all callers migrate to the
+neutral generation result. It adds no tokenizer dependency, Memory family,
+retrieval mode, or ADR-level authority.
+
+Spec v0.7 plus this exact plan v0.15 are the current approved execution authority
+for the remaining staged Agent Memory program. Plan v0.15 supersedes v0.14 as
 current execution authority.
 Task checkbox state is execution evidence only; it does not replace task review,
 verification, or repository-owner change-set review.

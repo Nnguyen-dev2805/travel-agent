@@ -1048,3 +1048,21 @@ def test_rag_imports_no_memory_and_memory_read_imports_no_rag():
                     memory_violations.append(f"{rel}:{lineno} imports {module}")
 
     assert memory_violations == [], f"Memory read imports RAG: {memory_violations}"
+
+
+def test_generation_contracts_imports_neither_rag_nor_memory_nor_orchestration():
+    """Generation contracts import neither RAG, Memory, nor Orchestration (Task 10 review gate)."""
+    backend_dir = Path(__file__).resolve().parent.parent.parent
+    generation_dir = backend_dir / "generation"
+
+    violations = []
+    for py_file in generation_dir.rglob("*.py"):
+        for lineno, module, symbol in _scan_imports(py_file):
+            if any(
+                module.startswith(prefix)
+                for prefix in ("backend.rag", "backend.memory", "backend.orchestration")
+            ):
+                rel = py_file.relative_to(backend_dir.parent)
+                violations.append(f"{rel}:{lineno} imports {module}")
+
+    assert violations == [], f"Generation contracts import forbidden packages: {violations}"

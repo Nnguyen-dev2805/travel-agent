@@ -1,20 +1,12 @@
-"""Task 4: the context planner proposes, and Stage 1 does not act on the proposal.
+"""Task 10 Stage 3: ContextPlanner proposals across the full vocabulary and authoritative execution.
 
-The Stage-1 rollout contract (`plan v0.7:444-450`) is the whole point of this
-file:
-
-```text
-planner proposes NONE  !=  production skips RAG
-```
-
-The planner exposes the complete approved vocabulary — `NONE`, `RAG_ONLY`,
-`MEMORY_ONLY`, `BOTH` — but only `NONE` and `RAG_ONLY` are reachable until
-governed Memory Read exists (`ADR 0039:54-66`). While
-`CONTEXT_PLANNER_ENFORCEMENT_ENABLED` is false the effective normal-query source
-plan stays the existing `RAG_ONLY` baseline, so a `NONE` proposal is recorded as
-shadow evidence and changes nothing about answer grounding.
-
-No test here touches a database, a model, HTTP, or the network.
+Governed by Plan v0.15, Spec v0.7, and ADR 0039:
+- Proposes across NONE, RAG_ONLY, MEMORY_ONLY, BOTH.
+- While CONTEXT_PLANNER_ENFORCEMENT_ENABLED is False:
+  effective stays RAG_ONLY baseline.
+- When CONTEXT_PLANNER_ENFORCEMENT_ENABLED is True (or injected enforcement_enabled=True):
+  effective matches proposed across all modes (authoritative execution).
+- Pure domain planning: reaches no storage, model provider, or network.
 """
 
 from __future__ import annotations
@@ -42,63 +34,69 @@ ALL_INTERACTION_MODES = list(InteractionMode)
 
 
 def _reading(
-    mode: InteractionMode, *, needs_clarification: bool = False
+    mode: InteractionMode = InteractionMode.NORMAL_QUERY,
+    *,
+    needs_clarification: bool = False,
+    memory_namespaces: tuple[str, ...] = (),
+    topics: tuple[str, ...] = (),
 ) -> TurnUnderstandingResult:
     return TurnUnderstandingResult(
         interaction_mode=mode,
         needs_clarification=needs_clarification,
+        memory_namespaces_needed=memory_namespaces,
+        topics=topics,
         reason_codes=(UnderstandingReason.NO_EXPLICIT_SIGNAL,),
     )
 
 
 # ---------------------------------------------------------------------------
-# The proposal
+# Stage 3 Proposals
 # ---------------------------------------------------------------------------
 
 
 def test_a_grounding_required_query_proposes_rag_only():
     plan = ContextPlanner().plan(_reading(InteractionMode.NORMAL_QUERY))
-
     assert plan.proposed is ContextMode.RAG_ONLY
 
 
 def test_a_turn_that_only_asks_for_clarification_proposes_none():
-    """A clarification turn does not answer, so it needs no grounding."""
     plan = ContextPlanner().plan(
         _reading(InteractionMode.AMBIGUOUS, needs_clarification=True)
     )
-
     assert plan.proposed is ContextMode.NONE
 
 
-@pytest.mark.parametrize("mode", ALL_INTERACTION_MODES)
-def test_stage_one_never_proposes_a_memory_source_mode(mode):
-    """`MEMORY_ONLY` and `BOTH` exist in the vocabulary but are unreachable.
+def test_memory_only_proposed_when_memory_needed_without_travel_topics():
+    plan = ContextPlanner().plan(
+        _reading(
+            InteractionMode.NORMAL_QUERY,
+            memory_namespaces=("travel.preference.hotel_atmosphere",),
+            topics=(),
+        )
+    )
+    assert plan.proposed is ContextMode.MEMORY_ONLY
 
-    Reachability is a Stage-1 property, not a vocabulary one: the values are
-    approved and present, and proposing one would claim a Memory Read path that
-    does not exist.
-    """
-    plan = ContextPlanner().plan(_reading(mode))
 
-    assert plan.proposed in {ContextMode.NONE, ContextMode.RAG_ONLY}
+def test_both_proposed_when_memory_and_travel_topics_needed():
+    plan = ContextPlanner().plan(
+        _reading(
+            InteractionMode.NORMAL_QUERY,
+            memory_namespaces=("travel.preference.hotel_atmosphere",),
+            topics=("hotels", "danang"),
+        )
+    )
+    assert plan.proposed is ContextMode.BOTH
 
 
 # ---------------------------------------------------------------------------
-# The rollout invariant
+# Rollout Gate & Enforcement
 # ---------------------------------------------------------------------------
 
 
 def test_a_none_proposal_does_not_skip_rag_while_enforcement_is_off():
-    """The load-bearing assertion of the whole Stage-1 rollout.
-
-    A planner that could make production skip retrieval would produce ungrounded
-    answers on the authority of a component that has not passed its gate.
-    """
     plan = ContextPlanner(enforcement_enabled=False).plan(
         _reading(InteractionMode.AMBIGUOUS, needs_clarification=True)
     )
-
     assert plan.proposed is ContextMode.NONE
     assert plan.effective is ContextMode.RAG_ONLY
     assert plan.is_shadow is True
@@ -106,80 +104,64 @@ def test_a_none_proposal_does_not_skip_rag_while_enforcement_is_off():
 
 def test_enforcement_off_keeps_the_baseline_for_every_reading():
     planner = ContextPlanner(enforcement_enabled=False)
-
     for mode in ALL_INTERACTION_MODES:
         plan = planner.plan(_reading(mode, needs_clarification=True))
         assert plan.effective is ContextMode.RAG_ONLY, mode
 
 
-def test_enforcement_cannot_claim_a_mode_stage_one_does_not_execute():
-    """A plan must not report as effective something production never runs.
-
-    The orchestrator always calls the RAG baseline, so a plan claiming
-    `effective = NONE` would describe execution that does not happen. Requesting
-    enforcement is recorded, but it cannot make the contract untrue.
-    """
-    plan = ContextPlanner(enforcement_enabled=True).plan(
-        _reading(InteractionMode.AMBIGUOUS, needs_clarification=True)
-    )
-
-    assert plan.proposed is ContextMode.NONE
-    assert plan.effective is ContextMode.RAG_ONLY
-    assert plan.is_shadow is True
-
-
-def test_enforcement_is_requested_but_not_active_in_stage_one():
-    """The flag is observable without being mistaken for an active behaviour.
-
-    Enforcement needs an executor that runs the effective plan; Stage 1 has none
-    (Task 10 owns authoritative execution), so `enforcement_enabled` reports what
-    is actually true.
-    """
+def test_enforcement_on_makes_all_modes_authoritative():
     planner = ContextPlanner(enforcement_enabled=True)
-
     assert planner.enforcement_requested is True
-    assert planner.enforcement_enabled is False
+    assert planner.enforcement_enabled is True
 
+    # NONE
+    plan_none = planner.plan(_reading(needs_clarification=True))
+    assert plan_none.proposed is ContextMode.NONE
+    assert plan_none.effective is ContextMode.NONE
+    assert plan_none.is_shadow is False
 
-@pytest.mark.parametrize("enforcement", [False, True])
-@pytest.mark.parametrize("mode", ALL_INTERACTION_MODES)
-def test_the_effective_mode_always_matches_what_executes(enforcement, mode):
-    """Whatever is requested, `effective` describes the RAG baseline that runs."""
-    plan = ContextPlanner(enforcement_enabled=enforcement).plan(
-        _reading(mode, needs_clarification=True)
+    # RAG_ONLY
+    plan_rag = planner.plan(_reading(InteractionMode.NORMAL_QUERY))
+    assert plan_rag.proposed is ContextMode.RAG_ONLY
+    assert plan_rag.effective is ContextMode.RAG_ONLY
+    assert plan_rag.is_shadow is False
+
+    # MEMORY_ONLY
+    plan_mem = planner.plan(
+        _reading(memory_namespaces=("travel.preference.hotel_atmosphere",))
     )
+    assert plan_mem.proposed is ContextMode.MEMORY_ONLY
+    assert plan_mem.effective is ContextMode.MEMORY_ONLY
+    assert plan_mem.is_shadow is False
 
-    assert plan.effective is ContextMode.RAG_ONLY
-
-
-def test_a_rag_only_proposal_is_not_shadow_under_either_setting():
-    for enforcement in (False, True):
-        plan = ContextPlanner(enforcement_enabled=enforcement).plan(
-            _reading(InteractionMode.NORMAL_QUERY)
+    # BOTH
+    plan_both = planner.plan(
+        _reading(
+            memory_namespaces=("travel.preference.hotel_atmosphere",),
+            topics=("danang",),
         )
-        assert plan.effective is ContextMode.RAG_ONLY
-        assert plan.is_shadow is False
+    )
+    assert plan_both.proposed is ContextMode.BOTH
+    assert plan_both.effective is ContextMode.BOTH
+    assert plan_both.is_shadow is False
 
 
 def test_the_default_construction_is_the_safe_one():
-    """A caller that forgets the flag must get the shadow behaviour, not enforcement."""
     plan = ContextPlanner().plan(
         _reading(InteractionMode.AMBIGUOUS, needs_clarification=True)
     )
-
     assert plan.effective is ContextMode.RAG_ONLY
+    assert plan.is_shadow is True
 
 
 def test_planning_is_deterministic():
     planner = ContextPlanner()
     reading = _reading(InteractionMode.NORMAL_QUERY)
-
     assert planner.plan(reading) == planner.plan(reading)
 
 
 def test_the_plan_is_the_closed_contract():
     plan = ContextPlanner().plan(_reading(InteractionMode.NORMAL_QUERY))
-
     assert isinstance(plan, ContextPlan)
 
 
@@ -189,11 +171,6 @@ def test_the_plan_is_the_closed_contract():
 
 
 def test_the_enforcement_flag_defaults_to_false_in_a_spawned_interpreter():
-    """`Settings` reads `os.getenv` at import, so only a fresh process proves it.
-
-    An in-process monkeypatch would prove nothing about what a deployment gets
-    when the variable is unset.
-    """
     code = (
         "import json;"
         "from backend.app.config import settings;"
@@ -207,12 +184,10 @@ def test_the_enforcement_flag_defaults_to_false_in_a_spawned_interpreter():
         cwd=ROOT_DIR,
         check=True,
     )
-
     assert json.loads(result.stdout) is False
 
 
 def test_the_enforcement_flag_is_readable_from_the_environment():
-    """The gate has to be switchable, or it is a constant pretending to be a gate."""
     code = (
         "import json;"
         "from backend.app.config import settings;"
@@ -227,7 +202,6 @@ def test_the_enforcement_flag_is_readable_from_the_environment():
         check=True,
         env={"CONTEXT_PLANNER_ENFORCEMENT_ENABLED": "true", "PATH": "/usr/bin:/bin"},
     )
-
     assert json.loads(result.stdout) is True
 
 

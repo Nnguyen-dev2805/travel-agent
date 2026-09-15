@@ -196,6 +196,10 @@ class ConversationOrchestrator:
         explicit_action_handler: Optional[Any] = None,
         explicit_memory_commit: Optional[Any] = None,
         source_handling_recorder: Optional[Callable[[str, Any], bool]] = None,
+        memory_read_engine: Optional[Any] = None,
+        context_arbiter: Optional[Any] = None,
+        memory_read_enabled: bool = False,
+        memory_use_enabled: bool = False,
         **_ignored: Any,
     ) -> None:
         self._rag_service = rag_service
@@ -214,6 +218,14 @@ class ConversationOrchestrator:
         self._explicit_action_handler = explicit_action_handler
         self._explicit_memory_commit = explicit_memory_commit
         self._source_handling_recorder = source_handling_recorder
+        self._memory_read_engine = memory_read_engine
+        if context_arbiter is not None:
+            self._context_arbiter = context_arbiter
+        else:
+            from backend.orchestration.context_arbiter import ContextArbiter
+            self._context_arbiter = ContextArbiter()
+        self._memory_read_enabled = memory_read_enabled
+        self._memory_use_enabled = memory_use_enabled
 
     @property
     def context_planner(self) -> ContextPlanner:
@@ -366,15 +378,52 @@ class ConversationOrchestrator:
                 source_handling.reason_code.value,
             )
 
+            inspect_delivered = False
             if understanding.interaction_mode is InteractionMode.EXPLICIT_INSPECT:
-                # Recognized, not delivered: Memory inspection arrives in Stage 3.
-                # A controlled unavailable outcome, never an ordinary RAG answer
-                # dressed up as an inspection result.
-                generated = {
-                    "reply": INSPECT_UNAVAILABLE_REPLY,
-                    "model": INSPECT_UNAVAILABLE_MODEL,
-                    "citations": [],
-                }
+                if not self._memory_read_enabled or self._memory_read_engine is None:
+                    # Stage-1 controlled outcome: capability is recognized but
+                    # unavailable when read path is not enabled (spec:397-401).
+                    generated = {
+                        "reply": INSPECT_UNAVAILABLE_REPLY,
+                        "model": INSPECT_UNAVAILABLE_MODEL,
+                        "citations": [],
+                    }
+                else:
+                    from backend.memory.read_models import MemoryReadRequest
+                    from backend.memory.write_pipeline.registry import registry_keys
+
+                    req = MemoryReadRequest(
+                        owner_user_id=owner_user_id,
+                        conversation_id=conversation_id,
+                        requested_keys=registry_keys(),
+                        max_selected=8,
+                    )
+                    selection = self._memory_read_engine.select(req)
+                    if not selection.selected:
+                        reply_text = "Hiện tại tôi chưa ghi nhớ thông tin nào về sở thích của bạn."
+                    else:
+                        lines = ["Dưới đây là các sở thích mà tôi đã ghi nhớ:"]
+                        for item in selection.selected:
+                            val_str = (
+                                ", ".join(str(v) for v in item.normalized_value)
+                                if isinstance(item.normalized_value, (tuple, list, set))
+                                else str(item.normalized_value)
+                            )
+                            scope_label = (
+                                "trong đoạn hội thoại này"
+                                if getattr(item.scope, "value", str(item.scope)) == "conversation"
+                                else "chung cho tài khoản của bạn"
+                            )
+                            lines.append(f"- {item.canonical_key}: {val_str} ({scope_label})")
+                        reply_text = "\n".join(lines)
+
+                    generated = {
+                        "reply": reply_text,
+                        "model": "system",
+                        "citations": [],
+                    }
+                    inspect_delivered = True
+
                 if self._explicit_actions_enabled and self._source_handling_recorder is not None:
                     source_outbox_id = conversations.get_turn_outbox_id(
                         conversation_id, user_message.message_id, owner_user_id
@@ -577,10 +626,16 @@ class ConversationOrchestrator:
                         memory=commit_result.memory,
                     )
             else:
-                # Generation runs outside any transaction. The plan is not
-                # consulted here: while enforcement is off, the effective source
-                # plan is the existing RAG-only baseline for every route.
-                generated = self._generate(message)
+                # Generation runs outside any transaction. When planner enforcement
+                # is enabled, generation uses the arbitrated context from ContextArbiter;
+                # otherwise, the effective source plan stays the existing RAG-only baseline.
+                generated = self._generate(
+                    message,
+                    plan=context_plan,
+                    owner_user_id=owner_user_id,
+                    conversation_id=conversation_id,
+                    understanding=understanding,
+                )
         except Exception as error:
             # Phase two: record the failure rather than leaving an orphan turn.
             # `fail_turn` cancels this turn's outbox event in the same
@@ -674,12 +729,15 @@ class ConversationOrchestrator:
                 persisted=True,
             ),
             memory=None,
-            disposition=self._disposition_for(route),
+            disposition=self._disposition_for(route, inspect_delivered=inspect_delivered),
             source_handling=source_handling,
         )
 
     @staticmethod
-    def _disposition_for(route: RoutingDecision) -> TurnDisposition:
+    def _disposition_for(
+        route: RoutingDecision,
+        inspect_delivered: bool = False,
+    ) -> TurnDisposition:
         """The honest reasoning outcome for a turn that did answer.
 
         Neither non-normal route achieved what the user asked. Stage 1 recognizes
@@ -687,6 +745,9 @@ class ConversationOrchestrator:
         and it answers an ambiguous reading with an ordinary reply rather than
         asking a focused clarification. Reporting `ANSWERED` for either would be a
         false success (`spec:396-398`), so both report `INCOMPLETE`.
+
+        When explicit inspect is successfully delivered via governed MemoryReadEngine,
+        it reports `ANSWERED`.
 
         `NEEDS_CLARIFICATION` is deliberately not produced yet: the spec pairs it
         with an assistant message that actually asks a clarification
@@ -696,7 +757,7 @@ class ConversationOrchestrator:
         `EXECUTION_FAILED` is not returned here either: this method is only
         reached when generation and the terminal transition both succeeded.
         """
-        if route is RoutingDecision.NORMAL_QUERY:
+        if route is RoutingDecision.NORMAL_QUERY or inspect_delivered:
             return TurnDisposition.ANSWERED
         return TurnDisposition.INCOMPLETE
 
@@ -732,5 +793,79 @@ class ConversationOrchestrator:
                 type(error).__name__,
             )
 
-    def _generate(self, message: str) -> Dict[str, Any]:
-        return self._rag_service.generate_answer(message, top_k=self._top_k)
+    def _generate(
+        self,
+        message: str,
+        plan: Optional[Any] = None,
+        owner_user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        understanding: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        if not self._planner.enforcement_enabled or not hasattr(
+            self._rag_service, "generate_from_context"
+        ):
+            return self._rag_service.generate_answer(message, top_k=self._top_k)
+
+        from backend.orchestration.turn_models import ContextMode
+
+        mode = plan.effective if plan is not None else ContextMode.RAG_ONLY
+
+        rag_bundle = None
+        if mode in (ContextMode.RAG_ONLY, ContextMode.BOTH):
+            if hasattr(self._rag_service, "build_travel_context"):
+                rag_bundle = self._rag_service.build_travel_context(
+                    message, top_k=self._top_k
+                )
+
+        memory_selection = None
+        if (
+            mode in (ContextMode.MEMORY_ONLY, ContextMode.BOTH)
+            and self._memory_read_enabled
+            and self._memory_use_enabled
+            and self._memory_read_engine is not None
+            and owner_user_id is not None
+        ):
+            from backend.memory.read_models import MemoryReadRequest
+            from backend.memory.write_pipeline.registry import registry_keys
+
+            requested = registry_keys()
+            if understanding is not None and getattr(
+                understanding, "memory_namespaces_needed", None
+            ):
+                matching = tuple(
+                    k
+                    for k in registry_keys()
+                    if any(
+                        k.startswith(ns) or ns in k
+                        for ns in understanding.memory_namespaces_needed
+                    )
+                )
+                if matching:
+                    requested = matching
+
+            req = MemoryReadRequest(
+                owner_user_id=owner_user_id,
+                conversation_id=conversation_id,
+                requested_keys=requested,
+                max_selected=8,
+            )
+            memory_selection = self._memory_read_engine.select(req)
+
+        generation_context = self._context_arbiter.arbitrate(
+            mode=mode,
+            rag_bundle=rag_bundle,
+            memory_selection=memory_selection,
+        )
+
+        result = self._rag_service.generate_from_context(message, generation_context)
+        return {
+            "reply": result.reply,
+            "citations": [
+                {
+                    "title": citation.title,
+                    "url": citation.url,
+                }
+                for citation in result.citations
+            ],
+            "model": result.model,
+        }

@@ -292,6 +292,25 @@ class RuntimeContainer:
                 self.engine, owner, record
             )
 
+        memory_read_enabled = bool(
+            getattr(self._settings, "MEMORY_READ_ENABLED", False)
+        )
+        memory_use_enabled = bool(
+            getattr(self._settings, "MEMORY_USE_ENABLED", False)
+        )
+        memory_read_engine = None
+        if memory_read_enabled:
+            from backend.memory.postgres_store import PostgresMemoryStore
+            from backend.memory.read_engine import MemoryReadEngine
+
+            store = PostgresMemoryStore(engine=self.engine)
+            memory_read_engine = MemoryReadEngine(store=store)
+
+        from backend.memory.context import MemoryContextComposer
+        from backend.orchestration.context_arbiter import ContextArbiter
+
+        context_arbiter = ContextArbiter(memory_composer=MemoryContextComposer())
+
         return ConversationOrchestrator(
             rag_service=resolved_rag,
             conversation_service_provider=self.conversation_service,
@@ -308,6 +327,10 @@ class RuntimeContainer:
             explicit_action_handler=explicit_action_handler,
             explicit_memory_commit=explicit_memory_commit,
             source_handling_recorder=source_handling_recorder,
+            memory_read_engine=memory_read_engine,
+            context_arbiter=context_arbiter,
+            memory_read_enabled=memory_read_enabled,
+            memory_use_enabled=memory_use_enabled,
         )
 
     def readiness_probe(self) -> PostgresReadinessProbe:

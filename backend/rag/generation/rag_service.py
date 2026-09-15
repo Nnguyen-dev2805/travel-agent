@@ -1,17 +1,22 @@
 """RAG Generation Service facade connecting retrieval, context, and generation.
 
-Runtime milestone R6 adds a narrow injectable seam (`build_travel_context`
-plus `generate_from_context`) so the conversation orchestrator can compose
-selected memory with travel context without constructing retriever,
-assembler, generator, or vector-store clients. `generate_answer` keeps its
-contract by delegating to the seam.
+Runtime milestone R6 and Task 10:
+- `build_travel_context()` returns the RAG-owned `ContextBundle`.
+- `generate_from_context()` consumes neutral `GenerationContext` and returns neutral `GenerationResult`.
+- `generate_answer()` remains the backward-compatible dictionary facade.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
+from backend.generation.contracts import (
+    ContextSufficiency,
+    GenerationCitation,
+    GenerationContext,
+    GenerationResult,
+)
 from backend.observability.events import emit_event
 from backend.observability.models import (
     EventComponent,
@@ -53,12 +58,7 @@ class RAGService:
         self.top_k = top_k
 
     def warm(self) -> None:
-        """Load the embedding model now rather than on the first user query.
-
-        Reaching through `self.retriever.embedder` from the caller would make the
-        startup path depend on two levels of internal structure; this keeps the
-        knowledge where the structure is.
-        """
+        """Load the embedding model now rather than on the first user query."""
         self.retriever.embedder.warm()
 
     def generate_answer(
@@ -66,32 +66,39 @@ class RAGService:
     ) -> Dict[str, Any]:
         """Retrieve relevant context and generate a source-cited response.
 
-        Args:
-            user_message: User query string; stripped before use.
-            top_k: Number of relevant chunks to retrieve; overrides the
-                constructor default when provided.
-
-        Returns:
-            Dictionary containing 'reply', 'model', and 'citations'.
-
-        Error contract: an empty index yields the insufficient-evidence
-            reply with no citations; a missing or unreadable index raises
-            (surfaced as HTTP 500 upstream) instead of silently
-            materializing an empty store — retrieval opens the store
-            read-only.
+        Backward-compatible facade returning a dictionary with 'reply', 'model',
+        and 'citations'. Projects RAG ContextBundle into GenerationContext and
+        delegates to generate_from_context.
         """
         bundle = self.build_travel_context(user_message, top_k=top_k)
-        return self.generate_from_context(user_message, bundle)
+        sufficiency = (
+            ContextSufficiency.INSUFFICIENT
+            if bundle.insufficient_evidence
+            else ContextSufficiency.SUFFICIENT
+        )
+        citations = tuple(
+            GenerationCitation(title=c.title, url=c.url)
+            for c in bundle.citations
+        )
+        gen_context = GenerationContext(
+            prompt_context=f"=== CẨM NANG DU LỊCH THAM KHẢO ===\n{bundle.prompt_context}",
+            citations=citations,
+            sufficiency=sufficiency,
+        )
+        result = self.generate_from_context(user_message, gen_context)
+        return {
+            "reply": result.reply,
+            "model": result.model,
+            "citations": [
+                {"title": c.title, "url": c.url}
+                for c in result.citations
+            ],
+        }
 
     def build_travel_context(
         self, user_message: str, top_k: Optional[int] = None
     ) -> ContextBundle:
-        """Embed the query, retrieve travel evidence, and assemble context.
-
-        This is the R6 orchestration seam: it exposes everything up to
-        generation so selected memory can be composed with travel context
-        without reaching into retriever or assembler clients.
-        """
+        """Embed the query, retrieve travel evidence, and assemble context."""
         user_text = user_message.strip()
         if not user_text:
             raise ValueError("User message content cannot be empty.")
@@ -109,16 +116,32 @@ class RAGService:
         return bundle
 
     def generate_from_context(
-        self, user_message: str, bundle: ContextBundle
-    ) -> Dict[str, Any]:
-        """Generate a source-cited response from an assembled context bundle.
+        self, user_message: str, context: Union[GenerationContext, ContextBundle]
+    ) -> GenerationResult:
+        """Generate a response from a neutral GenerationContext (or legacy ContextBundle).
 
-        The bundle carries travel evidence and citations through unchanged;
-        an orchestrator-composed memory section in `prompt_context` does not
-        alter citation attribution.
+        Returns a source-neutral GenerationResult.
         """
+        if isinstance(context, ContextBundle):
+            sufficiency = (
+                ContextSufficiency.INSUFFICIENT
+                if context.insufficient_evidence
+                else ContextSufficiency.SUFFICIENT
+            )
+            citations = tuple(
+                GenerationCitation(title=c.title, url=c.url)
+                for c in context.citations
+            )
+            gen_context = GenerationContext(
+                prompt_context=f"=== CẨM NANG DU LỊCH THAM KHẢO ===\n{context.prompt_context}",
+                citations=citations,
+                sufficiency=sufficiency,
+            )
+        else:
+            gen_context = context
+
         try:
-            generated = self.generator.generate(user_message.strip(), bundle)
+            generated = self.generator.generate(user_message.strip(), gen_context)
         except Exception as error:
             emit_event(
                 EventName.MODEL_CALL_FAILED,
@@ -129,20 +152,11 @@ class RAGService:
             )
             raise
 
-        citations_list = [
-            {"title": citation.title, "url": citation.url}
-            for citation in generated.citations
-        ]
-
         emit_event(
             EventName.MODEL_CALL_COMPLETED,
             EventComponent.MODEL_PROVIDER,
             EventResult.SUCCESS,
-            counters={"citations": len(citations_list)},
+            counters={"citations": len(generated.citations)},
         )
 
-        return {
-            "reply": generated.reply,
-            "model": generated.model,
-            "citations": citations_list,
-        }
+        return generated
