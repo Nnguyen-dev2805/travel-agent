@@ -565,3 +565,199 @@ def test_a_rejected_candidate_still_names_the_registry_key(caplog):
         )
 
     assert f"key={HOTEL_ATMOSPHERE_KEY}" in caplog.text
+
+
+def test_extract_all_eight_registry_v2_keys():
+    from backend.memory.write_pipeline.registry import registry_keys
+
+    payload = {
+        "candidates": [
+            {
+                "canonical_key": "travel.preference.hotel_atmosphere",
+                "value": "quiet",
+                "display_text": "quiet atmosphere",
+            },
+            {
+                "canonical_key": "travel.preference.accommodation_type",
+                "value": ["resort", "hotel"],
+                "display_text": "resorts and hotels",
+            },
+            {
+                "canonical_key": "travel.preference.transport_mode",
+                "value": ["flight", "train"],
+                "display_text": "flights and trains",
+            },
+            {
+                "canonical_key": "travel.preference.travel_pace",
+                "value": "balanced",
+                "display_text": "balanced pace",
+            },
+            {
+                "canonical_key": "travel.preference.activity_style",
+                "value": ["culture", "nature"],
+                "display_text": "culture and nature",
+            },
+            {
+                "canonical_key": "travel.constraint.budget_level",
+                "value": "luxury",
+                "display_text": "luxury budget",
+            },
+            {
+                "canonical_key": "travel.preference.food_style",
+                "value": ["street_food", "local"],
+                "display_text": "street food",
+            },
+            {
+                "canonical_key": "travel.profile.default_departure_city",
+                "value": "Hanoi",
+                "display_text": "departing from Hanoi",
+            },
+        ]
+    }
+    import json
+
+    provider = MockLLMProvider([json.dumps(payload)])
+    model = MemoryExtractionModel(provider=provider)
+    candidates = model.extract(
+        messages=[{"role": "user", "content": "I like quiet hotels, resorts..."}],
+        owner_user_id="user_1",
+        conversation_id="conv_1",
+    )
+
+    assert len(candidates) == 8
+    keys = {c.canonical_key for c in candidates}
+    assert keys == set(registry_keys())
+
+    by_key = {c.canonical_key: c for c in candidates}
+    assert by_key["travel.preference.hotel_atmosphere"].normalized_value == "quiet"
+    assert by_key["travel.preference.accommodation_type"].normalized_value == ("hotel", "resort")
+    assert by_key["travel.preference.transport_mode"].normalized_value == ("flight", "train")
+    assert by_key["travel.preference.travel_pace"].normalized_value == "balanced"
+    assert by_key["travel.preference.activity_style"].normalized_value == ("culture", "nature")
+    assert by_key["travel.constraint.budget_level"].normalized_value == "luxury"
+    assert by_key["travel.preference.food_style"].normalized_value == ("local", "street_food")
+    assert by_key["travel.profile.default_departure_city"].normalized_value == "hanoi"
+
+
+def test_extract_vietnamese_for_all_keys():
+    import json
+
+    payload = {
+        "candidates": [
+            {
+                "canonical_key": "travel.preference.accommodation_type",
+                "value": ["khách sạn", "khu nghỉ dưỡng"],
+                "display_text": "khách sạn và resort",
+            },
+            {
+                "canonical_key": "travel.preference.transport_mode",
+                "value": ["máy bay", "tàu hỏa"],
+                "display_text": "máy bay tàu hỏa",
+            },
+            {
+                "canonical_key": "travel.constraint.budget_level",
+                "value": "tiết kiệm",
+                "display_text": "tiết kiệm",
+            },
+            {
+                "canonical_key": "travel.profile.default_departure_city",
+                "value": "Hà Nội",
+                "display_text": "từ Hà Nội",
+            },
+            {
+                "canonical_key": "travel.preference.travel_pace",
+                "value": "thư giãn",
+                "display_text": "thư giãn",
+            },
+            {
+                "canonical_key": "travel.preference.activity_style",
+                "value": ["văn hóa", "thiên nhiên"],
+                "display_text": "văn hóa",
+            },
+            {
+                "canonical_key": "travel.preference.food_style",
+                "value": ["đồ ăn đường phố"],
+                "display_text": "đồ ăn đường phố",
+            },
+        ]
+    }
+    provider = MockLLMProvider([json.dumps(payload)])
+    model = MemoryExtractionModel(provider=provider)
+    candidates = model.extract(
+        messages=[{"role": "user", "content": "thông tin du lịch"}],
+        owner_user_id="user_1",
+        conversation_id="conv_1",
+    )
+    by_key = {c.canonical_key: c for c in candidates}
+    assert by_key["travel.preference.accommodation_type"].normalized_value == ("hotel", "resort")
+    assert by_key["travel.preference.transport_mode"].normalized_value == ("flight", "train")
+    assert by_key["travel.constraint.budget_level"].normalized_value == "budget"
+    assert by_key["travel.profile.default_departure_city"].normalized_value == "hanoi"
+    assert by_key["travel.preference.travel_pace"].normalized_value == "relaxed"
+    assert by_key["travel.preference.activity_style"].normalized_value == ("culture", "nature")
+    assert by_key["travel.preference.food_style"].normalized_value == ("street_food",)
+
+
+def test_extract_rejects_unsupported_departure_city(caplog):
+    import json
+
+    payload = {
+        "candidates": [
+            {
+                "canonical_key": "travel.profile.default_departure_city",
+                "value": "London",
+                "display_text": "departing from London",
+            }
+        ]
+    }
+    provider = MockLLMProvider([json.dumps(payload)])
+    model = MemoryExtractionModel(provider=provider)
+    with caplog.at_level("DEBUG"):
+        candidates = model.extract(
+            messages=[{"role": "user", "content": "I live in London"}],
+            owner_user_id="user_1",
+            conversation_id="conv_1",
+        )
+    assert candidates == ()
+    assert "un_normalizable_value" in caplog.text
+
+
+def test_extract_explicit_bounded_one_call_no_repair():
+    from backend.memory.write_pipeline.model_adapter import extract_explicit
+
+    # 1. Success case: exactly 1 provider call
+    provider = MockLLMProvider(
+        [
+            '{"candidates": [{"canonical_key": "travel.preference.transport_mode", "value": ["flight"], "display_text": "flights only"}]}'
+        ]
+    )
+    candidates = extract_explicit(provider, "Remember I only fly")
+    assert len(candidates) == 1
+    assert candidates[0].canonical_key == "travel.preference.transport_mode"
+    assert provider.call_count == 1
+
+    # 2. Failure case (invalid json): exactly 1 provider call, zero repair call, returns empty tuple
+    failing_provider = MockLLMProvider(["invalid json response"])
+    failing_candidates = extract_explicit(failing_provider, "Remember something")
+    assert failing_candidates == ()
+    assert failing_provider.call_count == 1  # No second repair call!
+
+
+def test_model_adapter_uses_only_public_registry_apis():
+    import ast
+    from pathlib import Path
+
+    model_adapter_path = Path("backend/memory/write_pipeline/model_adapter.py")
+    tree = ast.parse(model_adapter_path.read_text())
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module and "registry" in node.module:
+                imported_names = [alias.name for alias in node.names]
+                assert "_DEFINITIONS" not in imported_names, (
+                    "model_adapter.py must not import private _DEFINITIONS from registry"
+                )
+        elif isinstance(node, ast.Name):
+            assert node.id != "_DEFINITIONS", (
+                "model_adapter.py must not reference _DEFINITIONS"
+            )

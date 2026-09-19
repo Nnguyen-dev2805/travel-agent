@@ -21,7 +21,12 @@ from alembic.operations import Operations
 from sqlalchemy.exc import IntegrityError
 
 from backend.storage.postgres import ALEMBIC_HEAD
-from backend.tests.integration.pg_dsn import migration_dsn, require
+from backend.tests.integration.pg_dsn import (
+    ensure_worker_login,
+    migration_dsn,
+    require,
+    worker_dsn,
+)
 
 requires_pg = pytest.mark.skipif(
     not migration_dsn(),
@@ -51,6 +56,7 @@ EXPECTED_TABLES = frozenset(
         "memory_summaries",
         "memory_episodes",
         "memory_deletion_ledger",
+        "memory_source_handling",
     }
 )
 OWNER_TABLES = EXPECTED_TABLES
@@ -301,10 +307,10 @@ def test_one_active_version_constraint_rejects_duplicates(fresh_db, pg_engine):
                 "INSERT INTO memory_versions "
                 "(version_id, assertion_id, owner_user_id, normalized_value, "
                 "value_payload, authority, sensitivity, status, valid_from, "
-                "created_at) VALUES ('mem_first', :aid, 'owner_a', 'quiet', "
+                "retention_mode, created_at) VALUES ('mem_first', :aid, 'owner_a', 'quiet', "
                 '\'{"normalized_value": "quiet", "display_text": "q"}\', '
                 "'explicit_save', "
-                "'ordinary_personal', 'active', :at, :at)"
+                "'ordinary_personal', 'active', :at, 'user_durable', :at)"
             ),
             {"aid": assertion_id, "at": MOMENT},
         )
@@ -314,10 +320,10 @@ def test_one_active_version_constraint_rejects_duplicates(fresh_db, pg_engine):
                     "INSERT INTO memory_versions "
                     "(version_id, assertion_id, owner_user_id, normalized_value, "
                     "value_payload, authority, sensitivity, status, valid_from, "
-                    "created_at) VALUES ('mem_second', :aid, 'owner_a', 'lively', "
+                    "retention_mode, created_at) VALUES ('mem_second', :aid, 'owner_a', 'lively', "
                     '\'{"normalized_value": "lively", "display_text": "l"}\', '
                     "'explicit_save', "
-                    "'ordinary_personal', 'active', :at, :at)"
+                    "'ordinary_personal', 'active', :at, 'user_durable', :at)"
                 ),
                 {"aid": assertion_id, "at": MOMENT},
             )
@@ -1112,10 +1118,26 @@ def test_the_worker_grants_are_the_enumerated_minimum(fresh_db, pg_engine):
         ("memory_evidence", "INSERT"),
         ("memory_decisions", "INSERT"),
         ("memory_events", "INSERT"),
+        ("memory_outbox", "DELETE"),
         ("memory_outbox", "INSERT"),
+        ("memory_outbox", "SELECT"),
         ("memory_write_idempotency", "SELECT"),
         ("memory_write_idempotency", "INSERT"),
         ("memory_write_idempotency", "UPDATE"),
+        # The durable source-handling authority path (migration 20260912_03):
+        # read and append a decision, never rewrite one.
+        ("memory_source_handling", "SELECT"),
+        ("memory_source_handling", "INSERT"),
+        # The episodic slice (migration 20260915_02). See
+        # `test_the_worker_memory_grants_are_the_derived_minimum` for the
+        # statement each verb comes from.
+        ("memory_episodes", "SELECT"),
+        ("memory_episodes", "INSERT"),
+        ("memory_episodes", "UPDATE"),
+        # The Working Memory slice (migration 20260915_03).
+        ("memory_summaries", "SELECT"),
+        ("memory_summaries", "INSERT"),
+        ("memory_summaries", "UPDATE"),
     }, f"unexpected worker grant set: {sorted(granted)}"
 
 
@@ -1159,6 +1181,55 @@ def test_the_worker_outbox_update_is_column_scoped(fresh_db, pg_engine):
         "updated_at",
         "released_at",
     }, f"unexpected worker outbox UPDATE column set: {sorted(columns)}"
+
+
+def test_the_worker_conversation_lock_grant_is_column_scoped(fresh_db, pg_engine):
+    """The fence locks the conversation row, and the grant admits exactly that.
+
+    `BackgroundMemoryCommit`'s first step is `SELECT ... FOR UPDATE` on the
+    conversation, and PostgreSQL refuses every row-locking mode to a role holding
+    only `SELECT` — verified here rather than assumed, because "the worker can take
+    its own fence" is the precondition the background path depends on.
+
+    Migration `20260915_04` grants column-level `UPDATE` on the two columns the
+    lock reads, which satisfies row locking without letting the worker rewrite a
+    conversation's title, status, or any other column.
+    """
+    _upgrade_to_head(pg_engine, _test_dsn())
+    ensure_worker_login(pg_engine)
+
+    with pg_engine.connect() as connection:
+        rows = connection.execute(
+            sa.text(
+                "SELECT column_name "
+                "FROM information_schema.role_column_grants "
+                "WHERE grantee = 'travel_worker' "
+                "AND table_name = 'conversations' "
+                "AND privilege_type = 'UPDATE'"
+            )
+        ).fetchall()
+
+    columns = {row[0] for row in rows}
+    assert columns == {"retention_state", "deletion_epoch"}, (
+        f"unexpected worker conversation UPDATE column set: {sorted(columns)}"
+    )
+
+    from backend.storage.postgres import create_engine
+
+    worker_engine = create_engine(require(worker_dsn(), "PG_WORKER_TEST_DSN"))
+    try:
+        with worker_engine.begin() as connection:
+            connection.execute(sa.text("SET LOCAL app.tenant = 'lock_probe'"))
+            # The lock the commit coordinator takes. Before `20260915_04` this
+            # raised `permission denied for table conversations`.
+            connection.execute(
+                sa.text(
+                    "SELECT retention_state, deletion_epoch FROM conversations "
+                    "FOR UPDATE"
+                )
+            )
+    finally:
+        worker_engine.dispose()
 
 
 def test_no_default_privileges_were_granted_to_the_worker(fresh_db, pg_engine):
@@ -1342,6 +1413,37 @@ def test_the_runtime_role_grants_are_the_enumerated_minimum(fresh_db, pg_engine)
         ("conversation_outbox", "UPDATE"),
         ("memory_evidence", "SELECT"),
         ("memory_evidence", "UPDATE"),
+        # The durable source-handling authority path (migration 20260912_03):
+        # read and append a decision, never rewrite one.
+        ("memory_source_handling", "SELECT"),
+        ("memory_source_handling", "INSERT"),
+        # The explicit memory actions path (migration 20260914_01):
+        ("memory_assertions", "SELECT"),
+        ("memory_assertions", "INSERT"),
+        ("memory_assertions", "UPDATE"),
+        ("memory_versions", "SELECT"),
+        ("memory_versions", "INSERT"),
+        ("memory_versions", "UPDATE"),
+        ("memory_evidence", "INSERT"),
+        ("memory_decisions", "INSERT"),
+        ("memory_events", "INSERT"),
+        ("memory_outbox", "INSERT"),
+        ("memory_write_idempotency", "SELECT"),
+        ("memory_write_idempotency", "INSERT"),
+        ("memory_write_idempotency", "UPDATE"),
+        # The episodic slice (migration 20260915_02): the answer path reads
+        # episodes, and deleting a conversation must invalidate that
+        # conversation's episodes in the same transaction as its tombstone —
+        # exactly the `memory_evidence` precedent above. The runtime never
+        # inserts or deletes an episode.
+        ("memory_episodes", "SELECT"),
+        ("memory_episodes", "UPDATE"),
+        # The Working Memory slice (migration 20260915_03): the answer path
+        # reads the conversation's open state and dialogue reconstruction admits
+        # it, and deleting a conversation invalidates it in the tombstone's
+        # transaction. The runtime never inserts.
+        ("memory_summaries", "SELECT"),
+        ("memory_summaries", "UPDATE"),
     }, f"unexpected runtime grant set: {sorted(granted)}"
 
 
@@ -1449,10 +1551,29 @@ def test_the_worker_memory_grants_are_the_derived_minimum(fresh_db, pg_engine):
         ("memory_evidence", "INSERT"),
         ("memory_decisions", "INSERT"),
         ("memory_events", "INSERT"),
+        ("memory_outbox", "DELETE"),
         ("memory_outbox", "INSERT"),
+        ("memory_outbox", "SELECT"),
         ("memory_write_idempotency", "SELECT"),
         ("memory_write_idempotency", "INSERT"),
         ("memory_write_idempotency", "UPDATE"),
+        # The durable source-handling authority path (migration 20260912_03).
+        ("memory_source_handling", "SELECT"),
+        ("memory_source_handling", "INSERT"),
+        # The episodic slice (migration 20260915_02). `SELECT` for the
+        # provenance-idempotency read before an insert, `INSERT` to form one, and
+        # `UPDATE` for the activation status transition. No `DELETE`: an episode
+        # is revoked, not erased (ADR 0037).
+        ("memory_episodes", "SELECT"),
+        ("memory_episodes", "INSERT"),
+        ("memory_episodes", "UPDATE"),
+        # The Working Memory slice (migration 20260915_03). `SELECT` for the
+        # locked replacement read, `INSERT` for the first open state of a
+        # conversation, and `UPDATE` to replace it or move its status. No
+        # `DELETE`: working state is invalidated, not erased (ADR 0037).
+        ("memory_summaries", "SELECT"),
+        ("memory_summaries", "INSERT"),
+        ("memory_summaries", "UPDATE"),
     }, f"unexpected worker memory grant set: {sorted(granted)}"
 
 
@@ -1497,4 +1618,95 @@ def test_the_worker_memory_grants_round_trip(fresh_db, pg_engine):
                 "WHERE grantee = 'travel_worker' AND table_name LIKE 'memory\\_%'"
             )
         ).scalar()
-    assert restored == 13
+    assert restored == 23, (
+        "20 grants through the episodic slice, plus the Working Memory slice's "
+        "SELECT/INSERT/UPDATE on memory_summaries (migration 20260915_03)"
+    )
+
+
+def test_source_handling_table_rejects_duplicate_authority_key(fresh_db, pg_engine):
+    """The authority key `(source_outbox_id, family)` is unique at the schema
+    level, so a double write of one decision cannot create two rows."""
+    _upgrade_to_head(pg_engine, _test_dsn())
+    with pg_engine.begin() as connection:
+        row = (
+            "'cout_dup', 'ms_dup', 'owner_a', 'semantic', 'background_eligible', "
+            "'background_policy_eligible'"
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO memory_source_handling "
+                "(source_outbox_id, source_message_id, owner_user_id, family, "
+                "outcome, reason_code, recorded_at) "
+                f"VALUES ({row}, :at)"
+            ),
+            {"at": MOMENT},
+        )
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                sa.text(
+                    "INSERT INTO memory_source_handling "
+                    "(source_outbox_id, source_message_id, owner_user_id, family, "
+                    "outcome, reason_code, recorded_at) "
+                    f"VALUES ({row}, :at)"
+                ),
+                {"at": MOMENT},
+            )
+
+
+def test_source_handling_rls_forces_tenant_scoping(fresh_db, pg_engine):
+    """FORCE RLS is on and no product role may UPDATE or DELETE an authority
+    record: append-only by grant, not by convention."""
+    _upgrade_to_head(pg_engine, _test_dsn())
+    with pg_engine.connect() as connection:
+        forced = connection.execute(
+            sa.text(
+                "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                "WHERE relname = 'memory_source_handling'"
+            )
+        ).one()
+        assert forced == (True, True)
+        forbidden = connection.execute(
+            sa.text(
+                "SELECT count(*) FROM information_schema.role_table_grants "
+                "WHERE table_name = 'memory_source_handling' "
+                "AND grantee IN ('travel_app', 'travel_worker') "
+                "AND privilege_type IN ('UPDATE', 'DELETE')"
+            )
+        ).scalar()
+    assert forbidden == 0
+
+
+def test_worker_memory_outbox_prune_grants_and_rls(fresh_db, pg_engine):
+    """The worker role may only prune pending projection events, not arbitrary rows.
+
+    Migration 20260915_01 grants SELECT and DELETE on memory_outbox to travel_worker,
+    constrained by RLS to (event_type = 'memory.write.committed' AND status = 'pending').
+    """
+    _upgrade_to_head(pg_engine, _test_dsn())
+
+    with pg_engine.connect() as connection:
+        # 1. Verify exact grants for travel_worker on memory_outbox
+        worker_grants = {
+            row[0]
+            for row in connection.execute(
+                sa.text(
+                    "SELECT privilege_type FROM information_schema.role_table_grants "
+                    "WHERE table_name = 'memory_outbox' AND grantee = 'travel_worker'"
+                )
+            )
+        }
+        assert worker_grants == {"INSERT", "SELECT", "DELETE"}, f"unexpected outbox grants: {worker_grants}"
+
+        # 2. Verify RLS policy existence on memory_outbox
+        policies = {
+            row[0]
+            for row in connection.execute(
+                sa.text(
+                    "SELECT polname FROM pg_policy "
+                    "WHERE polrelid = 'memory_outbox'::regclass"
+                )
+            )
+        }
+        assert "worker_memory_outbox_prune" in policies
+        assert "worker_memory_outbox_select" in policies

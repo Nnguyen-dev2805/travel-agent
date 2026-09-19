@@ -12,6 +12,7 @@ Covers:
 
 from datetime import datetime, timedelta, timezone
 from typing import Sequence
+from unittest.mock import MagicMock
 import pytest
 
 from backend.memory.write_pipeline.models import (
@@ -65,6 +66,25 @@ class FakeUoW:
         self.applied_changes = []
         self.versions = []
         self.active_versions: list = []
+        self.assertion_id: str | None = None
+        self.has_unresolved_conflict = False
+        self.assertion_generation = 1
+
+    def get_assertion_identity_details(self, identity):
+        """Return `(assertion_id, has_unresolved_conflict)` for one identity.
+
+        Required by `MemoryUnitOfWork`. `(None, False)` models the first write to
+        a key: no assertion exists yet, so there is nothing to conflict with.
+        """
+        return self.assertion_id, self.has_unresolved_conflict
+
+    def get_assertion_generation(self, owner_user_id: str, canonical_key: str) -> int:
+        """Return this double's current suppression generation.
+
+        Required by `MemoryUnitOfWork`: the ACTIVATION-stage lifecycle facts
+        compare it against the candidate's stamp.
+        """
+        return self.assertion_generation
 
     def get_active_versions(self, owner_user_id: str, canonical_key: str):
         """Return this double's active versions for one owner and key.
@@ -89,6 +109,7 @@ class FakeUoW:
         idempotency_key=None,
         expected_version_id=None,
         fence=None,
+        source_validity=None,
     ):
         self.applied_changes.append(
             {
@@ -98,6 +119,7 @@ class FakeUoW:
                 "decision": decision,
                 "idempotency_key": idempotency_key,
                 "fence": fence,
+                "source_validity": source_validity,
             }
         )
         # If any version were active, record it (for zero-active verification)
@@ -144,7 +166,40 @@ class FakeConversationService:
         return self.deletion_epochs.get(conversation_id, 0)
 
 
-def _setup_worker(model=None, uow=None, outbox=None, conv_service=None, recorder=None):
+def _eligible_source_handling_loader(owner, outbox_id, family):
+    """Return a persisted positive source-handling record for one outbox event.
+
+    Background formation is authorized only by a persisted
+    `BACKGROUND_ELIGIBLE` record; absence is `UNHANDLED`, and `UNHANDLED` is not
+    permission. The default worker/recorder setup therefore models a
+    positively-handled source, and tests that need the refusal supply their own
+    loader.
+    """
+    from backend.memory.source_handling import (
+        MemoryFamily,
+        SourceHandlingOutcome,
+        SourceHandlingReason,
+        SourceHandlingRecord,
+    )
+
+    return SourceHandlingRecord(
+        source_outbox_id=outbox_id,
+        source_message_id="msg_source",
+        family=MemoryFamily.SEMANTIC,
+        outcome=SourceHandlingOutcome.BACKGROUND_ELIGIBLE,
+        reason_code=SourceHandlingReason.BACKGROUND_POLICY_ELIGIBLE,
+        recorded_at=MOMENT,
+    )
+
+
+def _setup_worker(
+    model=None,
+    uow=None,
+    outbox=None,
+    conv_service=None,
+    recorder=None,
+    source_handling_loader=_eligible_source_handling_loader,
+):
     outbox_repo = outbox or InMemoryOutboxRepository()
     uow_fake = uow or FakeUoW()
     model_fake = model or FakeExtractionModel()
@@ -154,7 +209,10 @@ def _setup_worker(model=None, uow=None, outbox=None, conv_service=None, recorder
             BackgroundMemoryRecorder,
         )
 
-        recorder = BackgroundMemoryRecorder(uow_factory=lambda: uow_fake)
+        recorder = BackgroundMemoryRecorder(
+            uow_factory=lambda: uow_fake,
+            source_handling_loader=source_handling_loader,
+        )
 
     worker = MemoryOutboxWorker(
         outbox_repo=outbox_repo,
@@ -162,6 +220,7 @@ def _setup_worker(model=None, uow=None, outbox=None, conv_service=None, recorder
         conversation_service=conv_svc,
         recorder=recorder,
         worker_id="test_worker_1",
+        source_handling_loader=source_handling_loader,
     )
     return worker, outbox_repo, uow_fake, model_fake, conv_svc
 
@@ -737,27 +796,35 @@ def test_worker_delegates_to_background_recorder_record_sync():
     from backend.memory.write_pipeline.models import DecisionOutcome
 
     class FakeRecorder:
-        """Minimal recorder implementing record_sync — the narrow BackgroundMemoryRecorder seam."""
+        """Minimal recorder implementing the batch seam the worker calls."""
 
         def __init__(self):
             self.calls = []
 
-        def record_sync(
+        def record_batch_sync(
             self,
-            candidate: ShadowCandidate,
+            candidates,
             source_outbox_id=None,
             source_message_id=None,
             conversation_id=None,
+            *,
             fence=None,
-        ) -> BackgroundRecordResult:
-            self.calls.append((candidate, fence))
-            return BackgroundRecordResult(
-                status="recorded",
-                candidate_id=candidate.candidate_id,
-                decision_outcome=DecisionOutcome.SHADOW,
-                operation=MemoryOperation.NOOP,
-                reason="shadow_valid_unpromoted",
-                write_result=None,
+            source_handling_record=None,
+            source_validity=None,
+            event_type=None,
+        ):
+            candidates = tuple(candidates)
+            self.calls.append((candidates, fence))
+            return tuple(
+                BackgroundRecordResult(
+                    status="recorded",
+                    candidate_id=candidate.candidate_id,
+                    decision_outcome=DecisionOutcome.SHADOW,
+                    operation=MemoryOperation.NOOP,
+                    reason="shadow_valid_unpromoted",
+                    write_result=None,
+                )
+                for candidate in candidates
             )
 
     fake_recorder = FakeRecorder()
@@ -789,8 +856,9 @@ def test_worker_delegates_to_background_recorder_record_sync():
     res = worker.process_one(event)
     assert res.status == OutboxStatus.SUCCEEDED
     assert len(fake_recorder.calls) == 1
-    recorded_candidate, recorded_fence = fake_recorder.calls[0]
-    assert recorded_candidate.canonical_key == "travel.preference.flight"
+    recorded_candidates, recorded_fence = fake_recorder.calls[0]
+    assert len(recorded_candidates) == 1
+    assert recorded_candidates[0].canonical_key == "travel.preference.flight"
     # The worker must bind the commit to the observed lease and epoch.
     assert recorded_fence.conversation_id == "conv_1"
     assert recorded_fence.expected_epoch == 0
@@ -841,7 +909,7 @@ def test_worker_reports_fenced_write_as_obsolete():
     from backend.memory.write_pipeline.uow import FenceReason, FencedWriteError
 
     class FencingRecorder:
-        def record_sync(self, *args, **kwargs):
+        def record_batch_sync(self, *args, **kwargs):
             # A typed reason, not a sentence (ADR 0033). A conversation-shaped
             # reason is the one case where cancelling the conversation's other
             # work is justified, so the worker's response to it is what this test
@@ -937,7 +1005,7 @@ def _fenced_worker(reason, *, outbox=None):
     from backend.memory.write_pipeline.uow import FencedWriteError
 
     class _FencingRecorder:
-        def record_sync(self, *args, **kwargs):
+        def record_batch_sync(self, *args, **kwargs):
             raise FencedWriteError(reason)
 
     candidate = MemoryCandidate(
@@ -1435,3 +1503,127 @@ def test_load_messages_without_an_upper_bound_reads_to_the_end():
     loaded = worker._load_messages("conv_1", "owner_1", after_sequence=0)
 
     assert [m["message_id"] for m in loaded] == ["m1", "m3"]
+
+
+# ---------------------------------------------------------------------------
+# Task 11 / Stage 4: Outbox Maintenance Pass Scheduling
+# ---------------------------------------------------------------------------
+
+
+def test_worker_run_maintenance_pass_invokes_cleaner():
+    from unittest.mock import MagicMock
+
+    mock_cleaner = MagicMock(return_value=12)
+    outbox_repo = InMemoryOutboxRepository()
+    worker = MemoryOutboxWorker(
+        outbox_repo=outbox_repo,
+        model_adapter=FakeExtractionModel(),
+        conversation_service=FakeConversationService(),
+        recorder=MagicMock(),
+        worker_id="test_worker_1",
+        maintenance_cleaner=mock_cleaner,
+        retention_days=30,
+        cleanup_batch_size=500,
+    )
+
+    pruned = worker.run_maintenance_pass()
+
+    assert pruned == 12
+    mock_cleaner.assert_called_once()
+    cutoff, batch_size = mock_cleaner.call_args[0]
+    assert batch_size == 500
+    assert cutoff.tzinfo is not None
+
+
+def test_worker_run_batch_triggers_maintenance_pass():
+    from unittest.mock import MagicMock
+
+    mock_cleaner = MagicMock(return_value=5)
+    outbox_repo = InMemoryOutboxRepository()
+    worker = MemoryOutboxWorker(
+        outbox_repo=outbox_repo,
+        model_adapter=FakeExtractionModel(),
+        conversation_service=FakeConversationService(),
+        recorder=MagicMock(),
+        worker_id="test_worker_1",
+        maintenance_cleaner=mock_cleaner,
+    )
+
+    worker.run_batch(limit=10)
+
+    mock_cleaner.assert_called_once()
+
+
+def test_worker_maintenance_pass_handles_exceptions_gracefully():
+    mock_cleaner = MagicMock(side_effect=RuntimeError("db connection failed"))
+    outbox_repo = InMemoryOutboxRepository()
+    worker = MemoryOutboxWorker(
+        outbox_repo=outbox_repo,
+        model_adapter=FakeExtractionModel(),
+        conversation_service=FakeConversationService(),
+        recorder=MagicMock(),
+        worker_id="test_worker_1",
+        maintenance_cleaner=mock_cleaner,
+    )
+
+    pruned = worker.run_maintenance_pass()
+
+    assert pruned == 0
+
+
+def test_an_unhandled_source_never_reaches_the_model():
+    """A source without a persisted positive record must not be sent to the model.
+
+    The gate used to be reached only inside the recorder — after the provider had
+    been paid for an extraction whose result could not be used — and its copy
+    treated a missing record as permission, so an `UNHANDLED` source was formed
+    from. Both halves are pinned here: no extraction call at all, and the event
+    reaches a terminal state rather than being retried forever.
+    """
+    candidate = MemoryCandidate(
+        candidate_id="mc_unhandled",
+        evidence_ids=(),
+        owner_user_id="owner_1",
+        scope=MemoryScope.CONVERSATION,
+        conversation_id="conv_1",
+        canonical_key="travel.preference.hotel_atmosphere",
+        normalized_value="quiet",
+        display_text="I love quiet places",
+        authority=Authority.REPEATED_INFERENCE,
+        sensitivity=SensitivityBand.ORDINARY_PERSONAL,
+        observed_at=MOMENT,
+    )
+    model = FakeExtractionModel(candidates=[candidate])
+    worker, outbox, uow, model_fake, conv_svc = _setup_worker(
+        model=model,
+        source_handling_loader=lambda owner, outbox_id, family: None,
+    )
+
+    conv_svc.conversations["conv_1"] = {
+        "conversation_id": "conv_1",
+        "owner_user_id": "owner_1",
+        "retention_state": "active",
+    }
+    conv_svc.messages["conv_1"] = [
+        {"message_id": "msg_1", "role": "user", "content": "I love quiet places"}
+    ]
+
+    event = OutboxEvent(
+        outbox_id="cout_1",
+        conversation_id="conv_1",
+        message_id="msg_1",
+        owner_user_id="owner_1",
+        event_type="memory.extract.conversation_range",
+        payload={"conversation_id": "conv_1"},
+        created_at=MOMENT,
+        released_at=MOMENT,
+    )
+    outbox.save_event(event)
+
+    result = worker.process_one(event)
+
+    assert result.reason == WorkerReason.SOURCE_HANDLING_DENIED
+    assert result.status == OutboxStatus.SUCCEEDED
+    assert result.candidates_count == 0
+    assert model_fake.calls == []  # the provider was never called
+    assert uow.applied_changes == []  # and nothing was formed

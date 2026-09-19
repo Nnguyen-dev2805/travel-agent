@@ -12,9 +12,10 @@ repository therefore never has to interpret an identifier.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, Sequence
 
 from backend.conversations.models import (
+    DEFAULT_HISTORY_LIMIT,
     Conversation,
     ConversationRetentionState,
     Message,
@@ -86,7 +87,7 @@ class ConversationRepository(Protocol):
         message: MessageDraft,
         message_id: str,
         assistant_message_id: str,
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> tuple[Conversation, Message, Message]:
         """Atomically persist a new conversation and its first turn.
 
@@ -139,7 +140,7 @@ class ConversationRepository(Protocol):
         message: MessageDraft,
         message_id: str,
         owner_user_id: str,
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> Message:
         """Persist one message under a server-generated identity.
 
@@ -165,7 +166,7 @@ class ConversationRepository(Protocol):
         owner_user_id: str,
         user_content: str,
         assistant_placeholder: str = "",
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> tuple[Message, Message]:
         """Allocate one turn in one transaction under one parent-row lock.
 
@@ -258,4 +259,34 @@ class ConversationRepository(Protocol):
         belongs to one turn; without an upper bound it read every later message
         in the conversation and attributed them to its own provenance.
         """
+        ...
+
+    def get_recent_messages_before(
+        self,
+        conversation_id: str,
+        owner_user_id: str,
+        before_sequence: int,
+        limit: int = DEFAULT_HISTORY_LIMIT,
+    ) -> tuple[Message, ...]:
+        """Return the newest `limit` messages before `before_sequence`, ascending.
+
+        `list_messages` orders ascending *before* applying `LIMIT`, so it cannot
+        express "the latest N": on a conversation longer than the window it
+        returns the oldest rows in the range. This seam selects descending so the
+        limit applies to the newest eligible rows, then hands back transcript
+        order.
+
+        `before_sequence` is **exclusive**. The caller passes the sequence of the
+        turn it is about to process, so the current turn can never appear in its
+        own recent history; a first turn therefore reads an empty window.
+
+        The window is positional. No arithmetic is performed on sequence values,
+        because stored sequences are not dense.
+        """
+        ...
+
+    def get_turn_outbox_id(
+        self, conversation_id: str, message_id: str, owner_user_id: str
+    ) -> str | None:
+        """Return the authoritative outbox_id allocated for this turn, if any."""
         ...

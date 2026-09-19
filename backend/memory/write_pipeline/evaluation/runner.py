@@ -421,6 +421,19 @@ class EvaluationRunner:
                         sensitivity=SensitivityBand(ev_data.get("sensitivity", "ordinary_personal")),
                         status=VersionStatus.ACTIVE,
                         valid_from=datetime.now(timezone.utc) - timedelta(hours=1),
+                        # These fixtures describe versions that predate the
+                        # retention column, so they carry what migration
+                        # `20260912_03` backfilled them to: conversation scope
+                        # is conversation-bound, everything else source-bound.
+                        # Deliberately *not* `RetentionAssignmentPolicy`, which
+                        # answers what a new write should get, and deliberately
+                        # never `user_durable` — that is earned by a corroborated
+                        # save and a fixture is not one.
+                        retention_mode=(
+                            "conversation_bound"
+                            if ev_scope is MemoryScope.CONVERSATION
+                            else "source_bound"
+                        ),
                     )
                 )
 

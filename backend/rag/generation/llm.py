@@ -9,7 +9,13 @@ from typing import Optional
 from openai import OpenAI
 
 from backend.app.config import settings
-from backend.rag.contracts import ContextBundle, GeneratedAnswer
+from backend.generation.contracts import (
+    ContextSufficiency,
+    GenerationCitation,
+    GenerationContext,
+    GenerationResult,
+)
+
 
 logger = logging.getLogger("travel_agent_llm_generator")
 
@@ -22,24 +28,23 @@ GENERATION_MAX_TOKENS = 800
 class GenerationError(RuntimeError):
     """The provider returned no usable content. Carries no provider output."""
 
+
 INSUFFICIENT_EVIDENCE_REPLY = (
     "Tôi chưa có đủ thông tin trong cẩm nang để trả lời câu hỏi này một cách đáng tin cậy."
 )
 
-# Versioned prompt template. The wording is the characterized legacy
-# RAGService system prompt moved verbatim (context header uses U+1EA8).
 PROMPT_TEMPLATE = (
     "Bạn là Trợ lý AI Du lịch Việt Nam thông minh, thân thiện và am hiểu địa phương. "
-    "Hãy sử dụng thông tin Cẩm nang Du lịch được cung cấp bên dưới để trả lời câu hỏi của người dùng bằng Tiếng Việt. "
-    "Nếu thông tin được cung cấp có chứa câu trả lời, hãy trả lời chính xác, hữu ích và tự nhiên. "
-    "Không tự bịa đặt thông tin không có trong cẩm nang.\n\n"
-    "=== CẨM NANG DU LỊCH THAM KHẢO ===\n"
+    "Hãy sử dụng thông tin được cung cấp bên dưới để trả lời câu hỏi của người dùng bằng Tiếng Việt. "
+    "Nếu có thông tin Cẩm nang Du lịch, hãy trả lời chính xác, hữu ích và tự nhiên; không tự bịa đặt thông tin không có trong cẩm nang. "
+    "Nếu có thông tin Sở thích Người dùng, hãy xem đó là ngữ cảnh sở thích mềm (soft preferences) để cá nhân hóa câu trả lời; "
+    "yêu cầu cụ thể của người dùng ở lượt hiện tại luôn có mức ưu tiên cao hơn và có thể ghi đè sở thích đã nhớ.\n\n"
     "{context}"
 )
 
 
 class LLMGenerator:
-    """Generates the final answer from a ContextBundle via the configured provider."""
+    """Generates the final answer from a GenerationContext via the configured provider."""
 
     def __init__(self, client: Optional[OpenAI] = None) -> None:
         self._client = client
@@ -70,25 +75,40 @@ class LLMGenerator:
             self._owned_client.close()
             self._owned_client = None
 
-    def generate(self, user_message: str, context: ContextBundle) -> GeneratedAnswer:
-        """Generate an answer for the user message using the assembled context.
+    def generate(
+        self, user_message: str, context: GenerationContext
+    ) -> GenerationResult:
+        """Generate an answer for the user message using the assembled GenerationContext.
 
         Args:
             user_message: Raw user query string sent to the provider.
-            context: Assembled ContextBundle from the ContextAssembler.
+            context: Source-neutral GenerationContext.
 
         Returns:
-            GeneratedAnswer with the reply, the configured model identity, and
-            the citations carried through from the context bundle.
+            GenerationResult with the reply, the configured model identity, and
+            the citations carried through from the context.
         """
-        if context.insufficient_evidence:
-            return GeneratedAnswer(
+        if not isinstance(context, GenerationContext):
+            raise TypeError(
+                f"context must be a GenerationContext, got {type(context).__name__}; "
+                "ContextBundle compatibility is restricted to RAGService.generate_answer()."
+            )
+
+        if context.sufficiency is ContextSufficiency.INSUFFICIENT:
+            return GenerationResult(
                 reply=INSUFFICIENT_EVIDENCE_REPLY,
                 model=settings.LLM_MODEL,
                 citations=(),
             )
 
-        system_prompt = PROMPT_TEMPLATE.format(context=context.prompt_context)
+        if context.prompt_context.strip():
+            system_prompt = PROMPT_TEMPLATE.format(context=context.prompt_context.strip())
+        else:
+
+            system_prompt = (
+                "Bạn là Trợ lý AI Du lịch Việt Nam thông minh, thân thiện và am hiểu địa phương. "
+                "Hãy trả lời câu hỏi của người dùng bằng Tiếng Việt một cách chính xác, hữu ích và tự nhiên."
+            )
 
         client = self._client or self._get_llm_client()
         completion = client.chat.completions.create(
@@ -105,7 +125,7 @@ class LLMGenerator:
         if not isinstance(reply_content, str) or not reply_content.strip():
             raise GenerationError("The provider returned no usable content.")
 
-        return GeneratedAnswer(
+        return GenerationResult(
             reply=reply_content,
             model=settings.LLM_MODEL,
             citations=context.citations,

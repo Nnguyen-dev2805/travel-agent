@@ -22,6 +22,7 @@ from backend.conversations.postgres_repository import PostgresConversationReposi
 from backend.conversations.repository import ConversationRepository
 from backend.conversations.service import ConversationService
 from backend.storage.postgres import ALEMBIC_HEAD, assert_least_privilege_role
+from backend.orchestration.context_planner import ContextPlanner
 from backend.orchestration.conversation_orchestrator import ConversationOrchestrator
 
 logger = logging.getLogger("travel_agent_runtime")
@@ -249,6 +250,7 @@ class RuntimeContainer:
         self,
         outbox_enabled: bool | None = None,
         rag_service: Any = None,
+        llm_provider: Any = None,
     ) -> ConversationOrchestrator:
         """Return the conversation orchestrator for chat turns."""
         resolved_outbox = (
@@ -257,10 +259,134 @@ class RuntimeContainer:
             else outbox_enabled
         )
         resolved_rag = rag_service if rag_service is not None else self.rag_service()
+        explicit_actions_enabled = bool(
+            getattr(self._settings, "MEMORY_EXPLICIT_ACTIONS_ENABLED", False)
+        )
+
+        explicit_action_handler = None
+        explicit_memory_commit = None
+        source_handling_recorder = None
+
+        if explicit_actions_enabled:
+            from backend.memory.commit_coordinators import ExplicitMemoryTurnCommit
+            from backend.memory.explicit_actions import ExplicitMemoryActionHandler
+            from backend.memory.write_pipeline.postgres import (
+                PostgresMemoryUnitOfWork,
+                record_source_handling,
+            )
+            from backend.memory.write_pipeline.provider import OpenAICompatibleProvider
+
+            uow = PostgresMemoryUnitOfWork(self.engine)
+            resolved_provider = (
+                llm_provider
+                if llm_provider is not None
+                else OpenAICompatibleProvider(settings=self._settings)
+            )
+            explicit_action_handler = ExplicitMemoryActionHandler(
+                active_version_provider=uow.get_active_versions,
+                generation_provider=uow.get_assertion_generation,
+                provider=resolved_provider,
+            )
+            explicit_memory_commit = ExplicitMemoryTurnCommit(engine=self.engine)
+            source_handling_recorder = lambda owner, record: record_source_handling(
+                self.engine, owner, record
+            )
+
+        if source_handling_recorder is None and resolved_outbox:
+            # Task 12: the durable authority record must be writable on the
+            # background-capture path, not only on the explicit-action path. A
+            # deployment that captures sources for background formation with
+            # explicit actions off still needs it, or every family's formation is
+            # refused as `UNHANDLED` and the capture is inert — the exact failure
+            # mode a guard proven only against pre-seeded records produces.
+            from backend.memory.write_pipeline.postgres import record_source_handling
+
+            source_handling_recorder = lambda owner, record: record_source_handling(
+                self.engine, owner, record
+            )
+
+        episodic_read_enabled = bool(
+            getattr(self._settings, "MEMORY_EPISODIC_READ_ENABLED", False)
+        )
+        episodic_read_engine = None
+        if episodic_read_enabled:
+            from backend.memory.episodic import EpisodicReadEngine
+            from backend.memory.postgres_store import PostgresEpisodeStore
+
+            episodic_read_engine = EpisodicReadEngine(PostgresEpisodeStore(self.engine))
+
+        working_read_enabled = bool(
+            getattr(self._settings, "MEMORY_WORKING_READ_ENABLED", False)
+        )
+        working_read_engine = None
+        if working_read_enabled:
+            from backend.memory.postgres_store import PostgresWorkingStore
+            from backend.memory.working import WorkingMemoryReadEngine
+
+            working_read_engine = WorkingMemoryReadEngine(
+                PostgresWorkingStore(self.engine)
+            )
+
+        # The turn path's writer. Wired only when the synchronous deterministic
+        # transition is enabled, because a writer that exists is a writer that
+        # writes: leaving it composed while the flag is off would make the flag
+        # decorative.
+        working_write_enabled = bool(
+            getattr(self._settings, "MEMORY_WORKING_WRITE_ENABLED", False)
+        )
+        working_state_writer = None
+        if working_write_enabled:
+            from backend.memory.postgres_store import record_working_state
+
+            working_state_writer = lambda candidate: record_working_state(  # noqa: E731
+                self.engine, candidate
+            )
+
+        memory_read_enabled = bool(
+            getattr(self._settings, "MEMORY_READ_ENABLED", False)
+        )
+        memory_use_enabled = bool(
+            getattr(self._settings, "MEMORY_USE_ENABLED", False)
+        )
+        memory_read_engine = None
+        if memory_read_enabled:
+            from backend.memory.postgres_store import PostgresMemoryStore
+            from backend.memory.read_engine import MemoryReadEngine
+
+            store = PostgresMemoryStore(engine=self.engine)
+            memory_read_engine = MemoryReadEngine(store=store)
+
+        from backend.memory.context import MemoryContextComposer
+        from backend.orchestration.context_arbiter import ContextArbiter
+
+        context_arbiter = ContextArbiter(memory_composer=MemoryContextComposer())
+
         return ConversationOrchestrator(
             rag_service=resolved_rag,
             conversation_service_provider=self.conversation_service,
             outbox_enabled=resolved_outbox,
+            # The rollout gate is decided here, not inside the orchestrator:
+            # `backend.orchestration` may not import this module, so the planner
+            # arrives injected. With the flag at its default `False` the planner
+            # is shadow-only and the effective source plan stays the existing
+            # RAG-only baseline; authoritative planner execution is Task 10.
+            context_planner=ContextPlanner(
+                enforcement_enabled=self._settings.CONTEXT_PLANNER_ENFORCEMENT_ENABLED
+            ),
+            explicit_actions_enabled=explicit_actions_enabled,
+            explicit_action_handler=explicit_action_handler,
+            explicit_memory_commit=explicit_memory_commit,
+            source_handling_recorder=source_handling_recorder,
+            memory_read_engine=memory_read_engine,
+            context_arbiter=context_arbiter,
+            memory_read_enabled=memory_read_enabled,
+            memory_use_enabled=memory_use_enabled,
+            episodic_read_engine=episodic_read_engine,
+            episodic_read_enabled=episodic_read_enabled,
+            working_read_engine=working_read_engine,
+            working_read_enabled=working_read_enabled,
+            working_state_writer=working_state_writer,
+            working_write_enabled=working_write_enabled,
         )
 
     def readiness_probe(self) -> PostgresReadinessProbe:

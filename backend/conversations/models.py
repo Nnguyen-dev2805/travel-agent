@@ -528,6 +528,34 @@ class MessageHistoryQuery:
 #: layer it does not otherwise need.
 MEMORY_EXTRACT_EVENT_TYPE = "memory.extract.conversation_range"
 
+#: The episodic family's own event on the same queue (plan v0.20 Task 12).
+#:
+#: Family processing uses **family-specific outbox events**: one source message
+#: may produce a semantic event and an episodic event as separate rows, each with
+#: its own lease, idempotency and terminal state. The alternative — per-family
+#: progress state on one shared event — would make "the event is done" a question
+#: with no single answer, and would let one family's failure hold another's work
+#: leased.
+#:
+#: A distinct constant rather than a suffixed `MEMORY_EXTRACT_EVENT_TYPE`: the
+#: existing value is already persisted on real rows, so reusing it for a second
+#: family would make the queue unable to tell them apart.
+EPISODIC_EXTRACT_EVENT_TYPE = "memory.extract.episodic"
+
+#: The Working Memory family's own event (Task 13), on the same rule as the
+#: episodic one above: a family that forms through the worker gets its own row so
+#: each family keeps its own lease, idempotency key and terminal state.
+WORKING_EXTRACT_EVENT_TYPE = "memory.extract.working"
+
+#: The closed set of event families the Memory worker may claim. The claim path
+#: filters on membership of this tuple, so a future family is invisible until it
+#: is named here deliberately.
+MEMORY_EXTRACT_EVENT_TYPES: tuple[str, ...] = (
+    MEMORY_EXTRACT_EVENT_TYPE,
+    EPISODIC_EXTRACT_EVENT_TYPE,
+    WORKING_EXTRACT_EVENT_TYPE,
+)
+
 
 @dataclass(frozen=True)
 class OutboxIntent:
@@ -535,6 +563,7 @@ class OutboxIntent:
 
     Encapsulates event_type and structured payload, avoiding primitive obsession
     and loose dict passing across conversation and write pipeline boundaries.
+
     """
 
     event_type: str
@@ -548,6 +577,38 @@ class OutboxIntent:
             raise ConversationValidationError(
                 "Conversation field 'payload' must be a dict."
             )
+
+
+def coerce_outbox_intents(value: Any) -> tuple[OutboxIntent, ...]:
+    """Coerce a single intent, a dict, or a sequence of either to a tuple.
+
+    One entry point so every existing caller that passes a single intent keeps
+    working while the turn path learns to write more than one family's event.
+    A sequence is refused when it repeats an `event_type`, because two events of
+    one family for one source would make the `(source_outbox_id, family)`
+    authority key ambiguous rather than merely redundant.
+    """
+    if value is None:
+        return ()
+    if isinstance(value, (OutboxIntent, dict)):
+        candidates: tuple[Any, ...] = (value,)
+    elif isinstance(value, (list, tuple)):
+        candidates = tuple(value)
+    else:
+        raise ConversationValidationError(
+            "Outbox event must be an OutboxIntent, dict, a sequence of either, "
+            "or None."
+        )
+
+    intents = tuple(coerce_outbox_intent(item) for item in candidates)
+    resolved = tuple(intent for intent in intents if intent is not None)
+    families = [intent.event_type for intent in resolved]
+    if len(set(families)) != len(families):
+        raise ConversationValidationError(
+            "A turn may write at most one outbox event per event_type; a repeated "
+            "family would make the source-handling authority key ambiguous."
+        )
+    return resolved
 
 
 def coerce_outbox_intent(value: Any) -> OutboxIntent | None:

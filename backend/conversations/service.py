@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 
 from backend.conversations.models import (
+    DEFAULT_HISTORY_LIMIT,
     Conversation,
     ConversationCreate,
     ConversationRetentionState,
@@ -31,7 +32,7 @@ from backend.conversations.models import (
     OutboxIntent,
     TraceVisibility,
     TransitionResult,
-    coerce_outbox_intent,
+    coerce_outbox_intents,
     generate_conversation_id,
     generate_message_id,
     require_text,
@@ -143,7 +144,7 @@ class ConversationService:
         role: MessageRole | str = MessageRole.USER,
         source: MessageSource | str | None = MessageSource.UI,
         trace_visibility: TraceVisibility | str | None = None,
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> tuple[Conversation, Message, Message]:
         """Atomically create a standalone conversation and its first turn.
 
@@ -159,7 +160,7 @@ class ConversationService:
             ConversationStorageError: Storage failed.
         """
         owner = require_text(owner_user_id, "owner_user_id")
-        outbox_intent = coerce_outbox_intent(outbox_event)
+        outbox_intent = coerce_outbox_intents(outbox_event)
         moment = utc_now()
 
         for remaining in reversed(range(MAX_IDENTITY_ATTEMPTS)):
@@ -266,7 +267,7 @@ class ConversationService:
         owner_user_id: str,
         source: MessageSource | str | None = None,
         trace_visibility: TraceVisibility | str | None = None,
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> Message:
         """Append one message to an existing conversation.
 
@@ -293,7 +294,7 @@ class ConversationService:
         """
         self._require_conversation_for_owner(conversation_id, owner_user_id)
 
-        outbox_intent = coerce_outbox_intent(outbox_event)
+        outbox_intent = coerce_outbox_intents(outbox_event)
 
         draft = MessageDraft(
             conversation_id=conversation_id,
@@ -350,7 +351,7 @@ class ConversationService:
         owner_user_id: str,
         user_content: str,
         assistant_placeholder: str = "",
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> tuple[Message, Message]:
         """Open one turn: a user message and a pending assistant row together.
 
@@ -369,7 +370,7 @@ class ConversationService:
                 budget, or storage failed.
         """
         self._require_conversation_for_owner(conversation_id, owner_user_id)
-        outbox_intent = coerce_outbox_intent(outbox_event)
+        outbox_intent = coerce_outbox_intents(outbox_event)
 
         for remaining in reversed(range(MAX_IDENTITY_ATTEMPTS)):
             try:
@@ -465,6 +466,25 @@ class ConversationService:
                 "The conversation does not exist."
             ) from error
 
+    def get_turn_outbox_id(
+        self,
+        conversation_id: str,
+        message_id: str,
+        owner_user_id: str,
+        event_type: str | None = None,
+    ) -> str | None:
+        """Return the authoritative outbox_id allocated for this turn, if any.
+
+        `event_type` names the family whose event is wanted when a turn carries
+        more than one; see `find_turn_outbox_id_on`.
+        """
+        identifier = require_text(conversation_id, "conversation_id")
+        message = require_text(message_id, "message_id")
+        owner = require_text(owner_user_id, "owner_user_id")
+        return self._conversations.get_turn_outbox_id(
+            identifier, message, owner, event_type
+        )
+
     def list_messages(
         self,
         query: MessageHistoryQuery,
@@ -547,6 +567,50 @@ class ConversationService:
                 after_sequence,
                 limit,
                 until_sequence,
+            )
+        )
+
+    def get_recent_messages_before(
+        self,
+        conversation_id: str,
+        owner_user_id: str,
+        before_sequence: int,
+        limit: int = DEFAULT_HISTORY_LIMIT,
+    ) -> tuple[Message, ...]:
+        """Return the bounded recent-dialogue window preceding one turn.
+
+        The newest `limit` messages with `sequence < before_sequence`, in
+        ascending transcript order. This is the read path a turn uses to
+        reconstruct dialogue context: the caller passes the sequence of the turn
+        it is about to process, so the current turn is never part of its own
+        history and a first turn resolves an empty window.
+
+        Owner-scoped like every other read: a missing or foreign conversation
+        fails closed with `ConversationNotFoundError` rather than returning
+        another owner's rows.
+
+        Raises:
+            ConversationNotFoundError: The conversation does not exist or is foreign.
+            ConversationValidationError: The window is outside the governed bound.
+        """
+        # The bound is part of this seam's contract, so it is enforced here as
+        # well as in the PostgreSQL adapter: a permissive adapter must not be able
+        # to widen the window, and `DEFAULT_HISTORY_LIMIT` is the governed
+        # maximum rather than a suggestion. A larger request is refused rather
+        # than clamped, so a caller cannot believe it read more than it did.
+        if not 1 <= limit <= DEFAULT_HISTORY_LIMIT:
+            raise ConversationValidationError(
+                "The recent-dialogue window must be between 1 and "
+                f"{DEFAULT_HISTORY_LIMIT} rows."
+            )
+
+        self._require_conversation_for_owner(conversation_id, owner_user_id)
+        return tuple(
+            self._conversations.get_recent_messages_before(
+                conversation_id,
+                owner_user_id,
+                before_sequence,
+                limit,
             )
         )
 

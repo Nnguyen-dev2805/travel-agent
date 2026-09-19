@@ -107,6 +107,15 @@ def test_delete_issues_propagation_statements_in_one_transaction():
             _FakeResult(rowcount=1),
             _FakeResult(),
             _FakeResult(),
+            # The episodic invalidation (plan v0.20 Task 12). Deleting a
+            # conversation must stop its recorded events being eligible in the
+            # same transaction that tombstones it, exactly as it already does for
+            # `memory_evidence`.
+            _FakeResult(),
+            # The Working Memory invalidation (plan v0.22 Task 13). The open state
+            # is conversation-scoped, so it must not outlive the conversation it
+            # describes.
+            _FakeResult(),
         ]
     )
     repo = PostgresConversationRepository(_FakeEngine(connection))
@@ -118,6 +127,8 @@ def test_delete_issues_propagation_statements_in_one_transaction():
     assert "UPDATE conversations SET retention_state" in sql
     assert "UPDATE conversation_outbox SET status" in sql
     assert "UPDATE memory_evidence SET invalidated_at" in sql
+    assert "UPDATE memory_episodes SET invalidated_at" in sql
+    assert "UPDATE memory_summaries SET invalidated_at" in sql
     assert "deletion_epoch" in sql
 
 
@@ -221,3 +232,106 @@ def test_fence_rejects_foreign_owner_row():
     connection2 = _FakeConnection([_FakeResult(row=None), _FakeResult(row=None)])
     with pytest.raises(FencedWriteError):
         uow_cls._check_fence(connection2, _fence(), "owner_a")
+
+
+class _RowsResult:
+    """A result whose `.mappings().fetchall()` yields rows in the given order."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def mappings(self):
+        return self
+
+    def fetchall(self):
+        return self._rows
+
+
+def _message_row(sequence: int) -> dict:
+    return {
+        "message_id": f"ms_{sequence:032d}",
+        "conversation_id": "cv_unit_1",
+        "sequence": sequence,
+        "role": "user",
+        "content": f"turn {sequence}",
+        "source": "ui",
+        "trace_visibility": "excluded",
+        "created_at": utc_now(),
+        "status": "complete",
+    }
+
+
+def test_recent_messages_selects_the_newest_rows_and_returns_them_ascending():
+    """`list_messages` cannot be reused: it orders ascending before `LIMIT`.
+
+    On a conversation longer than the window, `ORDER BY sequence ASC LIMIT n`
+    returns the OLDEST rows in the range. The dedicated seam must select the
+    newest rows and then hand back transcript order, because `DialogueState`
+    and its callers read turns in sequence order (`plan v0.7:413-425`).
+    """
+    # The first two results belong to tenant binding inside `tenant_transaction`.
+    connection = _FakeConnection(
+        [
+            _FakeResult(),
+            _FakeResult(),
+            _RowsResult([_message_row(9), _message_row(8), _message_row(7)]),
+        ]
+    )
+    repo = PostgresConversationRepository(_FakeEngine(connection))
+
+    result = repo.get_recent_messages_before("cv_unit_1", "owner_a", 10, 3)
+
+    sql = connection.statements[-1]
+    assert "DESC" in sql, sql
+    assert "LIMIT" in sql, sql
+    assert [message.sequence for message in result] == [7, 8, 9]
+
+
+def test_recent_messages_bounds_the_window_exclusively_from_above():
+    """`before_sequence` is exclusive, so the current turn is never included."""
+    connection = _FakeConnection([_FakeResult(), _FakeResult(), _RowsResult([])])
+    repo = PostgresConversationRepository(_FakeEngine(connection))
+
+    repo.get_recent_messages_before("cv_unit_1", "owner_a", 10, 3)
+
+    sql = connection.statements[-1]
+    assert "messages.sequence <" in sql, sql
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_recent_messages_rejects_a_non_positive_window(limit):
+    """A negative limit reaches PostgreSQL as `LIMIT -1` and surfaces as a storage error.
+
+    Validating here turns a confusing backend failure into a contract violation
+    at the boundary that knows the rule.
+    """
+    from backend.conversations.models import ConversationValidationError
+
+    connection = _FakeConnection([])
+    repo = PostgresConversationRepository(_FakeEngine(connection))
+
+    with pytest.raises(ConversationValidationError):
+        repo.get_recent_messages_before("cv_unit_1", "owner_a", 10, limit)
+    assert connection.statements == []
+
+
+@pytest.mark.parametrize("limit", [51, 200, 1000])
+def test_recent_messages_never_selects_more_than_the_governed_limit(limit):
+    """The window is bounded by policy, not by whatever the caller asks for.
+
+    `DEFAULT_HISTORY_LIMIT` is the governed bound; a larger request is refused
+    rather than silently clamped, so a caller cannot believe it read more than it
+    did.
+    """
+    from backend.conversations.models import (
+        DEFAULT_HISTORY_LIMIT,
+        ConversationValidationError,
+    )
+
+    assert DEFAULT_HISTORY_LIMIT == 50
+    connection = _FakeConnection([])
+    repo = PostgresConversationRepository(_FakeEngine(connection))
+
+    with pytest.raises(ConversationValidationError):
+        repo.get_recent_messages_before("cv_unit_1", "owner_a", 10, limit)
+    assert connection.statements == []

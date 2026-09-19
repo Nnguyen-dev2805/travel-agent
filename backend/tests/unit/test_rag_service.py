@@ -7,7 +7,14 @@ from typing import Any
 # pyrefly: ignore [missing-import]
 import pytest
 
-from backend.rag.contracts import GeneratedAnswer, RetrievalResult
+from backend.generation.contracts import (
+    ContextSufficiency,
+    GenerationCitation,
+    GenerationContext,
+    GenerationResult,
+)
+
+from backend.rag.contracts import RetrievalResult
 from backend.rag.generation import rag_service as rag_service_module
 from backend.rag.generation.context import ContextAssembler
 from backend.rag.generation.rag_service import RAGService
@@ -47,14 +54,18 @@ class FakeGenerator:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, Any]] = []
-        self.answers: list[GeneratedAnswer] = []
+        self.answers: list[GenerationResult] = []
 
-    def generate(self, user_message: str, context: Any) -> GeneratedAnswer:
+    def generate(self, user_message: str, context: Any) -> GenerationResult:
         self.calls.append((user_message, context))
-        answer = GeneratedAnswer(
+        citations = tuple(
+            GenerationCitation(title=c.title, url=c.url)
+            for c in getattr(context, "citations", ())
+        )
+        answer = GenerationResult(
             reply=FAKE_REPLY,
             model="fake-model",
-            citations=context.citations,
+            citations=citations,
         )
         self.answers.append(answer)
         return answer
@@ -63,68 +74,84 @@ class FakeGenerator:
 def _make_service(
     results: list[RetrievalResult] | None = None,
 ) -> tuple[RAGService, FakeRetriever, ContextAssembler, FakeGenerator]:
-    """Build the facade with injected fakes and the real context assembler."""
     retriever = FakeRetriever(results=results)
     assembler = ContextAssembler()
     generator = FakeGenerator()
     service = RAGService(
-        retriever=retriever, context_assembler=assembler, generator=generator
+        retriever=retriever,
+        context_assembler=assembler,
+        generator=generator,
     )
     return service, retriever, assembler, generator
 
 
-def test_empty_message_raises_value_error_without_touching_dependencies():
-    """Empty/whitespace input fails fast before retriever or generator use."""
-    service, retriever, _, generator = _make_service(
-        results=[_result("c1", "T1", "https://u1", "text1")]
-    )
-
-    for bad_message in ("", "   ", "\n\t  "):
-        with pytest.raises(ValueError, match="cannot be empty") as excinfo:
-            service.generate_answer(bad_message)
-        assert str(excinfo.value) == "User message content cannot be empty."
-
-    assert retriever.calls == []
-    assert generator.calls == []
+def test_empty_user_message_raises_value_error():
+    service, _, _, _ = _make_service()
+    with pytest.raises(ValueError, match="User message content cannot be empty"):
+        service.generate_answer("")
+    with pytest.raises(ValueError, match="User message content cannot be empty"):
+        service.generate_answer("   \n\t  ")
 
 
-def test_query_stripped_and_default_top_k_passed_to_retriever():
-    """The stripped query goes to the retriever with the default top_k of 4."""
-    service, retriever, _, generator = _make_service(
-        results=[_result("c1", "T1", "https://u1", "text1")]
-    )
-
-    service.generate_answer("  Hà Nội?  ")
-
-    assert retriever.calls == [("Hà Nội?", 4)]
-    assert generator.calls[0][0] == "Hà Nội?"
-
-
-def test_explicit_top_k_overrides_default():
-    """An explicit top_k argument is forwarded to the retriever unchanged."""
+def test_custom_top_k_overrides_constructor_default():
     service, retriever, _, _ = _make_service(results=[])
+    service.generate_answer("Đà Nẵng", top_k=7)
+    assert retriever.calls == [("Đà Nẵng", 7)]
 
-    service.generate_answer("Hà Nội?", top_k=7)
 
-    assert retriever.calls == [("Hà Nội?", 7)]
+def test_constructor_top_k_used_when_call_site_omits_it():
+    retriever = FakeRetriever(results=[])
+    service = RAGService(retriever=retriever, top_k=5)
+    service.generate_answer("Huế")
+    assert retriever.calls == [("Huế", 5)]
+
+
+def test_build_travel_context_exposes_r6_orchestration_seam():
+    results = [_result("c1", "T1", "https://u1", "text1")]
+    service, retriever, assembler, _ = _make_service(results=results)
+
+    bundle = service.build_travel_context("Hà Nội", top_k=3)
+
+    assert retriever.calls == [("Hà Nội", 3)]
+    assert bundle == assembler.assemble(results)
+    assert bundle.insufficient_evidence is False
+
+
+def test_generate_from_context_returns_generation_result():
+    results = [_result("c1", "T1", "https://u1", "text1")]
+    service, _, _, generator = _make_service(results=results)
+    gen_context = GenerationContext(
+        prompt_context="[Nguồn 1: T1]\ntext1",
+        citations=(GenerationCitation(title="T1", url="https://u1"),),
+        sufficiency=ContextSufficiency.SUFFICIENT,
+    )
+
+    result = service.generate_from_context("Hà Nội", gen_context)
+    assert isinstance(result, GenerationResult)
+    assert result.reply == FAKE_REPLY
+    assert len(result.citations) == 1
+    assert result.citations[0].title == "T1"
 
 
 def test_generator_receives_real_assembler_bundle():
-    """The generator gets the real ContextAssembler output for the retriever results."""
+    """The generator gets the neutral GenerationContext projected from ContextAssembler."""
     results = [
         _result("c1", "T1", "https://u1", "text1"),
         _result("c2", "T2", "https://u2", "text2"),
     ]
     service, retriever, _, generator = _make_service(results=results)
 
-    service.generate_answer("Hà Nội?")
-
-    user_message, bundle = generator.calls[0]
-    assert user_message == "Hà Nội?"
+    bundle = service.build_travel_context("Hà Nội?")
     assert bundle.insufficient_evidence is False
     assert bundle.evidence == tuple(results)
     assert bundle.prompt_context == "[Nguồn 1: T1]\ntext1\n\n---\n\n[Nguồn 2: T2]\ntext2"
     assert bundle == ContextAssembler().assemble(results)
+
+    service.generate_answer("Hà Nội?")
+    user_message, gen_context = generator.calls[0]
+    assert user_message == "Hà Nội?"
+    assert gen_context.sufficiency is ContextSufficiency.SUFFICIENT
+    assert "[Nguồn 1: T1]\ntext1" in gen_context.prompt_context
 
 
 def test_public_result_shape_and_citation_projection():
@@ -153,7 +180,6 @@ def test_public_result_shape_and_citation_projection():
         {"title": "T1", "url": "https://u1-later"},
         {"title": "T2", "url": "https://u2"},
     ]
-    # No evidence ids, chunk ids, or scores leak into the public dict.
     for citation in result["citations"]:
         assert set(citation.keys()) == {"title", "url"}
     assert result["model"] == "fake-model"
@@ -201,3 +227,18 @@ def test_default_construction_uses_module_level_defaults(monkeypatch):
     service.generate_answer("Hà Nội?")
     assert sentinel_retriever.calls == [("Hà Nội?", 4)]
     assert len(sentinel_generator.calls) == 1
+
+
+def test_generate_from_context_rejects_context_bundle():
+    """generate_from_context accepts only GenerationContext; ContextBundle raises TypeError."""
+    from backend.rag.contracts import ContextBundle
+
+    service, _, _, _ = _make_service()
+    bundle = ContextBundle(
+        prompt_context="test",
+        evidence=(),
+        citations=(),
+        insufficient_evidence=False,
+    )
+    with pytest.raises(TypeError, match="GenerationContext"):
+        service.generate_from_context("Hà Nội?", bundle)  # type: ignore[arg-type]

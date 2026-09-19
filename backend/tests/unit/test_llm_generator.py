@@ -9,6 +9,12 @@ from typing import Any
 import pytest
 
 from backend.app.config import settings
+from backend.generation.contracts import (
+    ContextSufficiency,
+    GenerationCitation,
+    GenerationContext,
+    GenerationResult,
+)
 from backend.rag.contracts import CitationEvidence, ContextBundle, RetrievalResult
 from backend.rag.generation import llm as llm_module
 from backend.rag.generation.llm import LLMGenerator
@@ -18,17 +24,6 @@ FAKE_REPLY = "Câu trả lời giả lập từ mô hình."
 INSUFFICIENT_REPLY = (
     "Tôi chưa có đủ thông tin trong cẩm nang để trả lời câu hỏi này một cách đáng tin cậy."
 )
-
-# Exact legacy system-prompt wording, byte-verified against legacy
-# rag_service.py during characterization (context header uses U+1EA8).
-LEGACY_PROMPT_PREFIX = (
-    "Bạn là Trợ lý AI Du lịch Việt Nam thông minh, thân thiện và am hiểu địa phương. "
-    "Hãy sử dụng thông tin Cẩm nang Du lịch được cung cấp bên dưới để trả lời câu hỏi của người dùng bằng Tiếng Việt. "
-    "Nếu thông tin được cung cấp có chứa câu trả lời, hãy trả lời chính xác, hữu ích và tự nhiên. "
-    "Không tự bịa đặt thông tin không có trong cẩm nang.\n\n"
-)
-
-LEGACY_CONTEXT_HEADER = "=== CẨM NANG DU LỊCH THAM KHẢO ===\n"
 
 
 class FakeChatCompletions:
@@ -96,54 +91,101 @@ def _non_empty_bundle() -> ContextBundle:
     )
 
 
-def test_insufficient_evidence_returns_fixed_answer_without_provider_call():
-    """The zero-evidence path never touches the provider and returns the fixed reply."""
+def test_generator_generate_rejects_context_bundle_with_type_error():
+    """LLMGenerator.generate() rejects ContextBundle with TypeError (Plan v0.16 seam clean break)."""
     generator = LLMGenerator(client=FakeLLMClient())
+    with pytest.raises(TypeError, match="GenerationContext"):
+        generator.generate("câu hỏi", _insufficient_bundle())  # type: ignore[arg-type]
 
-    answer = generator.generate("câu hỏi", _insufficient_bundle())
 
+def test_generation_context_insufficient_returns_fixed_answer():
+    generator = LLMGenerator(client=FakeLLMClient())
+    ctx = GenerationContext(
+        prompt_context="",
+        citations=(),
+        sufficiency=ContextSufficiency.INSUFFICIENT,
+    )
+    answer = generator.generate("câu hỏi", ctx)
+    assert isinstance(answer, GenerationResult)
     assert answer.reply == INSUFFICIENT_REPLY
-    assert answer.model == settings.LLM_MODEL
     assert answer.citations == ()
 
 
-def test_non_empty_bundle_sends_exact_legacy_prompt_and_provider_kwargs():
-    """System message is the legacy prompt verbatim plus the bundle context."""
+def test_generation_context_sends_prompt_and_provider_kwargs():
+    """System message contains prompt template plus context."""
     client = FakeLLMClient()
     generator = LLMGenerator(client=client)
 
-    expected_system = (
-        LEGACY_PROMPT_PREFIX
-        + LEGACY_CONTEXT_HEADER
-        + "[Nguồn 1: T1]\ntext1\n\n---\n\n[Nguồn 2: T2]\ntext2"
+    ctx = GenerationContext(
+        prompt_context="[Nguồn 1: T1]\ntext1\n\n---\n\n[Nguồn 2: T2]\ntext2",
+        citations=(
+            GenerationCitation(title="T1", url="https://u1"),
+            GenerationCitation(title="T2", url="https://u2"),
+        ),
+        sufficiency=ContextSufficiency.SUFFICIENT,
     )
-
-    generator.generate("Hà Nội có gì đẹp?", _non_empty_bundle())
+    generator.generate("Hà Nội có gì đẹp?", ctx)
 
     create_kwargs = client.chat.completions.create_calls[0]
-    assert create_kwargs["messages"] == [
-        {"role": "system", "content": expected_system},
-        {"role": "user", "content": "Hà Nội có gì đẹp?"},
-    ]
+    sys_content = create_kwargs["messages"][0]["content"]
+    assert "Trợ lý AI Du lịch Việt Nam" in sys_content
+    assert "[Nguồn 1: T1]\ntext1" in sys_content
+    assert create_kwargs["messages"][1] == {"role": "user", "content": "Hà Nội có gì đẹp?"}
     assert create_kwargs["temperature"] == 0.7
     assert create_kwargs["max_tokens"] == 800
     assert create_kwargs["model"] == settings.LLM_MODEL
 
 
-def test_reply_from_provider_and_citations_carried_through():
-    """Reply is the provider content; citations are the bundle citations unchanged."""
+
+def test_generation_context_with_soft_memory_guidance():
     client = FakeLLMClient()
     generator = LLMGenerator(client=client)
-    bundle = _non_empty_bundle()
 
-    answer = generator.generate("câu hỏi", bundle)
+    prompt_ctx = (
+        "=== CẨM NANG DU LỊCH THAM KHẢO ===\n"
+        "[Nguồn 1: KS Hà Nội]\nKhách sạn trung tâm\n\n"
+        "=== THÔNG TIN SỞ THÍCH NGƯỜI DÙNG (THAM KHẢO) ===\n"
+        '{"preferences": [{"key": "hotel_atmosphere", "value": "quiet"}]}'
+    )
+    ctx = GenerationContext(
+        prompt_context=prompt_ctx,
+        citations=(GenerationCitation(title="KS Hà Nội", url="https://u1"),),
+        sufficiency=ContextSufficiency.SUFFICIENT,
+    )
 
+    answer = generator.generate("Tìm khách sạn yên tĩnh", ctx)
+
+    assert isinstance(answer, GenerationResult)
+    assert answer.reply == FAKE_REPLY
+    assert len(answer.citations) == 1
+    assert answer.citations[0].title == "KS Hà Nội"
+
+    sys_content = client.chat.completions.create_calls[0]["messages"][0]["content"]
+    assert "sở thích mềm" in sys_content or "soft preferences" in sys_content
+    assert "hotel_atmosphere" in sys_content
+
+
+def test_reply_from_provider_and_citations_carried_through():
+    """Reply is the provider content; citations are carried through."""
+    client = FakeLLMClient()
+    generator = LLMGenerator(client=client)
+    ctx = GenerationContext(
+        prompt_context="[Nguồn 1: T1]\ntext1\n\n---\n\n[Nguồn 2: T2]\ntext2",
+        citations=(
+            GenerationCitation(title="T1", url="https://u1"),
+            GenerationCitation(title="T2", url="https://u2"),
+        ),
+        sufficiency=ContextSufficiency.SUFFICIENT,
+    )
+
+    answer = generator.generate("câu hỏi", ctx)
+
+    assert isinstance(answer, GenerationResult)
     assert answer.reply == FAKE_REPLY
     assert answer.model == settings.LLM_MODEL
-    assert answer.citations == bundle.citations
     assert answer.citations == (
-        CitationEvidence(title="T1", url="https://u1", evidence_ids=("c1",)),
-        CitationEvidence(title="T2", url="https://u2", evidence_ids=("c2",)),
+        GenerationCitation(title="T1", url="https://u1"),
+        GenerationCitation(title="T2", url="https://u2"),
     )
 
 
@@ -158,11 +200,22 @@ def test_injected_client_used_and_no_real_client_constructed(monkeypatch):
     client = FakeLLMClient()
     generator = LLMGenerator(client=client)
 
-    generator.generate("câu hỏi", _non_empty_bundle())
+    ctx_sufficient = GenerationContext(
+        prompt_context="text",
+        citations=(),
+        sufficiency=ContextSufficiency.SUFFICIENT,
+    )
+    generator.generate("câu hỏi", ctx_sufficient)
     assert len(client.chat.completions.create_calls) == 1
 
-    generator.generate("câu hỏi", _insufficient_bundle())
+    ctx_insufficient = GenerationContext(
+        prompt_context="",
+        citations=(),
+        sufficiency=ContextSufficiency.INSUFFICIENT,
+    )
+    generator.generate("câu hỏi", ctx_insufficient)
     assert len(client.chat.completions.create_calls) == 1
+
 
 
 class _NullContentClient:
@@ -248,6 +301,11 @@ def test_close_leaves_an_injected_client_alone():
 def test_unusable_provider_content_raises_generation_error(content):
     """A null/blank completion must not become an empty assistant message."""
     generator = LLMGenerator(client=_NullContentClient(content))
+    ctx = GenerationContext(
+        prompt_context="some context",
+        citations=(),
+        sufficiency=ContextSufficiency.SUFFICIENT,
+    )
 
     with pytest.raises(llm_module.GenerationError):
-        generator.generate("câu hỏi", _non_empty_bundle())
+        generator.generate("câu hỏi", ctx)

@@ -29,7 +29,10 @@ from backend.memory.write_pipeline.models import (
 from backend.memory.write_pipeline.registry import (
     HOTEL_ATMOSPHERE_KEY,
     RegistryValidationError,
+    get_key_definition,
+    is_known_key,
     normalize_value,
+    registry_keys,
 )
 from backend.memory.write_pipeline.secrets import detect_prohibited_content
 
@@ -110,7 +113,7 @@ class ExtractionCandidateSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     canonical_key: str
-    value: str
+    value: str | list[str]
     display_text: str
     confidence: float = 1.0
 
@@ -175,19 +178,30 @@ class StructuredRelationPrompt:
         )
 
 
+def _build_extraction_system_instructions() -> str:
+    lines = [
+        "You are an expert travel assistant extracting user preferences from conversation messages.",
+        "Extract only preferences that match one of the following governed canonical keys:",
+    ]
+    for key in registry_keys():
+        defn = get_key_definition(key)
+        values_str = ", ".join(defn.values)
+        lines.append(
+            f"- Canonical key: '{key}' (cardinality: {defn.cardinality.value}). Allowed values: {values_str}."
+        )
+    lines.append("Bilingual support: User may express in English or Vietnamese.")
+    lines.append("Respond ONLY with valid JSON conforming to the following JSON schema:")
+    lines.append(
+        '{"candidates": [{"canonical_key": "<key>", "value": "<value or list of values>", "display_text": "<text>", "confidence": 1.0}]}'
+    )
+    lines.append('If no governed preference is mentioned, return: {"candidates": []}')
+    return "\n".join(lines)
+
+
 class StructuredExtractionPrompt:
     """Prompt templates for focused preference extraction."""
 
-    SYSTEM_INSTRUCTIONS = (
-        "You are an expert travel assistant extracting user preferences from conversation messages.\n"
-        "Focus ONLY on the hotel atmosphere preference key:\n"
-        f"- Canonical key: '{HOTEL_ATMOSPHERE_KEY}'\n"
-        "- Allowed atmosphere values: quiet, lively, central, secluded.\n"
-        "Bilingual support: User may express in English or Vietnamese (e.g., 'yên tĩnh' -> quiet, 'sôi động' -> lively, 'trung tâm' -> central, 'biệt lập' -> secluded).\n"
-        "Respond ONLY with valid JSON conforming to the following JSON schema:\n"
-        '{"candidates": [{"canonical_key": "travel.preference.hotel_atmosphere", "value": "<value>", "display_text": "<text>", "confidence": 1.0}]}\n'
-        'If no hotel atmosphere preference is mentioned, return: {"candidates": []}\n'
-    )
+    SYSTEM_INSTRUCTIONS = _build_extraction_system_instructions()
 
     @classmethod
     def build_prompt(cls, messages: Sequence[dict[str, Any]]) -> str:
@@ -323,7 +337,7 @@ class MemoryExtractionModel:
             # SECURITY.md: full prompt, conversation, retrieved content or
             # model-output logging is not the default mechanism. `conversation_id`
             # and a counter are the metadata this event is allowed to carry.
-            if raw_cand.canonical_key != HOTEL_ATMOSPHERE_KEY:
+            if not is_known_key(raw_cand.canonical_key):
                 logger.debug("memory_candidate_rejected reason=outside_scope_key")
                 continue
 
@@ -332,11 +346,10 @@ class MemoryExtractionModel:
             except RegistryValidationError:
                 # Same rule for the value: it is model output derived from the
                 # conversation. The key is safe to name *here* because it has just
-                # been proved equal to the registry constant, so it carries no
-                # model-chosen content.
+                # been proved equal to a governed registry key.
                 logger.debug(
                     "memory_candidate_rejected reason=un_normalizable_value key=%s",
-                    HOTEL_ATMOSPHERE_KEY,
+                    raw_cand.canonical_key,
                 )
                 continue
 
@@ -359,7 +372,7 @@ class MemoryExtractionModel:
                 owner_user_id=owner_user_id,
                 scope=MemoryScope.CONVERSATION,
                 conversation_id=conversation_id,
-                canonical_key=HOTEL_ATMOSPHERE_KEY,
+                canonical_key=raw_cand.canonical_key,
                 normalized_value=norm_val,
                 display_text=raw_cand.display_text,
                 authority=Authority.REPEATED_INFERENCE,
@@ -506,3 +519,49 @@ class MemoryExtractionModel:
                     schema_failure_reason(repair_error),
                 )
                 return MemoryRelation.UNCERTAIN
+
+
+def extract_explicit(
+    provider: LLMProvider,
+    utterance: str,
+    *,
+    model_name: str = "gemini-2.5-flash",
+) -> tuple[ExtractionCandidateSchema, ...]:
+    """Single-call, zero-repair explicit extraction for explicit memory actions.
+
+    Fails closed on any error, timeout, or invalid schema: exactly 1 provider call
+    is made, with zero repair calls.
+    """
+    if not utterance or not utterance.strip():
+        return ()
+
+    if detect_prohibited_content(utterance) is not None:
+        logger.warning(
+            "Pre-model secret scan detected prohibited content in explicit turn."
+        )
+        return ()
+
+    prompt = StructuredExtractionPrompt.build_prompt(
+        [{"role": "user", "content": utterance.strip()}]
+    )
+    try:
+        raw_response = provider.generate(prompt)
+        data = json.loads(raw_response)
+        parsed = ExtractionOutputSchema.model_validate(data)
+        valid: list[ExtractionCandidateSchema] = []
+        for cand in parsed.candidates:
+            if not is_known_key(cand.canonical_key):
+                continue
+            if (
+                detect_prohibited_content(f"{cand.value}\n{cand.display_text}")
+                is not None
+            ):
+                continue
+            valid.append(cand)
+        return tuple(valid)
+    except Exception as exc:
+        logger.info(
+            "Explicit extraction failed closed without repair: %s",
+            schema_failure_reason(exc),
+        )
+        return ()

@@ -15,7 +15,8 @@ import json
 from pathlib import Path
 import pytest
 
-from backend.rag.contracts import CitationEvidence, GeneratedAnswer, RetrievalResult
+from backend.generation.contracts import GenerationCitation, GenerationResult
+from backend.rag.contracts import CitationEvidence, RetrievalResult
 from backend.rag.evaluation.artifacts import load_run_artifact
 from backend.rag.evaluation.comparison import compare_runs
 from backend.rag.evaluation.models import (
@@ -55,16 +56,15 @@ class DeterministicMockRuntime:
 
     def generate(
         self, question: str, top_k: int
-    ) -> tuple[GeneratedAnswer, tuple[RetrievalResult, ...]]:
+    ) -> tuple[GenerationResult, tuple[RetrievalResult, ...]]:
         evidence = tuple(self.retrieve(question, top_k))
         citations = (
-            CitationEvidence(
+            GenerationCitation(
                 title=evidence[0].title,
                 url=evidence[0].url,
-                evidence_ids=(evidence[0].chunk_id,),
             ),
         )
-        answer = GeneratedAnswer(
+        answer = GenerationResult(
             reply=f"Thành phố có nhiều điểm du lịch hấp dẫn phù hợp với câu hỏi: {question}",
             model="gpt-4o-mini",
             citations=citations,

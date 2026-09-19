@@ -1017,3 +1017,52 @@ def test_approved_routes_is_the_single_source_of_truth():
     assert len(APPROVED_ROUTES) == 8, APPROVED_ROUTES
     assert ("GET", "/health") in APPROVED_ROUTES
     assert ("POST", "/api/v1/chat") in APPROVED_ROUTES
+
+
+def test_rag_imports_no_memory_and_memory_read_imports_no_rag():
+    """RAG imports no Memory module; Memory Read imports no RAG package (Task 9 review gate)."""
+    backend_dir = Path(__file__).resolve().parent.parent.parent
+    rag_dir = backend_dir / "rag"
+    memory_dir = backend_dir / "memory"
+
+    rag_violations = []
+    for py_file in rag_dir.rglob("*.py"):
+        for lineno, module, symbol in _scan_imports(py_file):
+            if module.startswith("backend.memory"):
+                rel = py_file.relative_to(backend_dir.parent)
+                rag_violations.append(f"{rel}:{lineno} imports {module}")
+
+    assert rag_violations == [], f"RAG imports memory: {rag_violations}"
+
+    read_files = [
+        memory_dir / "read_models.py",
+        memory_dir / "read_engine.py",
+        memory_dir / "postgres_store.py",
+    ]
+    memory_violations = []
+    for py_file in read_files:
+        if py_file.exists():
+            for lineno, module, symbol in _scan_imports(py_file):
+                if module.startswith("backend.rag"):
+                    rel = py_file.relative_to(backend_dir.parent)
+                    memory_violations.append(f"{rel}:{lineno} imports {module}")
+
+    assert memory_violations == [], f"Memory read imports RAG: {memory_violations}"
+
+
+def test_generation_contracts_imports_neither_rag_nor_memory_nor_orchestration():
+    """Generation contracts import neither RAG, Memory, nor Orchestration (Task 10 review gate)."""
+    backend_dir = Path(__file__).resolve().parent.parent.parent
+    generation_dir = backend_dir / "generation"
+
+    violations = []
+    for py_file in generation_dir.rglob("*.py"):
+        for lineno, module, symbol in _scan_imports(py_file):
+            if any(
+                module.startswith(prefix)
+                for prefix in ("backend.rag", "backend.memory", "backend.orchestration")
+            ):
+                rel = py_file.relative_to(backend_dir.parent)
+                violations.append(f"{rel}:{lineno} imports {module}")
+
+    assert violations == [], f"Generation contracts import forbidden packages: {violations}"

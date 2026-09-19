@@ -24,6 +24,26 @@ CANDIDATE_ID_PREFIX = "mc_"
 DECISION_ID_PREFIX = "mdc_"
 VERSION_ID_PREFIX = "mem_"
 
+#: The governed in-process shape of one normalized semantic value.
+#:
+#: A `single` key holds one `str`; a `set` key holds a non-empty, sorted,
+#: deduplicated tuple whose members all belong to the registry entry. The
+#: representation is declared rather than inferred from delimiters, so no reader
+#: ever has to guess whether `"a|b"` is one value or two (`plan v0.11`).
+NormalizedSemanticValue = str | tuple[str, ...]
+
+#: The first generation of a new assertion. A forget advances it.
+INITIAL_SUPPRESSION_GENERATION = 1
+
+
+class ExplicitIntentError(ValueError):
+    """A non-explicit actor reached the explicit set-replacement channel.
+
+    This is a domain-validation error, not a persistence outcome: the resolver
+    raises it before a unit of work exists. Keeping it here prevents the pure
+    resolver from importing the UoW package just to name a validation failure.
+    """
+
 
 class Authority(str, Enum):
     """Where a semantic observation comes from, strongest first."""
@@ -59,7 +79,7 @@ SENSITIVITY_RANK = {
 
 
 class MemoryScope(str, Enum):
-    """Scopes the first registry key may live in."""
+    """Scopes a governed Memory assertion may live in."""
 
     USER = "user"
     CONVERSATION = "conversation"
@@ -69,6 +89,29 @@ class Cardinality(str, Enum):
     """How many current values one assertion identity may hold."""
 
     SINGLE = "single"
+    SET = "set"
+
+
+class RetentionMode(str, Enum):
+    """What must remain true for a Memory version to stay eligible.
+
+    Persisted at write time and immutable for that version. It answers a
+    different question from `expires_at` (temporal validity) and from
+    `suppression_generation` (which forget era), and the three are evaluated
+    independently (`ADR 0037`).
+    """
+
+    CONVERSATION_BOUND = "conversation_bound"
+    SOURCE_BOUND = "source_bound"
+    USER_DURABLE = "user_durable"
+
+
+class SourceValidity(str, Enum):
+    """Caller-owned validity of the source/evidence snapshot."""
+
+    VALID = "valid"
+    INVALID = "invalid"
+    NOT_REQUIRED = "not_required"
 
 
 class MemoryRelation(str, Enum):
@@ -93,6 +136,7 @@ class MemoryOperation(str, Enum):
     PENDING_CONFLICT = "pending_conflict"
     REJECT = "reject"
     NOOP = "noop"
+    REVOKE = "revoke"
 
 
 class DecisionOutcome(str, Enum):
@@ -123,10 +167,18 @@ class DecisionReason(str, Enum):
 
 
 class VersionStatus(str, Enum):
-    """Lifecycle states of one assertion version."""
+    """Lifecycle states of one assertion version.
+
+    `REVOKED` is product forget, not privacy erasure: the row survives so
+    delayed work can be fenced against it, while the assertion's
+    `suppression_generation` advances so older-generation evidence can no longer
+    form, activate, or read (`ADR 0037`).
+    """
 
     ACTIVE = "active"
+    SHADOW = "shadow"
     SUPERSEDED = "superseded"
+    REVOKED = "revoked"
 
 
 def new_evidence_id() -> str:
@@ -182,6 +234,65 @@ def _coerce_enum(value: Any, field_name: str, enum_type: type[Enum]) -> Any:
     raise ValueError(f"Field '{field_name}' must be a {enum_type.__name__} value.")
 
 
+def _require_normalized_value(value: Any, field_name: str) -> NormalizedSemanticValue:
+    """Validate the governed shape of one normalized value.
+
+    A `single` key carries one non-blank `str`. A `set` key carries a non-empty
+    tuple of non-blank, whitespace-trimmed members in strictly ascending order,
+    which is what makes it simultaneously sorted and duplicate-free.
+
+    Order and duplication are refused here rather than normalised, because
+    silently sorting would hide a producer that is assembling a snapshot from
+    unordered evidence, and the stored snapshot must be reproducible from the
+    same inputs. Membership in the registry entry is *not* checked here: that is
+    `validate_against_registry`, and checking it in the model would make this
+    module import the registry that imports it.
+    """
+    if isinstance(value, str):
+        return _require_text(value, field_name)
+    if isinstance(value, tuple):
+        if not value:
+            raise ValueError(
+                f"Field '{field_name}' must not be an empty set. Removing the "
+                "last member is a revoke, not a stored snapshot."
+            )
+        members = []
+        for member in value:
+            if not isinstance(member, str):
+                raise ValueError(
+                    f"Every member of '{field_name}' must be a string."
+                )
+            members.append(_require_text(member, f"{field_name} member"))
+        if any(left >= right for left, right in zip(members, members[1:])):
+            raise ValueError(
+                f"Field '{field_name}' must be strictly ascending, so it is both "
+                "sorted and free of duplicates."
+            )
+        return tuple(members)
+    raise ValueError(
+        f"Field '{field_name}' must be a string or a tuple of strings."
+    )
+
+
+def _require_positive_generation(value: Any, field_name: str) -> int:
+    """Generations are positive integers; a bool is not an integer here."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"Field '{field_name}' must be an integer.")
+    if value < INITIAL_SUPPRESSION_GENERATION:
+        raise ValueError(
+            f"Field '{field_name}' must be at least "
+            f"{INITIAL_SUPPRESSION_GENERATION}."
+        )
+    return value
+
+
+def _optional_utc(value: Any, field_name: str) -> datetime | None:
+    """Temporal validity is optional, but never ambiguous when present."""
+    if value is None:
+        return None
+    return _require_utc(value, field_name)
+
+
 @dataclass(frozen=True)
 class MemoryEvidence:
     """One raw semantic observation before normalization and policy."""
@@ -227,6 +338,15 @@ class MemoryEvidence:
 
 
 @dataclass(frozen=True)
+class EvidenceIdentity:
+    """Minimal typed identity of an evidence item."""
+
+    evidence_id: str
+    conversation_id: str
+    source_message_id: str
+
+
+@dataclass(frozen=True)
 class MemoryCandidate:
     """One normalized write proposal awaiting a policy decision.
 
@@ -242,7 +362,7 @@ class MemoryCandidate:
     scope: MemoryScope | str
     conversation_id: str | None
     canonical_key: str
-    normalized_value: str
+    normalized_value: NormalizedSemanticValue
     display_text: str
     authority: Authority | str
     sensitivity: SensitivityBand | str
@@ -250,6 +370,7 @@ class MemoryCandidate:
     subject_key: str = "self"
     observed_at: datetime | None = None
     confidence: float = 1.0
+    suppression_generation: int = INITIAL_SUPPRESSION_GENERATION
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -287,7 +408,7 @@ class MemoryCandidate:
         object.__setattr__(
             self,
             "normalized_value",
-            _require_text(self.normalized_value, "normalized_value"),
+            _require_normalized_value(self.normalized_value, "normalized_value"),
         )
         object.__setattr__(
             self, "display_text", _require_text(self.display_text, "display_text")
@@ -314,6 +435,13 @@ class MemoryCandidate:
             raise ValueError("Field 'observed_at' is required.")
         object.__setattr__(
             self, "observed_at", _require_utc(self.observed_at, "observed_at")
+        )
+        object.__setattr__(
+            self,
+            "suppression_generation",
+            _require_positive_generation(
+                self.suppression_generation, "suppression_generation"
+            ),
         )
 
 
@@ -378,10 +506,15 @@ class MemoryDecisionDraft:
 
 @dataclass(frozen=True)
 class AssertionIdentity:
-    """Deterministic identity of one single-valued assertion.
+    """Deterministic identity of one assertion.
 
     Built from owner, scope, key, subject, and condition only, so two
     paraphrases of one value resolve to the same identity.
+
+    The value is deliberately absent. A `set`-cardinality assertion therefore
+    keeps one identity across every member it holds, which is what lets a
+    snapshot grow by union instead of spawning one assertion per member
+    (`plan v0.11`).
     """
 
     owner_user_id: str
@@ -423,13 +556,20 @@ class MemoryVersion:
     canonical_key: str
     subject_key: str
     condition_fingerprint: str
-    normalized_value: str
+    normalized_value: NormalizedSemanticValue
     display_text: str
     authority: Authority | str
     sensitivity: SensitivityBand | str
     status: VersionStatus | str
     valid_from: datetime
+    #: Required. Assigned by `RetentionAssignmentPolicy` before the write and
+    #: persisted with the version; the read path reads it back from storage
+    #: rather than re-deriving it, so a later policy revision cannot reinterpret
+    #: historical Memory.
+    retention_mode: RetentionMode | str
     supersedes_version_id: str | None = None
+    expires_at: datetime | None = None
+    suppression_generation: int = INITIAL_SUPPRESSION_GENERATION
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -458,7 +598,7 @@ class MemoryVersion:
         object.__setattr__(
             self,
             "normalized_value",
-            _require_text(self.normalized_value, "normalized_value"),
+            _require_normalized_value(self.normalized_value, "normalized_value"),
         )
         object.__setattr__(
             self, "display_text", _require_text(self.display_text, "display_text")
@@ -474,8 +614,26 @@ class MemoryVersion:
         object.__setattr__(
             self, "status", _coerce_enum(self.status, "status", VersionStatus)
         )
+        if self.retention_mode is not None:
+            object.__setattr__(
+                self,
+                "retention_mode",
+                _coerce_enum(self.retention_mode, "retention_mode", RetentionMode),
+            )
+        else:
+            raise ValueError("Field 'retention_mode' is required.")
         object.__setattr__(
             self, "valid_from", _require_utc(self.valid_from, "valid_from")
+        )
+        object.__setattr__(
+            self, "expires_at", _optional_utc(self.expires_at, "expires_at")
+        )
+        object.__setattr__(
+            self,
+            "suppression_generation",
+            _require_positive_generation(
+                self.suppression_generation, "suppression_generation"
+            ),
         )
         if self.supersedes_version_id is not None:
             object.__setattr__(
@@ -502,13 +660,18 @@ class MemoryVersionDraft:
     canonical_key: str
     subject_key: str
     condition_fingerprint: str
-    normalized_value: str
+    normalized_value: NormalizedSemanticValue
     display_text: str
     authority: Authority | str
     sensitivity: SensitivityBand | str
     valid_from: datetime
+    #: Required, with no default. Assigned by `RetentionAssignmentPolicy` before
+    #: the write; a draft that never went through assignment must fail here.
+    retention_mode: RetentionMode | str
     status: VersionStatus | str = VersionStatus.ACTIVE
     supersedes_version_id: str | None = None
+    expires_at: datetime | None = None
+    suppression_generation: int = INITIAL_SUPPRESSION_GENERATION
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -532,7 +695,7 @@ class MemoryVersionDraft:
         object.__setattr__(
             self,
             "normalized_value",
-            _require_text(self.normalized_value, "normalized_value"),
+            _require_normalized_value(self.normalized_value, "normalized_value"),
         )
         object.__setattr__(
             self, "display_text", _require_text(self.display_text, "display_text")
@@ -550,6 +713,21 @@ class MemoryVersionDraft:
         )
         object.__setattr__(
             self, "status", _coerce_enum(self.status, "status", VersionStatus)
+        )
+        object.__setattr__(
+            self,
+            "retention_mode",
+            _coerce_enum(self.retention_mode, "retention_mode", RetentionMode),
+        )
+        object.__setattr__(
+            self, "expires_at", _optional_utc(self.expires_at, "expires_at")
+        )
+        object.__setattr__(
+            self,
+            "suppression_generation",
+            _require_positive_generation(
+                self.suppression_generation, "suppression_generation"
+            ),
         )
         if self.supersedes_version_id is not None:
             object.__setattr__(

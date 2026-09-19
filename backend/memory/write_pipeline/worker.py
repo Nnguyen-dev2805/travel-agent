@@ -20,14 +20,17 @@ import json
 import logging
 from typing import Any, Protocol, Sequence, runtime_checkable
 
+from backend.memory.source_handling import allows_background_formation
 from backend.memory.write_pipeline.models import (
     DecisionOutcome,
 )
+from backend.memory.source_handling import MemoryFamily
 from backend.memory.write_pipeline.outbox import (
     OutboxEvent,
     OutboxRepository,
     OutboxStatus,
     calculate_backoff,
+    MEMORY_FAMILY_BY_EVENT_TYPE,
 )
 from backend.memory.write_pipeline.uow import (
     FenceContext,
@@ -48,7 +51,10 @@ from backend.memory.write_pipeline.secrets import detect_prohibited_content
 # the read filter cannot drift from the model it consumes. The event-family
 # constant comes from the same module for the same reason — it is the vocabulary
 # both the producer and this consumer share.
-from backend.conversations.models import MEMORY_EXTRACT_EVENT_TYPE, MessageStatus
+from backend.conversations.models import (
+    MEMORY_EXTRACT_EVENT_TYPES,
+    MessageStatus,
+)
 
 logger = logging.getLogger("travel_agent_memory_worker")
 
@@ -118,6 +124,14 @@ class MemoryOutboxWorker:
         lease_duration_seconds: float = 30.0,
         max_attempts: int = 3,
         backoff_base_seconds: float = 2.0,
+        maintenance_cleaner: Callable[[datetime, int], int] | None = None,
+        retention_days: int = 30,
+        cleanup_batch_size: int = 500,
+        source_handling_loader: Callable[[str, str, Any], Any] | None = None,
+        episodic_activation_enabled: bool = False,
+        episodic_commit_coordinator: Any = None,
+        working_activation_enabled: bool = False,
+        working_commit_coordinator: Any = None,
     ) -> None:
         """Build the worker around the narrow `BackgroundMemoryRecorder` seam.
 
@@ -136,6 +150,20 @@ class MemoryOutboxWorker:
         self._lease_duration_seconds = lease_duration_seconds
         self._max_attempts = max_attempts
         self._backoff_base_seconds = backoff_base_seconds
+        self._maintenance_cleaner = maintenance_cleaner
+        self._retention_days = retention_days
+        self._cleanup_batch_size = cleanup_batch_size
+        self._source_handling_loader = source_handling_loader
+        # Default off. The episodic family/type gate is a separate decision
+        # from the semantic inferred-activation flag, and until Task 12's
+        # evaluation record is conclusive a captured episode stays shadow.
+        self._episodic_activation_enabled = episodic_activation_enabled
+        self._episodic_commit_coordinator = episodic_commit_coordinator
+        # Default off, and separate from the episodic and semantic gates for the
+        # same reason those are separate from each other: passing one family's
+        # evaluation is not evidence that this family's was evaluated.
+        self._working_activation_enabled = working_activation_enabled
+        self._working_commit_coordinator = working_commit_coordinator
 
     @property
     def worker_id(self) -> str:
@@ -200,6 +228,30 @@ class MemoryOutboxWorker:
             conversation_id, reason=reason.value
         )
 
+    def run_maintenance_pass(self) -> int:
+        """Run bounded projection outbox cleanup pass."""
+        if self._maintenance_cleaner is None:
+            return 0
+        cutoff = utc_now() - timedelta(days=self._retention_days)
+        try:
+            pruned_count = self._maintenance_cleaner(cutoff, self._cleanup_batch_size)
+            if pruned_count > 0:
+                logger.info(
+                    "Projection outbox maintenance pass pruned %d events cutoff=%s",
+                    pruned_count,
+                    cutoff.isoformat(),
+                )
+            return pruned_count
+        except Exception as error:
+            # Constraint 16: operational logs carry typed codes and bounded
+            # counts, never exception text. The class name is a bounded
+            # identifier; the message is not, and may echo stored content.
+            logger.warning(
+                "Projection outbox maintenance pass failed failure_class=%s",
+                type(error).__name__,
+            )
+            return 0
+
     def run_batch(
         self,
         limit: int = 10,
@@ -215,6 +267,7 @@ class MemoryOutboxWorker:
         results: list[WorkerResult] = []
         for event in events:
             results.append(self.process_one(event))
+        self.run_maintenance_pass()
         return results
 
     def poll_once(
@@ -239,7 +292,7 @@ class MemoryOutboxWorker:
         # `memory.reprocess` and others; without this, a Memory worker would
         # happily extract a conversation range out of one of them and report a
         # plausible success.
-        if event.event_type != MEMORY_EXTRACT_EVENT_TYPE:
+        if event.event_type not in MEMORY_EXTRACT_EVENT_TYPES:
             logger.warning(
                 "Refusing an outbox event of another family outbox_id=%s "
                 "event_type=%s",
@@ -448,6 +501,59 @@ class MemoryOutboxWorker:
                     candidates_count=0,
                 )
 
+        # 5c. Positive source handling authority — checked before the model call.
+        #
+        # The gate used to be reached only inside the recorder, i.e. after the
+        # provider had been paid for an extraction whose result could not be used.
+        # Worse, the recorder's copy treated a missing record as permission, so an
+        # `UNHANDLED` source was formed from and could even activate. Absence is
+        # `UNHANDLED`, and `UNHANDLED` is not permission (`ADR 0038:59`, plan
+        # constraint 8), so an unhandled or explicitly blocked source is terminal
+        # here and never reaches the model.
+        if self._source_handling_loader is not None:
+            handling_record = self._source_handling_loader(
+                event.owner_user_id,
+                event.outbox_id,
+                MEMORY_FAMILY_BY_EVENT_TYPE[event.event_type],
+            )
+            if not allows_background_formation(handling_record):
+                logger.info(
+                    "Background formation refused: no positive source handling "
+                    "outbox_id=%s worker=%s",
+                    event.outbox_id,
+                    self._worker_id,
+                )
+                self._outbox_repo.mark_succeeded(
+                    event.outbox_id, lease_owner=self._worker_id
+                )
+                return WorkerResult(
+                    status=OutboxStatus.SUCCEEDED,
+                    decision=DecisionOutcome.REJECTED,
+                    reason=WorkerReason.SOURCE_HANDLING_DENIED,
+                    candidates_count=0,
+                )
+
+        # 5d. Episodic family: its own formation/activation slice.
+        #
+        # Reached only with positive episodic authority (5c above), and before the
+        # semantic model call, because the two families have different extraction
+        # contracts. The episodic slice reuses the shared retention and lifecycle
+        # owners inside `EpisodeFormationEngine`, and its activation gate is
+        # separate and default-off, so a captured episode is shadow state until its
+        # own evaluation passes.
+        if MEMORY_FAMILY_BY_EVENT_TYPE[event.event_type] is MemoryFamily.EPISODIC:
+            return self._process_episodic_event(event, handling_record, messages)
+
+        # 5e. Working Memory family: its own formation/replacement slice.
+        #
+        # Reached only with positive Working authority (5c above), and before the
+        # semantic model call. The Working slice derives its open state
+        # deterministically from the bounded completed source range, so it spends
+        # nothing with a provider; its activation gate is separate and default-off,
+        # so an inferred replacement stays shadow until its own evaluation passes.
+        if MEMORY_FAMILY_BY_EVENT_TYPE[event.event_type] is MemoryFamily.WORKING:
+            return self._process_working_event(event, handling_record, messages)
+
         # 5b. Renew before paying for a model call, not after.
         #
         # `run_batch` claims the whole batch up front and processes it serially, so
@@ -601,59 +707,59 @@ class MemoryOutboxWorker:
         # deduplicates. The fence binds the commit to the lease and epoch
         # observed here; a delete landing after extraction fences the write
         # inside the same transaction instead of slipping through.
-        fence = FenceContext(
-            conversation_id=event.conversation_id,
-            expected_epoch=int(event.payload.get("deletion_epoch", 0) or 0),
-            outbox_id=event.outbox_id,
-            lease_owner=self._worker_id,
-        )
+        fence = self._fence_for(event)
         last_decision_outcome = None
-        for candidate in candidates:
-            try:
-                rec_res = self._recorder.record_sync(
-                    candidate,
-                    source_outbox_id=event.outbox_id,
-                    source_message_id=event.message_id,
-                    conversation_id=event.conversation_id,
-                    fence=fence,
-                )
-            except FencedWriteError as fence_error:
-                logger.warning(
-                    "Memory write fenced reason=%s outbox_id=%s worker=%s: %s",
-                    fence_error.reason.value,
-                    event.outbox_id,
-                    self._worker_id,
-                    fence_error,
-                )
-                # A fence stops this worker. It cancels nothing (ADR 0033).
-                #
-                # This used to call `cancel_events`, which cancels every `PENDING`
-                # row of the conversation. One of the fence's six causes is "this
-                # worker lost its lease" — a fact about one worker's tenure, and
-                # nothing about whether the conversation's other turns are valid.
-                # Turn 2 and turn 3 were cancelled for it, permanently and
-                # silently: `CANCELLED` is a legitimate terminal state, so the loss
-                # was indistinguishable from a deliberate cancellation.
-                #
-                # The conversation-shaped causes need no repair here either: the
-                # transaction that invalidated the conversation cancelled its
-                # events in the same transaction, so a call would match zero rows.
-                # Cancelling is the revalidation path's job, and only there —
-                # because that is the site that *first observes* an invalid
-                # conversation, with no prior transaction to have cancelled it.
-                return WorkerResult(
-                    status=OutboxStatus.CANCELLED,
-                    decision=None,
-                    reason=WorkerReason.FENCED_BY_SOURCE_MOVE,
+        try:
+            # One commit for the whole event. `record_batch_sync` prepares every
+            # candidate and hands them to the coordinator in a single
+            # transaction, so a multi-candidate extraction cannot lose candidates
+            # to a lease the first one retired.
+            record_results = self._recorder.record_batch_sync(
+                candidates,
+                source_outbox_id=event.outbox_id,
+                source_message_id=event.message_id,
+                conversation_id=event.conversation_id,
+                fence=fence,
+                event_type=event.event_type,
+            )
+        except FencedWriteError as fence_error:
+            logger.warning(
+                "Memory write fenced reason=%s outbox_id=%s worker=%s: %s",
+                fence_error.reason.value,
+                event.outbox_id,
+                self._worker_id,
+                fence_error,
+            )
+            # A fence stops this worker. It cancels nothing (ADR 0033).
+            #
+            # This used to call `cancel_events`, which cancels every `PENDING`
+            # row of the conversation. One of the fence's six causes is "this
+            # worker lost its lease" — a fact about one worker's tenure, and
+            # nothing about whether the conversation's other turns are valid.
+            # Turn 2 and turn 3 were cancelled for it, permanently and
+            # silently: `CANCELLED` is a legitimate terminal state, so the loss
+            # was indistinguishable from a deliberate cancellation.
+            #
+            # The conversation-shaped causes need no repair here either: the
+            # transaction that invalidated the conversation cancelled its
+            # events in the same transaction, so a call would match zero rows.
+            # Cancelling is the revalidation path's job, and only there —
+            # because that is the site that *first observes* an invalid
+            # conversation, with no prior transaction to have cancelled it.
+            return WorkerResult(
+                status=OutboxStatus.CANCELLED,
+                decision=None,
+                reason=WorkerReason.FENCED_BY_SOURCE_MOVE,
                 # The fence's own typed reason, so a lease loss and a deletion are
                 # distinguishable in the log without parsing a message.
                 error_detail=fence_error.reason.value,
-                    candidates_count=0,
-                    token_usage=token_usage,
-                    cost_evidence=cost_evidence,
-                    prompt_version=prompt_version,
-                    schema_version=schema_version,
-                )
+                candidates_count=0,
+                token_usage=token_usage,
+                cost_evidence=cost_evidence,
+                prompt_version=prompt_version,
+                schema_version=schema_version,
+            )
+        for rec_res in record_results:
             last_decision_outcome = rec_res.decision_outcome
 
         # 8. Mark outbox event succeeded and check return value
@@ -662,20 +768,24 @@ class MemoryOutboxWorker:
             lease_owner=self._worker_id,
         )
         if not succeeded:
-            logger.error(
-                "Failed to mark outbox event %s succeeded; lease lost",
-                event.outbox_id,
-            )
-            return WorkerResult(
-                status=OutboxStatus.CANCELLED,
-                decision=None,
-                reason=WorkerReason.MARK_SUCCEEDED_FAILED_LEASE_LOST,
-                candidates_count=len(candidates),
-                token_usage=token_usage,
-                cost_evidence=cost_evidence,
-                prompt_version=prompt_version,
-                schema_version=schema_version,
-            )
+            fresh_event = self._outbox_repo.get_event(event.outbox_id)
+            if fresh_event is not None and fresh_event.status == OutboxStatus.SUCCEEDED:
+                succeeded = True
+            else:
+                logger.error(
+                    "Failed to mark outbox event %s succeeded; lease lost",
+                    event.outbox_id,
+                )
+                return WorkerResult(
+                    status=OutboxStatus.CANCELLED,
+                    decision=None,
+                    reason=WorkerReason.MARK_SUCCEEDED_FAILED_LEASE_LOST,
+                    candidates_count=len(candidates),
+                    token_usage=token_usage,
+                    cost_evidence=cost_evidence,
+                    prompt_version=prompt_version,
+                    schema_version=schema_version,
+                )
 
         return WorkerResult(
             status=OutboxStatus.SUCCEEDED,
@@ -709,6 +819,262 @@ class MemoryOutboxWorker:
         if raw is None:
             return True
         return getattr(raw, "value", str(raw)) == MessageStatus.COMPLETE.value
+
+    def _fence_for(self, event: Any) -> FenceContext:
+        """The fence one claimed event writes under.
+
+        One construction, so the semantic and episodic paths cannot drift apart in
+        the epoch, the lease owner, or the outbox identity they fence on.
+        """
+        return FenceContext(
+            conversation_id=event.conversation_id,
+            expected_epoch=int(event.payload.get("deletion_epoch", 0) or 0),
+            outbox_id=event.outbox_id,
+            lease_owner=self._worker_id,
+        )
+
+    def _process_episodic_event(
+        self, event: Any, handling_record: Any, messages: list[dict[str, Any]]
+    ) -> Any:
+        """Form, activate and persist one grounded episode, or refuse.
+
+        Grounding comes from the turn itself: the actor is the owner, the event is
+        the user's own turn text, the time is that message's persisted time, and the
+        provenance is the source event identity. Nothing here is inferred from
+        model output, because the episodic contract requires actor/event/time/
+        provenance and a model guess is not a grounding fact.
+        """
+        from backend.memory.activation import ActivationReason  # noqa: F401
+        from backend.memory.commit_coordinators import BackgroundEpisodeCommitRequest
+        from backend.memory.episodic import (
+            EpisodeActivationFacts,
+            EpisodeActivationPolicy,
+            EpisodeFormationEngine,
+            EpisodeGrounding,
+            EpisodeProvenance,
+            EpisodeRefusalReason,
+            validate_episode_grounding,
+        )
+        from backend.memory.lifecycle import SourceValidity
+        from backend.memory.write_pipeline.models import VersionStatus
+
+        user_text = ""
+        occurred_at = None
+        for msg in messages:
+            if str(msg.get("role", "")).lower().endswith("user"):
+                user_text = str(msg.get("content", "") or "")
+                occurred_at = msg.get("created_at")
+                break
+        if not user_text or occurred_at is None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "episodic_source_ungrounded",
+            )
+
+        grounding = EpisodeGrounding(
+            actor=event.owner_user_id,
+            event=user_text,
+            occurred_at=occurred_at,
+            provenance=EpisodeProvenance(
+                source_outbox_id=event.outbox_id,
+                source_message_id=event.message_id,
+            ),
+        )
+        if validate_episode_grounding(grounding) is not None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "episodic_source_ungrounded",
+            )
+
+        candidate = EpisodeFormationEngine().form_episode(
+            source_outbox_id=event.outbox_id,
+            source_message_id=event.message_id,
+            owner_user_id=event.owner_user_id,
+            conversation_id=event.conversation_id,
+            grounding=grounding,
+            source_handling_record=handling_record,
+        )
+        if candidate is None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "episodic_formation_refused",
+            )
+
+        decision = EpisodeActivationPolicy().evaluate(
+            EpisodeActivationFacts(
+                grounding_conclusive=True,
+                lifecycle_eligible=True,
+                source_validity=SourceValidity.VALID,
+                stamped_generation=candidate.suppression_generation,
+                current_generation=candidate.suppression_generation,
+                has_unresolved_conflict=False,
+                episodic_gate_enabled=self._episodic_activation_enabled,
+                # The family/type evaluation gate is conclusive only when the
+                # governed evaluation record says so. It is passed as `False`
+                # here until Task 12's evaluation record is conclusive, so this
+                # flag alone can never activate an episode.
+                episodic_gate_conclusive=False,
+            )
+        )
+
+        coordinator = self._episodic_commit_coordinator
+        if coordinator is None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "episodic_commit_unavailable",
+            )
+
+        try:
+            coordinator.commit_episode(
+                BackgroundEpisodeCommitRequest(
+                    episode=candidate,
+                    owner_user_id=event.owner_user_id,
+                    fence=self._fence_for(event),
+                    status=decision.target_status,
+                )
+            )
+        except FencedWriteError as fence_error:
+            logger.warning(
+                "Episodic write fenced reason=%s outbox_id=%s worker=%s",
+                fence_error.reason.value,
+                event.outbox_id,
+                self._worker_id,
+            )
+            return WorkerResult(
+                status=OutboxStatus.LEASED,
+                decision=DecisionOutcome.SHADOW,
+                reason=WorkerReason.LEASE_LOST_BEFORE_COMMIT,
+                candidates_count=0,
+            )
+
+        return WorkerResult(
+            status=OutboxStatus.SUCCEEDED,
+            decision=DecisionOutcome.SHADOW,
+            reason=WorkerReason.EPISODIC_RECORDED,
+            candidates_count=1 if decision.eligible else 0,
+        )
+
+    def _process_working_event(
+        self, event: Any, handling_record: Any, messages: list[dict[str, Any]]
+    ) -> Any:
+        """Derive, activate and apply one Working Memory replacement, or refuse.
+
+        The open state comes from the bounded completed source range the event
+        names — the same deterministic derivation the turn path uses, applied to
+        the range's delivered turns. Nothing here is inferred from model output:
+        `ADR 0038:83-84` and `spec:1037` both describe Working activation as
+        governed deterministic transition or validated source-consistent
+        replacement, and a model guess is neither.
+
+        The origin is `INFERRED_REPLACEMENT`, which is what makes this path subject
+        to the family gate: the state is system-derived over a completed range
+        rather than stated in the current turn, so it stays shadow until the
+        Working family's evaluation is conclusive.
+        """
+        from backend.memory.commit_coordinators import BackgroundWorkingCommitRequest
+        from backend.memory.lifecycle import SourceValidity
+        from backend.memory.working import (
+            WorkingActivationFacts,
+            WorkingActivationPolicy,
+            WorkingOrigin,
+            WorkingStateTransition,
+        )
+
+        candidate = WorkingStateTransition().derive(
+            turns=messages,
+            owner_user_id=event.owner_user_id,
+            conversation_id=event.conversation_id,
+            origin=WorkingOrigin.INFERRED_REPLACEMENT,
+            source_outbox_id=event.outbox_id,
+            source_message_id=event.message_id,
+            source_handling_record=handling_record,
+        )
+        if candidate is None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "working_formation_refused",
+            )
+
+        decision = WorkingActivationPolicy().evaluate(
+            WorkingActivationFacts(
+                origin=candidate.origin,
+                lifecycle_eligible=True,
+                source_validity=SourceValidity.VALID,
+                stamped_generation=candidate.suppression_generation,
+                current_generation=candidate.suppression_generation,
+                working_gate_enabled=self._working_activation_enabled,
+                # The family/type evaluation gate is conclusive only when the
+                # governed evaluation record says so. It is passed as `False`
+                # here until Task 13's record is conclusive, so the flag alone can
+                # never activate an inferred replacement.
+                working_gate_conclusive=False,
+            )
+        )
+
+        coordinator = self._working_commit_coordinator
+        if coordinator is None:
+            return self._refuse_event(
+                event,
+                WorkerReason.SOURCE_HANDLING_DENIED,
+                "working_commit_unavailable",
+            )
+
+        try:
+            replacement = coordinator.commit_working_state(
+                BackgroundWorkingCommitRequest(
+                    candidate=candidate,
+                    owner_user_id=event.owner_user_id,
+                    fence=self._fence_for(event),
+                    status=decision.target_status,
+                )
+            )
+        except FencedWriteError as fence_error:
+            logger.warning(
+                "Working write fenced reason=%s outbox_id=%s worker=%s",
+                fence_error.reason.value,
+                event.outbox_id,
+                self._worker_id,
+            )
+            return WorkerResult(
+                status=OutboxStatus.LEASED,
+                decision=DecisionOutcome.SHADOW,
+                reason=WorkerReason.LEASE_LOST_BEFORE_COMMIT,
+                candidates_count=0,
+            )
+
+        # A superseded candidate is normal operation, not a failure: the turn path
+        # already wrote a newer open state. It is reported as a closed reason code
+        # rather than an error so the two outcomes stay distinguishable.
+        return WorkerResult(
+            status=OutboxStatus.SUCCEEDED,
+            decision=DecisionOutcome.SHADOW,
+            reason=WorkerReason.WORKING_RECORDED,
+            candidates_count=1 if replacement.replace else 0,
+            error_detail=None if replacement.replace else replacement.reason.value,
+        )
+
+    def _refuse_event(self, event: Any, reason: Any, detail: str) -> Any:
+        """Terminal refusal that still completes the event."""
+        logger.info(
+            "Episodic event refused detail=%s outbox_id=%s worker=%s",
+            detail,
+            event.outbox_id,
+            self._worker_id,
+        )
+        self._outbox_repo.mark_succeeded(
+            event.outbox_id, lease_owner=self._worker_id
+        )
+        return WorkerResult(
+            status=OutboxStatus.SUCCEEDED,
+            decision=DecisionOutcome.REJECTED,
+            reason=reason,
+            candidates_count=0,
+        )
 
     def _load_messages(
         self,
@@ -763,6 +1129,10 @@ class MemoryOutboxWorker:
                             else "user"
                         ),
                         "content": getattr(msg, "content", ""),
+                        # The episodic grounding needs the message's own time: a
+                        # grounded event requires a time, and the only honest one
+                        # is when the turn was persisted.
+                        "created_at": getattr(msg, "created_at", None),
                     }
                 )
         return messages

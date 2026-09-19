@@ -1,8 +1,3 @@
-from backend.memory.write_pipeline.background_recorder import (
-    BackgroundMemoryRecorder,
-    BackgroundRecordResult,
-    ShadowCandidate,
-)
 """Versioned semantic-memory write domain.
 
 Standard-library-only contracts, registry, resolver, and policy for the
@@ -21,6 +16,7 @@ from backend.memory.write_pipeline.models import (
     Cardinality,
     DecisionOutcome,
     DecisionReason,
+    EvidenceIdentity,
     MemoryCandidate,
     MemoryChangeSet,
     MemoryDecision,
@@ -68,6 +64,11 @@ from backend.memory.write_pipeline.secrets import (
     ProhibitedKind,
     detect_prohibited_content,
 )
+from backend.memory.write_pipeline.background_recorder import (
+    BackgroundMemoryRecorder,
+    BackgroundRecordResult,
+    ShadowCandidate,
+)
 
 __all__ = [
     "AUTHORITY_RANK",
@@ -92,6 +93,7 @@ __all__ = [
     "DecisionReason",
     "EligibilityOutcome",
     "HotelAtmosphere",
+    "EvidenceIdentity",
     "MemoryCandidate",
     "MemoryChangeSet",
     "MemoryDecision",

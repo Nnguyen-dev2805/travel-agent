@@ -14,7 +14,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 import pytest
 
-from backend.rag.contracts import CitationEvidence, GeneratedAnswer, RetrievalResult
+from backend.generation.contracts import GenerationCitation, GenerationResult
+from backend.rag.contracts import CitationEvidence, RetrievalResult
 from backend.rag.evaluation.artifacts import load_run_artifact
 from backend.rag.evaluation.models import (
     DatasetManifest,
@@ -124,17 +125,16 @@ class FakeRuntime:
             )
         return results
 
-    def generate(self, question: str, top_k: int) -> tuple[GeneratedAnswer, tuple[RetrievalResult, ...]]:
+    def generate(self, question: str, top_k: int) -> tuple[GenerationResult, tuple[RetrievalResult, ...]]:
         self.generate_called = True
         evidence = tuple(self.retrieve(question, top_k))
         citations = (
-            CitationEvidence(
+            GenerationCitation(
                 title=evidence[0].title,
                 url=evidence[0].url,
-                evidence_ids=(evidence[0].chunk_id,),
             ),
         )
-        answer = GeneratedAnswer(
+        answer = GenerationResult(
             reply=f"Generated answer for {question}",
             model="gpt-4o-mini",
             citations=citations,
@@ -441,7 +441,8 @@ def test_runner_citation_matching_uses_context_evidence(
     sample_dataset, sample_run_config
 ):
     """Citation mapping directly to generation context_evidence must NOT emit citation_mismatch."""
-    from backend.rag.contracts import CitationEvidence, GeneratedAnswer, RetrievalResult
+    from backend.generation.contracts import GenerationCitation, GenerationResult
+    from backend.rag.contracts import CitationEvidence, RetrievalResult
 
     ranked_item = RetrievalResult(
         chunk_id="chunk-retrieval",
@@ -466,13 +467,12 @@ def test_runner_citation_matching_uses_context_evidence(
 
         def generate(self, question: str, top_k: int):
             citations = (
-                CitationEvidence(
+                GenerationCitation(
                     title="Context Title",
                     url="https://vietnam.travel/context",
-                    evidence_ids=("chunk-context",),
                 ),
             )
-            ans = GeneratedAnswer(reply="Answer", model="gpt-4o-mini", citations=citations)
+            ans = GenerationResult(reply="Answer", model="gpt-4o-mini", citations=citations)
             return ans, (context_item,)
 
     runner = EvaluationRunner(
@@ -490,7 +490,8 @@ def test_runner_records_structured_evidence_and_failure_taxonomy(
     sample_dataset, sample_run_config
 ):
     """Runner must record structured evidence and emit citation_mismatch and unsupported_claim."""
-    from backend.rag.contracts import CitationEvidence, GeneratedAnswer, RetrievalResult
+    from backend.generation.contracts import GenerationCitation, GenerationResult
+    from backend.rag.contracts import CitationEvidence, RetrievalResult
     from backend.rag.evaluation.judge import JudgeResult
 
     retrieved_item = RetrievalResult(
@@ -509,13 +510,12 @@ def test_runner_records_structured_evidence_and_failure_taxonomy(
         def generate(self, question: str, top_k: int):
             # Return citation that does NOT match retrieved evidence -> citation_mismatch
             citations = (
-                CitationEvidence(
+                GenerationCitation(
                     title="Hallucinated Title",
                     url="https://unrelated.com/fake",
-                    evidence_ids=("fake-chunk",),
                 ),
             )
-            ans = GeneratedAnswer(reply="Answer text", model="gpt-4o-mini", citations=citations)
+            ans = GenerationResult(reply="Answer text", model="gpt-4o-mini", citations=citations)
             return ans, (retrieved_item,)
 
     class LowGroundednessJudge:

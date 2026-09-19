@@ -28,6 +28,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    and_,
     exc as sa_exc,
     func,
     or_,
@@ -39,9 +40,10 @@ from sqlalchemy.engine import Engine
 # The fence's refusal vocabulary (ADR 0033). Imported at module level rather than
 # lazily: the check functions return it on every refusal, so a lazy import would
 # only move the failure to the first fenced write.
-from backend.memory.write_pipeline.uow import FenceReason
+from backend.memory.write_pipeline.uow import FenceReason, FencedWriteError
 
 from backend.conversations.models import (
+    DEFAULT_HISTORY_LIMIT,
     Conversation,
     ConversationRetentionState,
     ConversationValidationError,
@@ -53,6 +55,7 @@ from backend.conversations.models import (
     OutboxIntent,
     TraceVisibility,
     TransitionResult,
+    coerce_outbox_intents,
     generate_message_id,
     require_text,
     utc_now,
@@ -74,6 +77,16 @@ from backend.storage.postgres import (
 logger = logging.getLogger("travel_agent_conversations")
 
 
+def bind_tenant_on(connection: Any, owner_user_id: str) -> None:
+    """Bind and verify app.tenant on a given connection.
+
+    Ensures every subsequent query on this connection runs under row-level
+    security for the owner.
+    """
+    set_tenant(connection, owner_user_id)
+    require_tenant_context(connection)
+
+
 @contextmanager
 def tenant_transaction(engine: Engine, owner_user_id: str) -> Iterator[Any]:
     """Yield one tenant-bound transaction for an owner-scoped operation.
@@ -83,8 +96,7 @@ def tenant_transaction(engine: Engine, owner_user_id: str) -> Iterator[Any]:
     owner the application predicate checks.
     """
     with transaction(engine) as connection:
-        set_tenant(connection, owner_user_id)
-        require_tenant_context(connection)
+        bind_tenant_on(connection, owner_user_id)
         yield connection
 
 
@@ -164,6 +176,66 @@ memory_evidence_table = Table(
     Column("invalidated_at", DateTime(timezone=True), nullable=True),
 )
 
+#: Only the columns the deletion path touches. A full mirror of the episodic
+#: table would have to be kept in step with `20260915_02`, and this adapter has
+#: no business projecting the rest of it.
+def _insert_outbox_events(
+    connection,
+    *,
+    intents,
+    conversation_id: str,
+    message_id: str,
+    owner_user_id: str,
+    created_at,
+    released_at,
+    base_payload: dict,
+) -> None:
+    """Write one outbox row per intent.
+
+    One row per family, never one shared row with per-family progress state: each
+    event carries its own lease, idempotency key and terminal state, so a family
+    that finishes cannot mark another family's work done and a family that fails
+    cannot hold another family's work leased.
+    """
+    for intent in intents:
+        stored_payload = dict(base_payload)
+        stored_payload.update(intent.payload)
+        stored_payload["conversation_id"] = conversation_id
+        outbox_id = f"{_OUTBOX_ID_PREFIX}{uuid.uuid4().hex}"
+        connection.execute(
+            conversation_outbox_table.insert().values(
+                outbox_id=outbox_id,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                owner_user_id=owner_user_id,
+                event_type=intent.event_type,
+                payload=stored_payload,
+                status="pending",
+                attempt_count=0,
+                released_at=released_at,
+                created_at=created_at,
+                updated_at=created_at,
+            )
+        )
+memory_episodes_table = Table(
+    "memory_episodes",
+    metadata,
+    Column("episode_id", Text(), primary_key=True),
+    Column("conversation_id", Text(), nullable=False),
+    Column("invalidated_at", DateTime(timezone=True), nullable=True),
+)
+#: The canonical Working Memory store (`20260915_03`). Deleting a conversation
+#: invalidates its open state in the same transaction as the tombstone, exactly as
+#: the evidence and episode rows above. The table keeps its historical name
+#: `memory_summaries`; only the physical name does.
+memory_summaries_table = Table(
+    "memory_summaries",
+    metadata,
+    Column("summary_id", Text(), primary_key=True),
+    Column("conversation_id", Text(), nullable=False),
+    Column("invalidated_at", DateTime(timezone=True), nullable=True),
+)
+
 _DELETION_STATES = (
     ConversationRetentionState.DELETED.value,
     ConversationRetentionState.DELETION_REQUESTED.value,
@@ -226,7 +298,7 @@ class PostgresConversationRepository:
         message: MessageDraft,
         message_id: str,
         assistant_message_id: str,
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> tuple[Conversation, Message, Message]:
         """Atomically persist a new conversation and its first turn.
 
@@ -240,7 +312,7 @@ class PostgresConversationRepository:
             if isinstance(conversation.retention_state, ConversationRetentionState)
             else str(conversation.retention_state)
         )
-        event_type, payload = self._coerce_outbox_event(outbox_event)
+        intents = self._coerce_outbox_events(outbox_event)
         try:
             with tenant_transaction(
                 self._engine, conversation.owner_user_id
@@ -281,33 +353,26 @@ class PostgresConversationRepository:
                         status=MessageStatus.PENDING.value,
                     )
                 )
-                if event_type is not None:
-                    stored_payload = dict(payload)
-                    stored_payload.setdefault("deletion_epoch", 0)
-                    stored_payload["conversation_id"] = conversation.conversation_id
-                    # Bound the worker's read to this turn, both ends. The
-                    # repository owns sequence allocation, so it owns the cursor:
-                    # this turn's user message sits at sequence 1 and its
-                    # assistant row at sequence 2. Without the upper bound the
-                    # event would read every later turn and attribute it here.
-                    stored_payload["after_sequence"] = 0
-                    stored_payload["until_sequence"] = 2
-                    connection.execute(
-                        conversation_outbox_table.insert().values(
-                            outbox_id=f"{_OUTBOX_ID_PREFIX}{uuid.uuid4().hex}",
-                            conversation_id=conversation.conversation_id,
-                            message_id=message_id,
-                            owner_user_id=conversation.owner_user_id,
-                            event_type=event_type,
-                            payload=stored_payload,
-                            status="pending",
-                            attempt_count=0,
-                            # ADR 0027: blocked until complete_turn releases it.
-                            released_at=None,
-                            created_at=message.created_at,
-                            updated_at=message.created_at,
-                        )
-                    )
+                # One outbox row per family. The sequence cursor is bound here
+                # because the repository owns sequence allocation: this turn's
+                # user message sits at sequence 1 and its assistant row at
+                # sequence 2, and without the upper bound every family's event
+                # would read later turns and attribute them here.
+                _insert_outbox_events(
+                    connection,
+                    intents=intents,
+                    conversation_id=conversation.conversation_id,
+                    message_id=message_id,
+                    owner_user_id=conversation.owner_user_id,
+                    created_at=message.created_at,
+                    # ADR 0027: blocked until complete_turn releases it.
+                    released_at=None,
+                    base_payload={
+                        "deletion_epoch": 0,
+                        "after_sequence": 0,
+                        "until_sequence": 2,
+                    },
+                )
         except sa_exc.IntegrityError as error:
             raise self._classify_integrity_error(error) from error
         except sa_exc.SQLAlchemyError as error:
@@ -391,14 +456,14 @@ class PostgresConversationRepository:
     def delete(self, conversation_id: str, owner_user_id: str) -> bool:
         """Tombstone one conversation and propagate the deletion atomically.
 
-        The tombstone, the outbox cancellation, the memory-evidence
-        invalidation, and the deletion-epoch bump run in one owner-scoped
+        The tombstone, the outbox cancellation, the memory-evidence and
+        episode invalidation, and the deletion-epoch bump run in one owner-scoped
         transaction, so a deleted conversation cannot leave pending or
-        leased extraction events, live evidence rows, or a stale epoch
-        behind. Background extraction writes shadow evidence only and never
-        creates active versions, so invalidation plus fencing is the complete
-        propagation on this path: there are no versions to suspend and no
-        projections to rebuild.
+        leased extraction events, live evidence rows, eligible episodes, or a
+        stale epoch behind. Background extraction writes shadow evidence only and
+        never creates active versions, so invalidation plus fencing is the
+        complete propagation on this path: there are no versions to suspend and
+        no projections to rebuild.
         """
         try:
             with tenant_transaction(self._engine, owner_user_id) as connection:
@@ -440,6 +505,28 @@ class PostgresConversationRepository:
                     .where(memory_evidence_table.c.invalidated_at.is_(None))
                     .values(invalidated_at=deleted_at)
                 )
+                # Episodes are invalidated for the same reason and in the same
+                # transaction: a recorded event from a deleted conversation must
+                # stop being eligible, and the read path fails closed on
+                # `invalidated_at IS NOT NULL`. The row is marked, not removed —
+                # a revoke is not an erase (`ADR 0037`).
+                connection.execute(
+                    memory_episodes_table.update()
+                    .where(memory_episodes_table.c.conversation_id == conversation_id)
+                    .where(memory_episodes_table.c.invalidated_at.is_(None))
+                    .values(invalidated_at=deleted_at)
+                )
+                # Task 13: the conversation's Working Memory open state is
+                # conversation-scoped, so it must not outlive the conversation it
+                # describes. Marked rather than removed — a revoke is not an erase
+                # (`ADR 0037`) — and the read path fails closed on
+                # `invalidated_at IS NOT NULL`.
+                connection.execute(
+                    memory_summaries_table.update()
+                    .where(memory_summaries_table.c.conversation_id == conversation_id)
+                    .where(memory_summaries_table.c.invalidated_at.is_(None))
+                    .values(invalidated_at=deleted_at)
+                )
                 return True
         except sa_exc.SQLAlchemyError as error:
             raise ConversationStorageError(
@@ -470,7 +557,7 @@ class PostgresConversationRepository:
         message: MessageDraft,
         message_id: str,
         owner_user_id: str,
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> Message:
         """Persist one owner-scoped message, allocating position and bumping parent.
 
@@ -480,7 +567,7 @@ class PostgresConversationRepository:
         mutated. The tenant marker is bound first so row-level security
         enforces the same owner scope as the application predicate.
         """
-        event_type, payload = self._coerce_outbox_event(outbox_event)
+        intents = self._coerce_outbox_events(outbox_event)
         try:
             with tenant_transaction(self._engine, owner_user_id) as connection:
                 parent = (
@@ -539,34 +626,30 @@ class PostgresConversationRepository:
                         created_at=message.created_at,
                     )
                 )
-                if event_type is not None:
-                    # Stamp the fencing epoch captured from the locked parent row,
-                    # so a worker holding this event can detect a later tombstone.
-                    stored_payload = dict(payload)
-                    parent_epoch = (
-                        parent["deletion_epoch"]
-                        if "deletion_epoch" in parent.keys()
-                        else 0
-                    )
-                    stored_payload.setdefault("deletion_epoch", int(parent_epoch or 0))
-                    connection.execute(
-                        conversation_outbox_table.insert().values(
-                            outbox_id=f"{_OUTBOX_ID_PREFIX}{uuid.uuid4().hex}",
-                            conversation_id=message.conversation_id,
-                            message_id=message_id,
-                            owner_user_id=parent["owner_user_id"],
-                            event_type=event_type,
-                            payload=stored_payload,
-                            status="pending",
-                            attempt_count=0,
-                            # This path inserts an already-terminal message, so
-                            # there is no pending turn to wait for: the event is
-                            # released at insert and today's behaviour is kept.
-                            released_at=message.created_at,
-                            created_at=message.created_at,
-                            updated_at=message.created_at,
-                        )
-                    )
+                # Stamp the fencing epoch captured from the locked parent row, so
+                # a worker holding any family's event can detect a later
+                # tombstone. This path inserts an already-terminal message, so
+                # there is no pending turn to wait for: each event is released at
+                # insert and today's behaviour is kept.
+                _insert_outbox_events(
+                    connection,
+                    intents=intents,
+                    conversation_id=message.conversation_id,
+                    message_id=message_id,
+                    owner_user_id=parent["owner_user_id"],
+                    created_at=message.created_at,
+                    released_at=message.created_at,
+                    base_payload={
+                        "deletion_epoch": int(
+                            (
+                                parent["deletion_epoch"]
+                                if "deletion_epoch" in parent.keys()
+                                else 0
+                            )
+                            or 0
+                        ),
+                    },
+                )
         except (
             ConversationStorageError,
             MessageAlreadyExistsError,
@@ -638,7 +721,7 @@ class PostgresConversationRepository:
         owner_user_id: str,
         user_content: str,
         assistant_placeholder: str = "",
-        outbox_event: OutboxIntent | dict | None = None,
+        outbox_event: OutboxIntent | dict | Sequence[OutboxIntent | dict] | None = None,
     ) -> tuple[Message, Message]:
         """Allocate one turn in a single transaction under one parent-row lock.
 
@@ -649,7 +732,7 @@ class PostgresConversationRepository:
         must be allocated in the same transaction to stay correlated.
         """
         normalized_content = require_text(user_content, "content")
-        event_type, payload = self._coerce_outbox_event(outbox_event)
+        intents = self._coerce_outbox_events(outbox_event)
         created_at = utc_now()
         user_message_id = generate_message_id()
         assistant_message_id = generate_message_id()
@@ -697,38 +780,28 @@ class PostgresConversationRepository:
                         status=MessageStatus.PENDING.value,
                     )
                 )
-                if event_type is not None:
-                    # Stamp the fencing epoch read from the locked parent row, so
-                    # a worker holding this event can detect a later tombstone.
-                    stored_payload = dict(payload)
-                    stored_payload.setdefault(
-                        "deletion_epoch", int(parent["deletion_epoch"] or 0)
-                    )
-                    # Bound the worker's read to this turn, both ends. The
-                    # repository owns sequence allocation, so it owns the cursor and
-                    # overwrites any caller-supplied value: a stale cursor would
-                    # silently re-extract an older range. This turn's user message
-                    # sits at `base` and its assistant row at `base + 1`, so the
-                    # upper bound keeps the event inside its own turn instead of
-                    # reading every later one.
-                    stored_payload["after_sequence"] = base - 1
-                    stored_payload["until_sequence"] = base + 1
-                    connection.execute(
-                        conversation_outbox_table.insert().values(
-                            outbox_id=f"{_OUTBOX_ID_PREFIX}{uuid.uuid4().hex}",
-                            conversation_id=conversation_id,
-                            message_id=user_message_id,
-                            owner_user_id=owner_user_id,
-                            event_type=event_type,
-                            payload=stored_payload,
-                            status="pending",
-                            attempt_count=0,
-                            # ADR 0027: blocked until complete_turn releases it.
-                            released_at=None,
-                            created_at=created_at,
-                            updated_at=created_at,
-                        )
-                    )
+                # One outbox row per family, each with its own lease,
+                # idempotency and terminal state. The cursor is bound to this
+                # turn, both ends, and overwrites any caller-supplied value: a
+                # stale cursor would silently re-extract an older range. This
+                # turn's user message sits at `base` and its assistant row at
+                # `base + 1`, so the upper bound keeps every family's event
+                # inside its own turn instead of reading every later one.
+                _insert_outbox_events(
+                    connection,
+                    intents=intents,
+                    conversation_id=conversation_id,
+                    message_id=user_message_id,
+                    owner_user_id=owner_user_id,
+                    created_at=created_at,
+                    # ADR 0027: blocked until complete_turn releases it.
+                    released_at=None,
+                    base_payload={
+                        "deletion_epoch": int(parent["deletion_epoch"] or 0),
+                        "after_sequence": base - 1,
+                        "until_sequence": base + 1,
+                    },
+                )
         except (
             ConversationGoneError,
             ConversationStorageError,
@@ -804,6 +877,26 @@ class PostgresConversationRepository:
             content="",
         )
 
+    def transition_turn_on(
+        self,
+        connection: Any,
+        conversation_id: str,
+        message_id: str,
+        owner_user_id: str,
+        *,
+        status: MessageStatus,
+        content: str,
+    ) -> TransitionResult:
+        """Single-row turn transition on a caller-owned connection, guarded by `status = 'pending'`."""
+        return transition_turn_on(
+            connection,
+            conversation_id,
+            message_id,
+            owner_user_id,
+            status=status,
+            content=content,
+        )
+
     def _transition_turn(
         self,
         conversation_id: str,
@@ -820,71 +913,15 @@ class PostgresConversationRepository:
         content and `status = 'failed'`, nor empty content and
         `status = 'complete'`. Whichever commits first wins.
         """
-        try:
-            with tenant_transaction(self._engine, owner_user_id) as connection:
-                self._require_active_conversation(
-                    connection, conversation_id, owner_user_id
-                )
-                updated = (
-                    connection.execute(
-                        messages_table.update()
-                        .where(
-                            messages_table.c.message_id == message_id,
-                            messages_table.c.conversation_id == conversation_id,
-                            messages_table.c.status == MessageStatus.PENDING.value,
-                        )
-                        .values(content=content, status=status.value)
-                        .returning(*messages_table.c)
-                    )
-                    .mappings()
-                    .fetchone()
-                )
-                if updated is not None:
-                    transitioned = self._row_to_message(updated)
-                    applied = True
-                else:
-                    # Already completed or failed: return the stored row
-                    # unchanged rather than overwriting it.
-                    stored = (
-                        connection.execute(
-                            select(messages_table).where(
-                                messages_table.c.message_id == message_id,
-                                messages_table.c.conversation_id == conversation_id,
-                            )
-                        )
-                        .mappings()
-                        .fetchone()
-                    )
-                    if stored is None:
-                        raise ConversationGoneError(
-                            "The assistant message does not exist in this "
-                            "conversation."
-                        )
-                    transitioned = self._row_to_message(stored)
-                    # Another writer moved this row first. The row is returned
-                    # unchanged, so it is the caller's only signal that the reply
-                    # it generated was *not* stored.
-                    applied = False
-
-                if transitioned.status is MessageStatus.COMPLETE:
-                    # ADR 0027: the turn is terminal, so its extraction event may
-                    # now be claimed. Released in the same transaction as the
-                    # status change, so "complete" and "released" cannot diverge.
-                    self._release_turn_outbox(
-                        connection, conversation_id, transitioned
-                    )
-
-                if transitioned.status is MessageStatus.FAILED:
-                    self._cancel_turn_outbox(
-                        connection, conversation_id, transitioned
-                    )
-                return TransitionResult(message=transitioned, applied=applied)
-        except (ConversationGoneError, ConversationStorageError):
-            raise
-        except sa_exc.SQLAlchemyError as error:
-            raise ConversationStorageError(
-                "Could not transition the conversation turn."
-            ) from error
+        with tenant_transaction(self._engine, owner_user_id) as connection:
+            return transition_turn_on(
+                connection,
+                conversation_id,
+                message_id,
+                owner_user_id,
+                status=status,
+                content=content,
+            )
 
     @staticmethod
     def _preceding_user_message_id(
@@ -959,26 +996,19 @@ class PostgresConversationRepository:
         )
 
     @staticmethod
-    def _coerce_outbox_event(
-        event: OutboxIntent | dict | None,
-    ) -> tuple[str | None, dict]:
-        if event is None:
-            return None, {}
-        if isinstance(event, OutboxIntent):
-            return event.event_type, dict(event.payload)
-        if not isinstance(event, dict):
-            raise ConversationStorageError(
-                "A message outbox event must be an OutboxIntent or mapping."
-            )
-        event_type = event.get("event_type")
-        if not isinstance(event_type, str) or not event_type.strip():
-            raise ConversationStorageError("A message outbox event requires a type.")
-        payload = event.get("payload", {})
-        if not isinstance(payload, dict):
-            raise ConversationStorageError(
-                "A message outbox event payload must be a mapping."
-            )
-        return event_type.strip(), dict(payload)
+    def _coerce_outbox_events(
+        event,
+    ) -> tuple[OutboxIntent, ...]:
+        """Coerce the caller's outbox argument into the events to write.
+
+        Accepts a single intent, a mapping, a sequence of either, or `None`, so
+        the seam learned to carry more than one family's event without every
+        existing caller and double having to change shape.
+        """
+        try:
+            return coerce_outbox_intents(event)
+        except ConversationValidationError as error:
+            raise ConversationStorageError(str(error)) from error
 
     @staticmethod
     def _classify_integrity_error(error: sa_exc.IntegrityError):
@@ -1060,6 +1090,70 @@ class PostgresConversationRepository:
             raise ConversationStorageError("Could not list message records.") from error
         return tuple(self._row_to_message(row) for row in rows)
 
+    def get_recent_messages_before(
+        self,
+        conversation_id: str,
+        owner_user_id: str,
+        before_sequence: int,
+        limit: int = DEFAULT_HISTORY_LIMIT,
+    ) -> tuple[Message, ...]:
+        """Return the newest `limit` messages before `before_sequence`, ascending.
+
+        Descending order is what makes the limit mean "the latest N". Ordering
+        ascending and then limiting would apply the limit to the oldest eligible
+        rows, which is the opposite of the contract; the result is therefore
+        reversed back into transcript order before it leaves this method, so
+        callers never see the storage-side ordering.
+
+        `before_sequence` is exclusive, and the window is positional — no
+        arithmetic over sequence values, which are not dense.
+        """
+        if not 1 <= limit <= DEFAULT_HISTORY_LIMIT:
+            raise ConversationValidationError(
+                "The recent-message window must be between 1 and "
+                f"{DEFAULT_HISTORY_LIMIT} rows."
+            )
+        try:
+            with tenant_transaction(self._engine, owner_user_id) as connection:
+                rows = (
+                    connection.execute(
+                        select(messages_table)
+                        .where(messages_table.c.conversation_id == conversation_id)
+                        .where(messages_table.c.sequence < before_sequence)
+                        .order_by(messages_table.c.sequence.desc())
+                        .limit(limit)
+                    )
+                    .mappings()
+                    .fetchall()
+                )
+        except sa_exc.SQLAlchemyError as error:
+            raise ConversationStorageError(
+                "Could not read the recent message window."
+            ) from error
+        return tuple(self._row_to_message(row) for row in reversed(rows))
+
+    def get_turn_outbox_id(
+        self,
+        conversation_id: str,
+        message_id: str,
+        owner_user_id: str,
+        event_type: str | None = None,
+    ) -> str | None:
+        """Return the authoritative outbox_id allocated for this turn, if any.
+
+        `event_type` names the family whose event is wanted when a turn carries
+        more than one; see `find_turn_outbox_id_on`.
+        """
+        try:
+            with tenant_transaction(self._engine, owner_user_id) as connection:
+                return find_turn_outbox_id_on(
+                    connection, conversation_id, message_id, event_type
+                )
+        except sa_exc.SQLAlchemyError as error:
+            raise ConversationStorageError(
+                "Could not retrieve turn outbox id."
+            ) from error
+
     def _row_to_conversation(self, row) -> Conversation:
         """Map one stored conversation row to its contract, failing closed."""
         retention = _require_vocabulary(
@@ -1080,7 +1174,8 @@ class PostgresConversationRepository:
                 "Stored conversation record violates the conversation contract."
             ) from error
 
-    def _row_to_message(self, row) -> Message:
+    @staticmethod
+    def _row_to_message(row) -> Message:
         """Map one stored message row to its contract, failing closed."""
         resolved_role = _require_vocabulary(row["role"], "role", MessageRole)
         resolved_source = _require_vocabulary(row["source"], "source", MessageSource)
@@ -1146,6 +1241,24 @@ def check_conversation_fence(
     return True, None
 
 
+def lock_conversation_and_epoch(
+    connection: Any,
+    conversation_id: str,
+    expected_epoch: int,
+    owner_user_id: str | None = None,
+) -> None:
+    """Verify conversation status and deletion epoch under row lock (FOR UPDATE).
+
+    Raises FencedWriteError with a typed FenceReason if validation fails.
+    """
+    ok, reason = check_conversation_fence(
+        connection, conversation_id, expected_epoch, owner_user_id
+    )
+    if not ok:
+        assert reason is not None
+        raise FencedWriteError(reason)
+
+
 def check_outbox_lease(
     connection: Any,
     outbox_id: str,
@@ -1196,3 +1309,141 @@ def check_outbox_lease(
     if not row["lease_held"]:
         return False, FenceReason.LEASE_EXPIRED
     return True, None
+
+
+def mark_outbox_succeeded_on(
+    connection: Any,
+    outbox_id: str,
+    lease_owner: str,
+) -> bool:
+    """Mark an outbox event as succeeded on a caller-owned connection.
+
+    Transitions status from 'leased' to 'succeeded' and clears lease fields in
+    the same transaction as the caller's memory commit (ADR 0036).
+    """
+    stmt = (
+        conversation_outbox_table.update()
+        .where(
+            and_(
+                conversation_outbox_table.c.outbox_id == outbox_id,
+                conversation_outbox_table.c.status == "leased",
+                conversation_outbox_table.c.lease_owner == lease_owner,
+                or_(
+                    conversation_outbox_table.c.lease_until.is_(None),
+                    conversation_outbox_table.c.lease_until >= func.now(),
+                ),
+            )
+        )
+        .values(
+            status="succeeded",
+            lease_owner=None,
+            lease_until=None,
+            updated_at=func.now(),
+        )
+    )
+    res = connection.execute(stmt)
+    return res.rowcount > 0
+
+
+def transition_turn_on(
+    connection: Any,
+    conversation_id: str,
+    message_id: str,
+    owner_user_id: str,
+    *,
+    status: MessageStatus,
+    content: str,
+) -> TransitionResult:
+    """Single-row turn transition on a caller-owned connection, guarded by `status = 'pending'`.
+
+    Preserves guarded transition semantics: whichever commits first wins, and
+    applied=True is returned only when this call moves the row.
+    """
+    try:
+        bind_tenant_on(connection, owner_user_id)
+        PostgresConversationRepository._require_active_conversation(
+            connection, conversation_id, owner_user_id
+        )
+        updated = (
+            connection.execute(
+                messages_table.update()
+                .where(
+                    messages_table.c.message_id == message_id,
+                    messages_table.c.conversation_id == conversation_id,
+                    messages_table.c.status == MessageStatus.PENDING.value,
+                )
+                .values(content=content, status=status.value)
+                .returning(*messages_table.c)
+            )
+            .mappings()
+            .fetchone()
+        )
+        if updated is not None:
+            transitioned = PostgresConversationRepository._row_to_message(updated)
+            applied = True
+        else:
+            # Already completed or failed: return the stored row
+            # unchanged rather than overwriting it.
+            stored = (
+                connection.execute(
+                    select(messages_table).where(
+                        messages_table.c.message_id == message_id,
+                        messages_table.c.conversation_id == conversation_id,
+                    )
+                )
+                .mappings()
+                .fetchone()
+            )
+            if stored is None:
+                raise ConversationGoneError(
+                    "The assistant message does not exist in this "
+                    "conversation."
+                )
+            transitioned = PostgresConversationRepository._row_to_message(stored)
+            # Another writer moved this row first. The row is returned
+            # unchanged, so it is the caller's only signal that the reply
+            # it generated was *not* stored.
+            applied = False
+
+        if transitioned.status is MessageStatus.COMPLETE:
+            # ADR 0027: the turn is terminal, so its extraction event may
+            # now be claimed. Released in the same transaction as the
+            # status change, so "complete" and "released" cannot diverge.
+            PostgresConversationRepository._release_turn_outbox(
+                connection, conversation_id, transitioned
+            )
+
+        if transitioned.status is MessageStatus.FAILED:
+            PostgresConversationRepository._cancel_turn_outbox(
+                connection, conversation_id, transitioned
+            )
+        return TransitionResult(message=transitioned, applied=applied)
+    except (ConversationGoneError, ConversationStorageError):
+        raise
+    except sa_exc.SQLAlchemyError as error:
+        raise ConversationStorageError(
+            "Could not transition the conversation turn."
+        ) from error
+
+
+def find_turn_outbox_id_on(
+    connection: Connection,
+    conversation_id: str,
+    user_message_id: str,
+    event_type: str | None = None,
+) -> str | None:
+    """Return the authoritative outbox_id allocated for a turn on a connection.
+
+    `event_type` selects one family's event. It is optional so existing callers
+    keep the single-event behaviour, but a turn that carries more than one
+    family's event must name the family: without the filter the lookup returns
+    whichever row the planner produced first, and a family's source-handling
+    authority would be bound to another family's event.
+    """
+    stmt = select(conversation_outbox_table.c.outbox_id).where(
+        conversation_outbox_table.c.conversation_id == conversation_id,
+        conversation_outbox_table.c.message_id == user_message_id,
+    )
+    if event_type is not None:
+        stmt = stmt.where(conversation_outbox_table.c.event_type == event_type)
+    return connection.scalar(stmt)

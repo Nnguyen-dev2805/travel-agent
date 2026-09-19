@@ -10,15 +10,25 @@ protocol stays implementable against any backend.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
 
 from backend.memory.write_pipeline.models import (
+    AssertionIdentity,
+    EvidenceIdentity,
+    ExplicitIntentError,
     MemoryChangeSet,
     MemoryDecisionDraft,
     MemoryEvidence,
     MemoryOperation,
+    MemoryVersion,
+    SourceValidity,
 )
 from backend.security.models import AuthenticatedPrincipal
 
@@ -162,6 +172,7 @@ class MemoryUnitOfWork(Protocol):
         idempotency_key: str | None = None,
         expected_version_id: str | None = None,
         fence: FenceContext | None = None,
+        source_validity: SourceValidity | None = None,
     ) -> MemoryWriteResult:
         """Apply one resolved change atomically and idempotently.
 
@@ -170,7 +181,8 @@ class MemoryUnitOfWork(Protocol):
         writes anything. `idempotency_key`, when given, deduplicates
         redelivery to one semantic outcome. `expected_version_id`, when
         given, must match the stored current version or the write is
-        rejected without touching state. `fence`, when given, is verified
+        rejected without touching state. `source_validity` is derived by the
+        caller that owns the canonical source/evidence snapshot. `fence`, when given, is verified
         in the same transaction before any write; a moved fence raises
         `FencedWriteError` without touching state.
         """
@@ -187,4 +199,97 @@ class MemoryUnitOfWork(Protocol):
         cannot perform the read must raise; it must not return an empty tuple,
         because an empty tuple is indistinguishable from a real empty history.
         """
+        ...
+
+    def get_active_evidence_for_assertion(
+        self, owner_user_id: str, assertion_id: str
+    ) -> Sequence[EvidenceIdentity]:
+        """Return all active (uninvalidated) evidence identities for an assertion."""
+        ...
+
+    def get_assertion_identity_details(
+        self, identity: AssertionIdentity
+    ) -> tuple[str | None, bool]:
+        """Return `(assertion_id, has_unresolved_conflict)` for one identity.
+
+        `None` means the assertion does not exist yet — which is a real state for
+        the first write to a key, not an error, and it carries no conflict.
+        """
+        ...
+
+    def get_assertion_generation(
+        self, owner_user_id: str, canonical_key: str
+    ) -> int:
+        """Return the assertion's current suppression generation, or `1` if absent.
+
+        Required by the ACTIVATION-stage lifecycle facts: without it the stage
+        cannot compare the candidate's stamp against the live assertion, and
+        `STALE_GENERATION` becomes unsatisfiable.
+        """
+        ...
+
+    def get_assertion_conflict_state(
+        self, owner_user_id: str, assertion_id: str
+    ) -> bool:
+        """Return stored has_unresolved_conflict flag from memory_assertions (False if missing)."""
+        ...
+
+    def prune_projection_outbox(
+        self, *, retention_cutoff: datetime, batch_size: int
+    ) -> int:
+        """Prune eligible pending projection outbox events up to batch_size."""
+        ...
+
+
+class MemoryWriteStore(Protocol):
+    """Canonical Memory mutation primitives on a caller-owned connection."""
+
+    def apply_on(
+        self,
+        connection: Connection,
+        *,
+        change: MemoryChangeSet,
+        principal: AuthenticatedPrincipal,
+        evidence: tuple[MemoryEvidence, ...] = (),
+        decision: MemoryDecisionDraft | None = None,
+        idempotency_key: str | None = None,
+        expected_version_id: str | None = None,
+        fence: FenceContext | None = None,
+        source_validity: SourceValidity | None = None,
+    ) -> MemoryWriteResult:
+        """Apply one resolved change atomically on the supplied connection.
+
+        Executes exactly once on the supplied connection: it does not open, commit,
+        or roll back a transaction and does not run an internal whole-transaction retry.
+        """
+        ...
+
+    def get_active_evidence_for_assertion_on(
+        self,
+        connection: Connection,
+        *,
+        owner_user_id: str,
+        assertion_id: str,
+    ) -> Sequence[EvidenceIdentity]:
+        """Return all active (uninvalidated) evidence identities for an assertion on connection."""
+        ...
+
+    def get_assertion_conflict_state_on(
+        self,
+        connection: Connection,
+        *,
+        owner_user_id: str,
+        assertion_id: str,
+    ) -> bool:
+        """Return stored has_unresolved_conflict flag from memory_assertions on connection."""
+        ...
+
+    def prune_projection_outbox_on(
+        self,
+        connection: Connection,
+        *,
+        retention_cutoff: datetime,
+        batch_size: int,
+    ) -> int:
+        """Prune eligible pending projection outbox events up to batch_size on connection."""
         ...

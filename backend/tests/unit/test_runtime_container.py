@@ -197,38 +197,97 @@ def test_readiness_probe_unhealthy_handles_exception(mock_engine):
     assert result["error"] == "RuntimeError"
 
 
-def test_no_sqlite_or_workspace_planner_imports():
-    """Verify AST of runtime_container.py does not import SQLite, workspaces, or planner."""
-    source_path = ROOT_DIR / "backend" / "app" / "runtime_container.py"
-    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+def _forbidden_imports_in(source_path):
+    """Removed-subsystem imports found in one module, matched precisely.
 
-    forbidden = (
-        "sqlite3",
-        "schema_registry",
-        "SQLiteConversationRepository",
-        "SQLiteWorkspaceRepository",
-        "workspaces",
-        "planner",
+    The check is deliberately **segment-scoped and exact** rather than a
+    substring search. `planner` names the removed Workspace-era subsystem, while
+    `backend.orchestration.context_planner` is the approved Task-4 context
+    planner; a substring rule cannot tell them apart and forbids an approved
+    import. Matching a whole dotted segment (and an exact symbol name) still
+    catches `backend.planner` and `from backend.planner import Planner`.
+    """
+    forbidden_segments = frozenset(
+        {"sqlite3", "schema_registry", "workspaces", "planner"}
+    )
+    forbidden_symbols = frozenset(
+        {"SQLiteConversationRepository", "SQLiteWorkspaceRepository", "Planner"}
     )
 
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    found: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                for bad in forbidden:
-                    assert bad not in alias.name, (
-                        f"Forbidden import found: {alias.name}"
-                    )
+                if forbidden_segments & set(alias.name.split(".")):
+                    found.append(f"import {alias.name}")
         elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                for bad in forbidden:
-                    assert bad not in node.module, (
-                        f"Forbidden import found: {node.module}"
-                    )
+            if node.module and forbidden_segments & set(node.module.split(".")):
+                found.append(f"from {node.module} import ...")
             for alias in node.names:
-                for bad in forbidden:
-                    assert bad not in alias.name, (
-                        f"Forbidden symbol found: {alias.name}"
-                    )
+                # `from backend import planner` names the removed submodule in the
+                # *symbol*, not the module path, so the segment check above cannot
+                # see it. Without this the guard has a trivial bypass.
+                if alias.name in forbidden_segments:
+                    found.append(f"from {node.module} import {alias.name}")
+                if alias.name in forbidden_symbols:
+                    found.append(f"imported symbol {alias.name}")
+    return found
+
+
+def test_no_sqlite_or_workspace_planner_imports():
+    """Verify AST of runtime_container.py does not import SQLite, workspaces, or planner."""
+    source_path = ROOT_DIR / "backend" / "app" / "runtime_container.py"
+
+    assert _forbidden_imports_in(source_path) == []
+
+
+def test_the_forbidden_import_check_still_fires(tmp_path):
+    """A guard that no longer fires is decoration.
+
+    Planted violations prove the precise matcher still rejects the removed
+    subsystems it exists for.
+    """
+    planted = tmp_path / "planted.py"
+    planted.write_text(
+        "from backend.planner import Planner\n"
+        "import backend.workspaces\n"
+        "from backend.storage.sqlite_repository import SQLiteConversationRepository\n",
+        encoding="utf-8",
+    )
+
+    assert _forbidden_imports_in(planted) != []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from backend import planner\n",
+        "from backend import workspaces\n",
+        "from backend import planner, workspaces\n",
+    ],
+)
+def test_a_forbidden_submodule_imported_by_name_is_caught(tmp_path, source):
+    """`from backend import planner` names the module in the symbol, not the path.
+
+    Matching only the dotted module path misses this form entirely, which would
+    leave the guard with a trivial bypass.
+    """
+    planted = tmp_path / "planted.py"
+    planted.write_text(source, encoding="utf-8")
+
+    assert _forbidden_imports_in(planted) != []
+
+
+def test_an_approved_orchestration_import_is_not_a_violation(tmp_path):
+    """The context planner is Task-4 code, not the removed Workspace planner."""
+    approved = tmp_path / "approved.py"
+    approved.write_text(
+        "from backend.orchestration.context_planner import ContextPlanner\n",
+        encoding="utf-8",
+    )
+
+    assert _forbidden_imports_in(approved) == []
 
 
 def test_fastapi_dependency_helpers(container):

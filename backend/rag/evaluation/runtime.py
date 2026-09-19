@@ -13,7 +13,8 @@ import logging
 from typing import Any, Mapping, Sequence
 
 from backend.app.config import settings
-from backend.rag.contracts import GeneratedAnswer, RetrievalResult
+from backend.generation.contracts import GenerationResult
+from backend.rag.contracts import RetrievalResult
 from backend.rag.embedding import VectorEmbedder
 from backend.rag.embedding.embedder import HAS_SENTENCE_TRANSFORMERS
 from backend.rag.evaluation.dataset import load_dataset, validate_run_config
@@ -120,7 +121,7 @@ class CurrentRuntimeAdapter:
 
     def generate(
         self, question: str, top_k: int
-    ) -> tuple[GeneratedAnswer, tuple[RetrievalResult, ...]]:
+    ) -> tuple[GenerationResult, tuple[RetrievalResult, ...]]:
         """Generate an answer while recording the exact ranked evidence used.
 
         A RecordingVectorStoreProxy wraps the real store so the KnowledgeRetriever
@@ -201,7 +202,7 @@ class StructuredRuntimeAdapter:
 
     def generate(
         self, question: str, top_k: int
-    ) -> tuple[GeneratedAnswer, tuple[RetrievalResult, ...]]:
+    ) -> tuple[GenerationResult, tuple[RetrievalResult, ...]]:
         """Generate an answer through the shared structured contracts."""
         retriever = KnowledgeRetriever(
             embedder=self.embedder,

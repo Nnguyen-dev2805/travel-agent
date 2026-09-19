@@ -130,6 +130,65 @@ class Settings(BaseModel):
     MEMORY_SHADOW_EXTRACT_ENABLED: bool = _env_flag(
         "MEMORY_SHADOW_EXTRACT_ENABLED", False
     )
+    MEMORY_EXPLICIT_ACTIONS_ENABLED: bool = _env_flag(
+        "MEMORY_EXPLICIT_ACTIONS_ENABLED", False
+    )
+    # Stage-3 Memory Read and Use feature gates (ADR 0039 / Plan v0.15)
+    MEMORY_READ_ENABLED: bool = _env_flag("MEMORY_READ_ENABLED", False)
+    MEMORY_USE_ENABLED: bool = _env_flag("MEMORY_USE_ENABLED", False)
+
+    @field_validator("MEMORY_USE_ENABLED", mode="after")
+    @classmethod
+    def validate_memory_use_requires_read(cls, v: bool, info) -> bool:
+        if v and not info.data.get("MEMORY_READ_ENABLED", False):
+            raise ValueError(
+                "MEMORY_USE_ENABLED requires MEMORY_READ_ENABLED to be True."
+            )
+        return v
+
+    # Stage-4 Background Formation and Activation feature gates (ADR 0038 / Plan v0.18)
+    MEMORY_INFERRED_ACTIVATION_ENABLED: bool = _env_flag(
+        "MEMORY_INFERRED_ACTIVATION_ENABLED", False
+    )
+    MEMORY_EPISODIC_READ_ENABLED: bool = _env_flag(
+        "MEMORY_EPISODIC_READ_ENABLED", False
+    )
+    MEMORY_EPISODIC_ACTIVATION_ENABLED: bool = _env_flag(
+        "MEMORY_EPISODIC_ACTIVATION_ENABLED", False
+    )
+    # Stage-5 Working Memory gates (Plan v0.22 Task 13). Three separate flags
+    # because they gate three different things, and collapsing them would make one
+    # rollout decision silently enable another:
+    #   WRITE      - the synchronous deterministic transition persists open state;
+    #   ACTIVATION - an inferred replacement may leave shadow (the family gate);
+    #   READ       - eligible open state is admitted to dialogue reconstruction.
+    # All default off, per plan global constraint 23: a new Memory mutation path is
+    # not enabled for broad rollout while its own evaluation is outstanding.
+    MEMORY_WORKING_WRITE_ENABLED: bool = _env_flag(
+        "MEMORY_WORKING_WRITE_ENABLED", False
+    )
+    MEMORY_WORKING_ACTIVATION_ENABLED: bool = _env_flag(
+        "MEMORY_WORKING_ACTIVATION_ENABLED", False
+    )
+    MEMORY_WORKING_READ_ENABLED: bool = _env_flag(
+        "MEMORY_WORKING_READ_ENABLED", False
+    )
+    MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS: int = int(
+        os.getenv("MEMORY_PROJECTION_OUTBOX_RETENTION_DAYS", "30")
+    )
+    MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE: int = int(
+        os.getenv("MEMORY_PROJECTION_OUTBOX_CLEANUP_BATCH_SIZE", "500")
+    )
+
+    # Stage-1 context-planner rollout gate. While this is false the planner still
+    # proposes a context plan, but the effective normal-query source plan stays
+    # the existing RAG-only baseline, so a proposal of `NONE` cannot skip
+    # retrieval (plan v0.7:444-450). Enforcement may only be enabled after the
+    # zero-false-`NONE` hard gate is conclusive on an approved fixture set; that
+    # is Task 10, not Task 4.
+    CONTEXT_PLANNER_ENFORCEMENT_ENABLED: bool = _env_flag(
+        "CONTEXT_PLANNER_ENFORCEMENT_ENABLED", False
+    )
     # The age at which a claimable outbox event means the Memory worker is not
     # draining, in seconds. Readiness reports DEGRADED beyond it.
     #

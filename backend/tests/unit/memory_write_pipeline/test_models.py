@@ -7,13 +7,15 @@ here touches a database, a model, HTTP, or the network.
 """
 
 import dataclasses
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
 from backend.memory.write_pipeline.models import (
     AssertionIdentity,
     Authority,
+    Cardinality,
     MemoryCandidate,
     MemoryChangeSet,
     MemoryDecisionDraft,
@@ -22,6 +24,8 @@ from backend.memory.write_pipeline.models import (
     MemoryRelation,
     MemoryVersion,
     MemoryVersionDraft,
+    NormalizedSemanticValue,
+    RetentionMode,
     SensitivityBand,
     VersionStatus,
     assertion_identity,
@@ -30,6 +34,8 @@ from backend.memory.write_pipeline.models import (
     new_version_id,
 )
 from backend.memory.write_pipeline.registry import HOTEL_ATMOSPHERE_KEY
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 MOMENT = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -76,7 +82,7 @@ def _decision(**overrides) -> MemoryDecisionDraft:
     return MemoryDecisionDraft(**payload)
 
 
-def _version(**overrides) -> MemoryVersion:
+def _version_payload(**overrides) -> dict:
     payload = {
         "version_id": new_version_id(),
         "owner_user_id": "user_owner",
@@ -91,12 +97,13 @@ def _version(**overrides) -> MemoryVersion:
         "sensitivity": SensitivityBand.ORDINARY_PERSONAL,
         "status": VersionStatus.ACTIVE,
         "valid_from": MOMENT,
+        "retention_mode": RetentionMode.USER_DURABLE,
     }
     payload.update(overrides)
-    return MemoryVersion(**payload)
+    return payload
 
 
-def _draft(**overrides) -> MemoryVersionDraft:
+def _draft_payload(**overrides) -> dict:
     payload = {
         "owner_user_id": "user_owner",
         "scope": "user",
@@ -109,9 +116,18 @@ def _draft(**overrides) -> MemoryVersionDraft:
         "authority": Authority.EXPLICIT_SAVE,
         "sensitivity": SensitivityBand.ORDINARY_PERSONAL,
         "valid_from": MOMENT,
+        "retention_mode": RetentionMode.USER_DURABLE,
     }
     payload.update(overrides)
-    return MemoryVersionDraft(**payload)
+    return payload
+
+
+def _version(**overrides) -> MemoryVersion:
+    return MemoryVersion(**_version_payload(**overrides))
+
+
+def _draft(**overrides) -> MemoryVersionDraft:
+    return MemoryVersionDraft(**_draft_payload(**overrides))
 
 
 # 1. Governed identifier prefixes and UTC timestamps.
@@ -319,6 +335,7 @@ def test_operation_vocabulary_is_closed():
         "pending_conflict",
         "reject",
         "noop",
+        "revoke",
     }
 
 
@@ -326,3 +343,246 @@ def test_version_defaults_to_active_without_a_predecessor():
     version = _version()
     assert version.status is VersionStatus.ACTIVE
     assert version.supersedes_version_id is None
+
+
+# ---------------------------------------------------------------------------
+# Task 6: cardinality, retention, revocation, temporal validity, generation.
+# ---------------------------------------------------------------------------
+
+
+def test_cardinality_vocabulary_is_single_and_set():
+    """`SET` is the only addition; the vocabulary stays closed at two."""
+    assert {member.value for member in Cardinality} == {"single", "set"}
+
+
+def test_retention_vocabulary_is_closed():
+    """Three retention modes, and they are independent of authority."""
+    assert {member.value for member in RetentionMode} == {
+        "conversation_bound",
+        "source_bound",
+        "user_durable",
+    }
+
+
+def test_version_status_adds_revoked():
+    """`REVOKED` is a lifecycle state, not a deletion."""
+    assert {member.value for member in VersionStatus} == {
+        "active",
+        "superseded",
+        "revoked",
+        "shadow",
+    }
+
+
+def test_normalized_semantic_value_is_the_declared_union():
+    """The set representation is declared, never inferred from delimiters."""
+    assert NormalizedSemanticValue == str | tuple[str, ...]
+
+
+def test_a_single_keyed_candidate_still_carries_one_string():
+    """The existing single-valued shape is unchanged."""
+    assert _candidate(normalized_value="quiet").normalized_value == "quiet"
+
+
+def test_a_set_keyed_candidate_carries_a_tuple():
+    candidate = _candidate(
+        normalized_value=("culture", "food"),
+        canonical_key="travel.preference.activity_style",
+    )
+    assert candidate.normalized_value == ("culture", "food")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        (),  # empty set is a revoke, not a stored snapshot
+        ("food", "culture"),  # unsorted
+        ("culture", "culture"),  # duplicated
+        ("culture", "   "),  # blank member
+        ("culture", 7),  # non-string member
+        ["culture", "food"],  # list, not a tuple
+    ],
+)
+def test_a_set_value_rejects_a_malformed_snapshot(value):
+    """Sorted, deduplicated, non-empty and string-typed, or refused.
+
+    A set that reaches persistence unsorted would make the stored snapshot
+    depend on the order evidence arrived in, and one that carries a duplicate
+    would make a re-read compare unequal to itself.
+
+    Surrounding whitespace is *not* in this list on purpose: members are
+    trimmed like every other text field, and a member that becomes blank after
+    trimming is rejected by the blank case above.
+    """
+    with pytest.raises(ValueError):
+        _candidate(
+            normalized_value=value,
+            canonical_key="travel.preference.activity_style",
+        )
+
+
+def test_a_set_member_is_trimmed_and_order_is_checked_after_trimming():
+    """Trimming happens first, so trimming cannot smuggle an out-of-order set in.
+
+    `(" food", "culture")` is only ascending once the first member is trimmed,
+    which is exactly the case that must still be refused.
+    """
+    assert _candidate(
+        normalized_value=("culture", " food"),
+        canonical_key="travel.preference.activity_style",
+    ).normalized_value == ("culture", "food")
+
+    with pytest.raises(ValueError):
+        _candidate(
+            normalized_value=(" food", "culture"),
+            canonical_key="travel.preference.activity_style",
+        )
+
+
+def test_a_version_and_draft_accept_the_same_set_contract():
+    """The contract is one shape across candidate, draft, and version."""
+    draft = _draft(normalized_value=("cafe", "local"))
+    version = _version(normalized_value=("cafe", "local"))
+
+    assert draft.normalized_value == ("cafe", "local")
+    assert version.normalized_value == ("cafe", "local")
+
+
+def test_generation_defaults_to_one():
+    """A new assertion starts at generation 1 (spec v0.7, plan v0.11)."""
+    assert _candidate().suppression_generation == 1
+    assert _draft().suppression_generation == 1
+    assert _version().suppression_generation == 1
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_generation_must_be_positive(value):
+    with pytest.raises(ValueError):
+        _candidate(suppression_generation=value)
+
+
+def test_generation_rejects_a_bool():
+    """`True` is an `int` in Python and would silently become generation 1."""
+    with pytest.raises(ValueError):
+        _candidate(suppression_generation=True)
+
+
+def test_a_version_carries_the_generation_it_was_stamped_with():
+    assert _version(suppression_generation=4).suppression_generation == 4
+
+
+def test_expires_at_is_optional():
+    """Temporal validity is an independent dimension, not a required one."""
+    assert _draft().expires_at is None
+    assert _version().expires_at is None
+
+
+def test_expires_at_is_normalized_to_utc():
+    bangkok = timezone(timedelta(hours=7))
+    draft = _draft(expires_at=datetime(2026, 10, 1, 9, 0, tzinfo=bangkok))
+
+    assert draft.expires_at == datetime(2026, 10, 1, 2, 0, tzinfo=timezone.utc)
+    assert draft.expires_at.utcoffset() == timedelta(0)
+
+
+def test_expires_at_rejects_a_naive_datetime():
+    """A naive expiry would expire at a different instant per host."""
+    with pytest.raises(ValueError):
+        _draft(expires_at=datetime(2026, 10, 1, 9, 0))
+
+
+def test_expiry_does_not_mutate_retention_or_generation():
+    """The three dimensions stay independent (ADR 0037).
+
+    Setting a temporal expiry must not touch retention or the generation: they
+    answer different questions, and a reader that conflated them would treat an
+    expired value as forgotten (or the reverse).
+    """
+    expiring = _draft(
+        expires_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        retention_mode=RetentionMode.USER_DURABLE,
+        suppression_generation=3,
+    )
+
+    assert expiring.retention_mode is RetentionMode.USER_DURABLE
+    assert expiring.suppression_generation == 3
+    assert expiring.expires_at == datetime(2026, 10, 1, tzinfo=timezone.utc)
+
+
+def test_no_retention_mode_is_ever_defaulted():
+    """Neither contract invents a retention mode.
+
+    A defaulted *mode* means a construction path that skipped
+    `RetentionAssignmentPolicy` still persists a decision — just not one anybody
+    made. Both classes require the assignment outright.
+    """
+    for cls in (MemoryVersion, MemoryVersionDraft):
+        declared = {field.name: field for field in dataclasses.fields(cls)}[
+            "retention_mode"
+        ]
+
+        assert declared.default is dataclasses.MISSING, cls
+        assert declared.default_factory is dataclasses.MISSING, cls
+
+
+def test_the_draft_requires_a_retention_assignment():
+    """The write path is where a missed assignment is the hazard."""
+    payload = _draft_payload()
+    del payload["retention_mode"]
+
+    with pytest.raises(TypeError):
+        MemoryVersionDraft(**payload)
+
+
+def test_the_version_also_requires_a_retention_assignment():
+    """The read path reads retention back from storage, so absence is an error.
+
+    A version with no retention could only come from a row the migration had not
+    reached, and defaulting one here would hand it a decision nobody made.
+    """
+    payload = _version_payload()
+    del payload["retention_mode"]
+
+    with pytest.raises(TypeError):
+        MemoryVersion(**payload)
+
+
+def test_retention_is_persisted_exactly_as_assigned():
+    """The field round-trips; the contract does not reinterpret it."""
+    for mode in RetentionMode:
+        assert _version(retention_mode=mode).retention_mode is mode
+        assert _draft(retention_mode=mode).retention_mode is mode
+
+
+def test_retention_rejects_an_unknown_mode():
+    with pytest.raises(ValueError):
+        _version(retention_mode="forever")
+
+
+_STALE_SINGLE_ONLY_CLAIMS = {
+    "backend/memory/write_pipeline/models.py": (
+        "one single-valued assertion",
+        "Scopes the first registry key",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "phrase"),
+    [
+        (path, phrase)
+        for path, phrases in _STALE_SINGLE_ONLY_CLAIMS.items()
+        for phrase in phrases
+    ],
+)
+def test_no_stale_single_only_claim_survives(relative_path, phrase):
+    """The registry is no longer one key and assertions are no longer all single.
+
+    `plan v0.11` requires the stale single-only docstrings and comments to be
+    updated rather than left implying every assertion holds one value. A
+    comment that outlives the contract it described is how a reader learns the
+    wrong rule.
+    """
+    source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+    assert phrase not in source, f"stale claim still present in {relative_path}"
