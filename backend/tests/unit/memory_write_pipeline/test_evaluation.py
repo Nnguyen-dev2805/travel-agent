@@ -25,7 +25,9 @@ from backend.memory.write_pipeline.evaluation.cli import main
 from backend.memory.write_pipeline.evaluation.dataset import DatasetValidationError
 from backend.memory.write_pipeline.evaluation.models import sanitize_report_value
 
-FIXTURES_DIR = Path("docs/evaluation/fixtures/memory/write-pipeline-hotel-atmosphere-v0.1")
+FIXTURES_DIR = Path(
+    "backend/tests/fixtures/evaluation/memory/write-pipeline-hotel-atmosphere-v0.1"
+)
 
 
 def test_dataset_load_and_validation_success() -> None:

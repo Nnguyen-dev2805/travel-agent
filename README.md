@@ -1,48 +1,54 @@
 # Travel Agent
 
-Travel Agent is an open-source travel assistant application using
-retrieval-augmented generation (RAG). Today it provides authenticated standalone
-chat backed by PostgreSQL 16. Legacy capabilities (Workspace containers, Planner
-state, legacy memory, and local SQLite-first persistence) have been cleanly
-retired per ADRs 0018–0022.
+Travel Agent is a learning-oriented travel assistant built around authenticated
+chat, Retrieval-Augmented Generation (RAG), PostgreSQL persistence, and an
+experimental semantic Memory write pipeline.
 
-## Current Status
+The repository is intentionally a prototype. It is useful for engineering,
+experimentation, and architecture work, but it is not a production-ready or
+quality-certified service.
 
-The current repository is useful for learning, local inspection, and shaping the
-foundation of a production-oriented travel assistant. It should not be treated
-as a finished product, a quality-certified RAG system, or a production service.
+## Current Runtime
 
-The mounted architecture provides authenticated standalone Chat with Retrieval-Augmented
-Generation (RAG) and conversation lifecycle management backed by PostgreSQL 16.
-All product routes require mandatory Bearer token authentication with strict
-cross-owner tenant isolation. Legacy Workspace, Planner, legacy Memory, and
-SQLite stores are retired.
+The checked-out code currently provides:
 
-## What Works Today
+- authenticated `POST /api/v1/chat` with automatic conversation creation and
+  continuation;
+- standalone conversation CRUD and paged message history under
+  `/api/v1/conversations`;
+- PostgreSQL 16 persistence with owner-scoped access and row-level security;
+- a transactional conversation outbox whose events become claimable only after
+  the producing turn reaches a terminal state;
+- RAG retrieval from Chroma, query embedding with `BAAI/bge-m3`, and
+  source-cited generation;
+- a separate semantic Memory worker/write pipeline for background extraction;
+- runtime readiness diagnostics at `GET /api/v1/ops/readiness`;
+- a React/Vite frontend and Docker Compose local stack.
 
-- Authenticated standalone Chat (`POST /api/v1/chat`) with automatic conversation
-  creation and sequential continuation.
-- PostgreSQL 16 persistence for conversations, messages, and transactional outbox
-  under Alembic migration head `20260912_02`.
-- Standalone conversation CRUD and history API (`/api/v1/conversations`).
-- Mandatory Bearer token authentication and tenant row-level security (RLS).
-- Decoupled basic semantic memory write pipeline capturing turn candidates asynchronously.
-- Ops readiness endpoint (`GET /api/v1/ops/readiness`) reporting six components:
-  application, model provider, RAG Chroma, PostgreSQL, Alembic head, and memory
-  write pipeline.
-- RAG generation service embedding messages (`BAAI/bge-m3`), querying Chroma vectors,
-  and formatting citations.
-- React/Vite frontend and Docker Compose local development stack.
-- Retired legacy capabilities: Workspace, Planner, legacy Memory, and SQLite
-  persistence have been removed.
+The semantic Memory write path is feature-gated. Both
+`MEMORY_WRITE_PIPELINE_ENABLED` and `MEMORY_SHADOW_EXTRACT_ENABLED` default to
+`false`, so the presence of the implementation does not mean background Memory
+extraction is enabled in a default runtime.
+
+## Current Memory Boundary
+
+The implemented Memory slice is deliberately small:
+
+- registry version: `semantic-registry-v1`;
+- implemented key: `travel.preference.hotel_atmosphere`;
+- cardinality: single value;
+- normalized values: `quiet`, `lively`, `central`, `secluded`;
+- supported scopes: user and conversation;
+- write-side concepts include candidate extraction, deterministic policy and
+  resolution, versioned assertions, evidence, decisions, idempotency, and a
+  background worker.
+
+The current runtime does **not** yet provide the target Memory Read/Use engine,
+chat-native `remember`/`correct`/`forget`/`inspect`, Episodic Memory, Working
+Memory, or Procedural Memory publication. Those belong to the target
+architecture, not the current-state claim.
 
 ## Quick Start
-
-This Stage A path is for startup and health inspection only. It may build
-images, install dependencies, start local containers, and create or open local
-Chroma state during backend startup. It does not crawl data, index data,
-download an embedding model intentionally, or make a paid or external model
-call as the expected quick-start outcome.
 
 From the repository root:
 
@@ -50,98 +56,55 @@ From the repository root:
 docker compose up --build
 ```
 
-In another shell:
+Then check process liveness:
 
 ```bash
 curl http://localhost:8000/health
 ```
 
-A health response proves only that the health route is reachable. It does not
-prove retrieval quality, populated Chroma data, model-provider access,
-credentials, or end-to-end chat readiness.
+`/health` proves only that the API process is reachable. It does not prove that
+PostgreSQL migrations are current, Chroma contains usable data, the external
+model provider is configured, RAG quality is acceptable, or Memory features are
+enabled.
 
-For detailed setup, command effects, side effects, and verification status, use
-[DEVELOPMENT.md](DEVELOPMENT.md).
-
-## Stage B: RAG Chat Readiness
-
-Real RAG chat is a separate readiness stage. Before using chat, expect to
-provide or verify:
-
-- a local `.env` copied from `.env.example`,
-- `GITHUB_TOKEN` or the configured external model credential,
-- network access to the configured model provider,
-- local embedding model availability or first-use download,
-- populated Chroma data,
-- and acceptance that the external model request contains the user message and
-  retrieved travel context.
-
-Crawling, ETL, indexing, model download, and model-dependent evaluation are
-opt-in development operations. They are not part of the default quick start.
-RAG and memory quality claims require the approved evaluation milestones, not
-only a successful chat response.
+Real chat additionally depends on local environment configuration, a reachable
+model provider, available embedding weights, and populated Chroma data.
 
 ## Repository Map
 
 | Path | Purpose |
 | --- | --- |
 | `frontend/` | React/Vite browser client |
-| `backend/app/` | FastAPI application, routes, settings, and schemas |
-| `backend/rag/` | RAG embedding, retrieval, generation, indexing, and evaluation code |
-| `data/` | Local data and Chroma storage paths used by the prototype |
-| `docs/specs/` | Approved and in-review specifications |
-| `docs/plans/` | Implementation plans derived from approved specifications |
-| `docs/adr/` | Architecture decision record workflow |
-| `docs/runbooks/` | Diagnosed local recovery, deployment readiness, and incident response |
-| `.github/` | GitHub issue intake, PR review, and CI configuration surfaces |
+| `backend/app/` | FastAPI application, routes, configuration, and composition root |
+| `backend/conversations/` | Conversation domain, service, and PostgreSQL repository |
+| `backend/rag/` | Embedding, Chroma retrieval, context assembly, generation, and RAG evaluation code |
+| `backend/memory/write_pipeline/` | Current semantic Memory write-side implementation and worker |
+| `backend/storage/migrations/` | PostgreSQL/Alembic schema history |
+| `backend/tests/` | Unit, integration, boundary, and evaluation fixtures/tests |
+| `docs/architecture/` | Living current-state, target-state, and conceptual data-model documentation |
 
-## Documentation
+## Architecture Documentation
 
-- [DEVELOPMENT.md](DEVELOPMENT.md) covers local setup, commands, side effects,
-  and verification status.
-- [ARCHITECTURE.md](ARCHITECTURE.md) maps the implemented high-level system and
-  links the approved future architecture.
-- [docs/architecture/target-state.md](docs/architecture/target-state.md) summarizes
-  the approved Chat-first Agent Memory target; it is not a claim of implemented behavior.
-- [docs/roadmap/master-roadmap.md](docs/roadmap/master-roadmap.md) defines the
-  milestone order, dependencies, and exit gates.
-- [docs/evaluation/rag-evaluation.md](docs/evaluation/rag-evaluation.md) defines
-  the RAG quality measurement and promotion protocol.
-- [docs/evaluation/memory-evaluation.md](docs/evaluation/memory-evaluation.md)
-  defines the memory quality, lifecycle, and safety measurement protocol.
-- [SECURITY.md](SECURITY.md) defines repository security, privacy, secret,
-  evidence, data-handling, vulnerability-reporting, and public-production gates.
-- [docs/runbooks/local-development.md](docs/runbooks/local-development.md),
-  [docs/runbooks/deployment.md](docs/runbooks/deployment.md), and
-  [docs/runbooks/incident-response.md](docs/runbooks/incident-response.md) own
-  diagnosed local recovery, deployment readiness, and incident response.
-- [docs/learning/engineering-curriculum.md](docs/learning/engineering-curriculum.md)
-  maps project milestones to engineering learning tracks.
-- [CONTRIBUTING.md](CONTRIBUTING.md) covers contribution workflow, approvals,
-  branches, commits, review, and evidence.
-- [LICENSE](LICENSE) defines the default project-authored source and
-  documentation license as `Apache-2.0`.
-- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) records bounded third-party
-  notice, attribution, and provenance review status.
-- [CHANGELOG.md](CHANGELOG.md) records released user-visible history only.
-- [AGENTS.md](AGENTS.md) is the coding-agent operating guide for this
-  repository.
-- [docs/specs/README.md](docs/specs/README.md) defines the specification
-  workflow.
-- [docs/plans/README.md](docs/plans/README.md) defines the implementation-plan
-  workflow.
-- [docs/adr/README.md](docs/adr/README.md) defines the ADR workflow.
+The project intentionally keeps only three living architecture documents:
+
+- [Current-state Architecture](docs/architecture/current-state.md) — what the
+  checked-out runtime actually implements.
+- [Target-state Architecture](docs/architecture/target-state.md) — where the
+  system is intended to evolve and what gaps remain.
+- [Data Model](docs/architecture/data-model.md) — the conceptual target Memory
+  entities, relationships, lifecycle, and ownership model.
+
+For current behavior, source code, migrations, tests, configuration, and fresh
+runtime evidence take precedence over prose.
 
 ## Known Limitations
 
-- The project is an early prototype; production readiness is not established.
-- RAG quality has not been certified by an approved evaluation gate.
-- Chat readiness can depend on credentials, network access, model availability,
-  and populated local vector data.
-- Chat persists standalone conversations, but the approved Agent Memory stages are not yet fully implemented or enabled.
-- The approved future direction adds governed Semantic, Episodic, Working, and system-owned Procedural Memory without restoring TripWorkspace/Planner as product requirements.
-- The repository now has an `Apache-2.0` source license, GitHub intake
-  templates, third-party notice baseline, and release-only changelog, but full
-  open-source release readiness remains a later gated milestone.
-- Security policy and runbooks now exist, but they explicitly block unsupported
-  public-production claims rather than certifying the current prototype.
+- Production readiness is not established.
+- RAG quality depends on the indexed corpus and has not been established by the
+  existence of the runtime alone.
+- Chat readiness depends on PostgreSQL, Chroma, embedding/model availability,
+  credentials, and network access.
+- Memory background extraction is disabled by default and the current Memory
+  implementation is write-side only.
+- The target Memory architecture is intentionally broader than the code that is
+  implemented today.

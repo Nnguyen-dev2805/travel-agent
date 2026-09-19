@@ -1,250 +1,206 @@
 # Target-state Architecture
 
-## Status and Authority
+## Purpose
 
-This document summarizes the **approved future architecture** for Travel Agent.
-It does not describe implemented behavior and does not by itself prove that a
-stage is complete.
+This document defines the intended future architecture for Travel Agent. It is
+not evidence that a capability is implemented or enabled.
 
-The canonical authority chain is:
+Use [Current-state Architecture](current-state.md) for runtime truth and
+[Data Model](data-model.md) for Memory entities, lifecycle, and ownership.
 
-1. [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.2 — Approved.
-2. ADRs [0036](../adr/0036-chat-native-memory-actions-and-transaction-coordinators.md), [0037](../adr/0037-memory-retention-revocation-and-suppression.md), [0038](../adr/0038-positive-source-handling-and-inferred-activation-authority.md), [0039](../adr/0039-memory-read-use-authority-and-retrieval-projections.md), and [0040](../adr/0040-system-owned-procedural-memory-publication-boundary.md) — Accepted.
-3. [Agent Memory Target Architecture Implementation Plan](../plans/2026-09-12-agent-memory-target-architecture-implementation.md) v0.5 — Approved 2026-09-13.
+## Baseline to Preserve
 
-Use [Current-state Architecture](current-state.md) for behavior that exists now
-and [Data Model](data-model.md) for cross-domain target entities and lifecycle
-relationships.
+The target evolves the current authenticated standalone Chat system. It does not
+restore removed product structures simply to support Memory.
 
-## Baseline That Must Remain True
+The following remain architectural invariants unless this document is changed
+explicitly:
 
-The target starts from authenticated standalone Chat backed by PostgreSQL. It
-must not reintroduce Workspace as a product container, Planner as a mounted
-runtime surface, SQLite as canonical relational state, or the removed public
-Memory Manager/API.
+- standalone Chat is the product container;
+- PostgreSQL is canonical for conversation and tenant Memory state;
+- Chroma is travel-knowledge retrieval infrastructure, not Memory lifecycle
+  authority;
+- RAG and Memory remain separate domains;
+- authorization, persistence, lifecycle, deletion/suppression, and read
+  eligibility stay under deterministic application policy;
+- model output may interpret uncertain semantics but does not directly decide
+  SQL, tenant ownership, retention, activation, suppression, or authorization;
+- future retrieval indexes are rebuildable projections, never canonical Memory
+  truth.
 
-PostgreSQL remains canonical for tenant conversation and Memory state. Chroma
-remains travel-knowledge retrieval infrastructure. Any future Memory full-text
-or vector index is a rebuildable projection, never lifecycle authority.
+## Target Turn Flow
 
-## Target Principles
+The intended synchronous turn stays bounded rather than becoming an unbounded
+autonomous loop:
 
-1. Keep synchronous agent behavior bounded to one turn and one context/tool
-   phase rather than an unbounded autonomous loop.
-2. Let models interpret uncertain semantics, but keep authorization, lifecycle,
-   persistence, deletion/suppression, activation, and read eligibility under
-   deterministic application policy.
-3. Keep Memory and RAG as separate domains. RAG supplies travel knowledge;
-   Memory supplies governed personal/context state.
-4. Treat explicit user Memory actions differently from background inference.
-5. Make product forget a first-class lifecycle operation with suppression, not
-   a synonym for privacy erasure.
-6. Persist provenance/retention/lifecycle facts instead of reconstructing them
-   from current policy at read time.
-7. Fail closed at authority and lifecycle boundaries; degrade without Memory
-   when Memory is optional and unavailable.
-8. Introduce additional Memory families only as evaluated vertical slices.
-
-## Product Boundary
-
-The product container is authenticated standalone Chat. A user owns multiple
-independent conversations through `owner_user_id`; there is no active
-`TripWorkspace` parent.
-
-One user turn may be:
-
-- a normal query;
-- an explicit Memory action (`remember`, `correct`, `forget`, `inspect`); or
-- evidence that may later be processed asynchronously for inferred Memory.
-
-Conversation-scoped state may override a user-scoped default for the current
-conversation without rewriting the user-scoped value.
-
-## Bounded Agentic Turn
-
-The target synchronous flow is:
-
-```text
-request + authenticated principal
--> resolve ephemeral dialogue state
--> understand the turn
--> choose action and context plan
--> enforce deterministic policy
--> execute one read/tool phase
-   -> Memory Read when requested
-   -> RAG when requested
--> arbitrate structured context
--> generate/acknowledge
--> commit the terminal turn
+```mermaid
+flowchart TD
+    A[Authenticated request] --> B[Resolve dialogue state]
+    B --> C[Understand current turn]
+    C --> D[Route action]
+    D --> E[Build context plan]
+    E --> F{Needed context}
+    F -->|RAG| G[RAG read]
+    F -->|Memory| H[Memory read]
+    F -->|Both| I[RAG + Memory read]
+    F -->|Neither| J[No external context]
+    G --> K[Context arbitration]
+    H --> K
+    I --> K
+    J --> K
+    K --> L[Generate or deterministic acknowledgement]
+    L --> M[Commit terminal turn]
 ```
 
-`DialogueStateResolver` reconstructs short-lived referents, topic, current goal,
-and pending clarification. `TurnUnderstanding` returns typed but
-non-authoritative semantics. `ActionRouter` chooses normal query, explicit
-Memory action, or clarification. `ContextPlanner` selects `none`, `rag_only`,
-`memory_only`, or `both` as stages make those modes available.
+The context phase is read-only with respect to canonical Memory. Explicit Memory
+mutations use their own governed write path and commit boundary.
 
-`TurnDisposition` describes the reasoning outcome (`ANSWERED`,
-`NEEDS_CLARIFICATION`, `INCOMPLETE`, `EXECUTION_FAILED`) and remains distinct
-from persisted `MessageStatus`. It stays internal to `TurnOutcome` in the first
-rollout.
+## Target Component Boundaries
 
-## Target Module Boundaries
-
-| Component | Owns | Must not own |
+| Component | Owns | Does not own |
 | --- | --- | --- |
-| Chat application/orchestration | One bounded synchronous turn, routing, context planning, generation, terminal result | Background Memory lifecycle |
-| Conversation store | Conversation/message persistence, deletion epoch, outbox allocation/release, guarded terminal transition | Memory semantics |
-| DialogueStateResolver | Ephemeral current-turn referents/topic/goal | Durable Memory |
-| TurnUnderstanding | Typed semantic interpretation | Durable mutation authority |
-| ExplicitIntentGate | High-precision corroboration of remember/correct/forget speech acts | Key/value parsing or persistence |
-| ExplicitMemoryActionHandler | Registry, scope, retention, sensitivity, conflict validation and typed proposal | Transaction ownership |
-| ExplicitMemoryTurnCommit | Atomic API-side explicit Memory effect + acknowledgement + source handling + guarded terminal transition | Semantic interpretation |
-| BackgroundMemoryCommit | Fenced worker-side background Memory effect + source-event completion | Explicit Chat authority |
-| MemoryFormationEngine | Background evidence/candidate formation | Direct activation |
-| MemoryConsolidationEngine | Duplicate/reinforce/correction/conflict resolution | Storage transaction ownership |
-| MemoryLifecyclePolicy | Shared formation/write/activation/read eligibility predicates | Relevance ranking |
-| MemoryReadEngine | Eligible/relevant Memory selection | RAG retrieval |
-| ContextArbiter / MemoryContextComposer | Precedence, bounded Memory context, prompt-safe structured projection | Canonical Memory storage |
-| RAG domain | Travel-document retrieval and citation evidence | Personal Memory authority |
-| Procedural publication | Offline evaluated, versioned system behavior | Tenant/user writable Memory |
+| Chat orchestration | One bounded synchronous turn, action routing, context planning, generation/acknowledgement, terminal result | Background Memory lifecycle |
+| Conversation store | Conversation/message persistence, deletion state, source outbox allocation/release, terminal transition | Memory semantics |
+| Dialogue state | Ephemeral referents, topic, current goal, pending clarification | Durable Memory |
+| Turn understanding | Typed interpretation of current-turn meaning | Durable mutation authority |
+| Explicit Memory action handler | Closed-schema parsing/validation and typed proposals for remember/correct/forget | Transaction ownership |
+| Explicit Memory commit | Atomic explicit Memory effect, source handling, idempotency result, acknowledgement, terminal transition | Semantic interpretation |
+| Memory formation/consolidation | Candidate formation and deterministic relation/effect resolution | Chat response generation |
+| Memory lifecycle policy | Formation/write/activation/read eligibility | RAG retrieval or free-form ranking |
+| Memory Read/Use | Eligible/relevant selection and bounded structured projection | Canonical writes or RAG retrieval |
+| Context arbitration | Response precedence and safe combination of Memory/RAG context | Canonical Memory storage |
+| RAG domain | Travel-document retrieval, context evidence, citations | Personal Memory authority |
+| Procedural publication | Offline-evaluated, versioned system behavior | Tenant/user Memory writes |
 
 ## Memory Families
 
-| Family | Ownership | Typical scope | Rollout rule |
-| --- | --- | --- | --- |
-| Semantic | Tenant/user-derived | user or conversation | First complete explicit vertical slice |
-| Episodic | Tenant/user-derived | conversation; governed user generalization | Later evaluated slice |
-| Working | Tenant/user-derived | conversation | Later evaluated slice; may feed dialogue-state reconstruction after its gate |
-| Procedural | System-owned | separate publication boundary | Offline evaluation and repository-owner approved publication only |
+The target has four conceptually different families:
 
-Procedural Memory is not represented with a fake tenant owner and does not
-weaken tenant RLS.
+| Family | Ownership | Primary role |
+| --- | --- | --- |
+| Semantic | Tenant/user-derived | Stable facts, preferences, and constraints |
+| Episodic | Tenant/user-derived | Grounded past events/experiences |
+| Working | Tenant/user-derived, conversation-scoped | Short-lived conversational state that helps continuity |
+| Procedural | System-owned | Versioned system behavior published through an offline boundary |
 
-## Independent Memory Dimensions
-
-Every user-derived Memory decision keeps these dimensions separate:
-
-- **Authority:** `EXPLICIT_SAVE`, `EXPLICIT_STATEMENT`, `REPEATED_INFERENCE`.
-- **Scope:** `conversation` or `user`.
-- **Retention:** `CONVERSATION_BOUND`, `SOURCE_BOUND`, `USER_DURABLE`.
-- **Sensitivity:** deterministic registry/policy floor that a model may only
-  raise, never lower.
-- **Lifecycle:** at least `SHADOW/PENDING`, `ACTIVE`, `SUPERSEDED`, `REVOKED`,
-  `REJECTED`, and effective `EXPIRED`.
-- **Response precedence:** current request and verified hard constraints outrank
-  soft durable personalization.
-
-`ACTIVE` is necessary but not sufficient for answer-time use.
+The detailed entity/lifecycle model lives in [Data Model](data-model.md). The
+families must not be collapsed into one generic Memory blob merely to share an
+API or table shape.
 
 ## Explicit Memory Write Path
 
-Explicit `remember`, `correct`, and `forget` require deterministic speech-act
-corroboration before any model-assisted payload parsing. Parsing is bounded,
-closed-schema, registry-validated, and fail-closed.
+Explicit user actions such as `remember`, `correct`, and `forget` are different
+from background inference.
 
-The API-side commit owner atomically persists the Memory effect together with:
+Target flow:
 
-1. semantic idempotency result;
-2. family-specific `SourceHandlingRecord`;
-3. deterministic acknowledgement; and
-4. guarded terminal turn/outbox transition.
+```text
+current user turn
+-> high-precision explicit-intent corroboration
+-> closed-schema payload parsing
+-> registry/scope/sensitivity/lifecycle validation
+-> deterministic effect proposal
+-> atomic commit
+   -> Memory state change
+   -> idempotency result
+   -> family-specific source-handling record
+   -> deterministic acknowledgement
+   -> terminal turn/outbox transition
+```
 
-The model never chooses SQL, persistence operation, retention, activation, or
-suppression behavior.
+Ambiguous explicit actions fail closed or ask for clarification. A model may
+help interpret a bounded payload; it does not choose the persistence operation
+or bypass policy.
 
 ## Background Inference Path
 
-Background formation is asynchronous through the existing worker/outbox model.
-Absence of a source-handling record means `UNHANDLED`, never permission.
-Formation for a family requires a positive family-specific
-`BACKGROUND_ELIGIBLE` outcome.
-
-Inferred Memory is shadow-first. Activation thresholds depend on family/type and
-require independent evidence; retries or repeated extraction of one source do
-not increase support. Missing or inconclusive evaluation keeps inferred Memory
-non-answer-eligible.
-
-## Consolidation, Forget, and Re-remember
-
-The consolidation vocabulary includes new, duplicate, reinforcement,
-correction, contradiction, temporary exception, stale, unrelated, and uncertain.
-Deterministic identity/authority/time/scope/value/generation comparisons run
-before any bounded semantic classifier.
-
-Governed effects include `ADD`, `REINFORCE`, `SUPERSEDE`, `ADD_EXCEPTION`,
-`PENDING_CONFLICT`, `REJECT`, `NOOP`, and `REVOKE`.
-
-Product forget uses `REVOKE`/`REVOKED` and advances an assertion suppression
-generation. Delayed work from an older generation cannot form, activate, or
-read. A later explicit re-remember creates state in the current generation; it
-does not reactivate the revoked version.
-
-## Read and Use Boundary
-
-Memory Read applies, in order:
+Background formation remains asynchronous and source-grounded:
 
 ```text
-owner/scope filter
--> lifecycle + retention + source-validity + suppression eligibility
--> relevance
--> precedence/conflict exclusion
--> bounded ranking/selection
+terminal chat turn
+-> released conversation outbox event
+-> family-specific source authority
+-> bounded extraction/formation
+-> registry + sensitivity + lifecycle checks
+-> consolidation
+-> shadow/pending state
+-> activation only after the relevant gate is satisfied
 ```
 
-Memory is projected into generation as structured, prompt-safe data. Raw source
-evidence is excluded by default. Memory is not a citation channel and retrieved
-Memory text is never treated as instructions.
+No source-handling record means no background permission. Retries or repeated
+processing of one source do not count as independent evidence.
 
-RAG and Memory may execute in parallel as independent read-only context sources.
-Orchestration projects both into a neutral generation input; neither domain
-imports the other's canonical records.
+## Memory Read and Use
 
-## Conversation Deletion and Source Validity
+Canonical Memory is never copied directly into a prompt just because a row is
+active. Target selection applies:
 
-Conversation deletion always invalidates evidence sourced from that
-conversation. Resulting Memory eligibility depends on persisted retention:
+```text
+owner + scope
+-> lifecycle / retention / source-validity / suppression eligibility
+-> relevance
+-> conflict and response-precedence filtering
+-> bounded ranking/selection
+-> prompt-safe structured projection
+```
 
-- `CONVERSATION_BOUND`: becomes ineligible with the conversation;
-- `SOURCE_BOUND`: re-evaluate support from remaining valid independent evidence;
-- `USER_DURABLE`: normalized value may survive, but deleted-source content must
-  not reappear through read, inspect, prompt, trace, summary, projection, or
-  citation.
+The resulting Memory context is not a citation channel. Raw source evidence is
+excluded by default, and Memory text is treated as data rather than instructions.
 
-Time expiry, source validity, retention, and suppression remain independent.
+RAG and Memory may be read independently or together. Their outputs meet only at
+the orchestration/context boundary; neither domain imports the other's canonical
+records.
 
-## Staged Delivery
+## Forget, Deletion, and Source Validity
 
-| Stage | Target |
-| --- | --- |
-| 1 | Turn understanding, dialogue state, routing, context-planner contract, explicit intent gate, positive source handling, telemetry hardening |
-| 2 | Explicit Semantic Memory write/store lifecycle, retention, revoke/suppression, dual commit coordinators, eight-key registry v2 |
-| 3 | Semantic Memory Read/Use, explicit inspect, context arbitration |
-| 4 | Background semantic formation and per-type inferred activation after conclusive gates |
-| 5 | Evaluated Episodic and Working Memory slices |
-| 6 | Optional full-text/vector projection only when structured retrieval is insufficient |
-| 7 | System-owned procedural publication |
+Product forget and privacy/source deletion are separate mechanisms.
 
-The approved execution source is plan v0.5; this document intentionally does not
-repeat task-level file lists or verification commands.
+Target product forget revokes the remembered state and advances a suppression
+boundary so delayed older work cannot recreate the forgotten value. A later
+explicit re-remember creates current-generation state; it does not reactivate an
+old revoked version.
 
-## Rollout and Rollback
+Conversation deletion invalidates evidence from that conversation. Whether a
+normalized Memory value can remain usable depends on its persisted retention
+mode and surviving valid evidence. Deleted raw source content must not reappear
+through read, prompt, inspect, trace, summary, projection, or citation.
 
-Capabilities enable independently: understanding shadow observation, explicit
-Memory, read, prompt use, background capture, inferred activation, additional
-families/projections, then procedural publication.
+## Remaining Gaps from the Current Runtime
 
-Rollback disables higher-authority consumers before lower layers. It never
-clears revoke/suppression history, reactivates superseded/revoked versions,
-restores SQLite as truth, or restores the removed public Memory Manager/API.
+The target is intentionally ahead of the code. The major remaining gaps are:
 
-## Explicitly Removed from the Target
+1. extend the current one-key semantic write model into the governed target
+   registry/lifecycle without weakening existing tenant/write invariants;
+2. add chat-native explicit `remember`, `correct`, and `forget` with atomic
+   commit semantics;
+3. implement semantic Memory Read/Use and context arbitration before generation;
+4. add explicit Memory inspection without exposing raw deleted/private source
+   evidence;
+5. add retention, suppression generation, revocation, and source-validity rules
+   needed for deterministic forget/no-resurrection behavior;
+6. introduce Episodic and Working Memory only as complete, testable vertical
+   slices rather than schema-only placeholders;
+7. add optional full-text/vector Memory retrieval only if exact structured
+   retrieval becomes insufficient;
+8. introduce Procedural Memory only through a separate system-owned publication
+   boundary.
 
-The following are historical architecture, not future product direction:
+This section replaces a separate roadmap document. Task checklists and temporary
+implementation notes should live in issue/task tooling or Git history, not in a
+new documentation hierarchy.
 
-- `TripWorkspace` as the primary product container;
-- Workspace-scoped Planner routes/state;
-- SQLite application persistence;
-- a separate public Memory management surface;
-- unbounded autonomous planning loops;
-- vector search as canonical Memory truth.
+## Rollout and Rollback Principles
+
+Capabilities should be enabled independently so a higher-level consumer can be
+disabled without destroying lower-level history.
+
+Rollback must not:
+
+- clear forget/suppression history;
+- reactivate superseded or revoked state;
+- restore SQLite as canonical state;
+- restore removed Workspace/Planner/public Memory APIs;
+- convert a failed lifecycle gate into permissive behavior.
+
+The safe fallback for optional Memory use is ordinary Chat/RAG behavior without
+personal Memory, not a bypass of Memory policy.

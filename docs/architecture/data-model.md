@@ -1,54 +1,67 @@
 # Data Model
 
-## Scope
+## Purpose
 
-This document owns the **conceptual target model** for the approved Chat-first
-Agent Memory architecture. It defines entities, relationships, lifecycle and
-isolation concepts. It is not a physical PostgreSQL schema, migration file, ORM
-contract, or public API schema.
+This document owns the conceptual target model for Agent Memory: entities,
+relationships, ownership, lifecycle dimensions, and read/write semantics. It is
+not the physical PostgreSQL schema, an ORM contract, or evidence that every
+entity is implemented.
 
-Canonical design authority is [Agent Memory Target Architecture](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.2 with ADRs 0036–0040 and the approved implementation plan v0.5.
+Use [Current-state Architecture](current-state.md) for the implemented schema and
+runtime. Use [Target-state Architecture](target-state.md) for component and data
+flows.
 
-Use [Current-state Architecture](current-state.md) for implemented tables and
-runtime behavior and [Target-state Architecture](target-state.md) for component
-and flow boundaries.
+## Current Implementation vs Target Model
 
-## Product and Ownership Model
+The current code implements only a subset of this document.
 
-The active/future product boundary is authenticated standalone Chat, not
-`TripWorkspace`.
+Current write-side Memory has:
+
+- `semantic-registry-v1`;
+- one key: `travel.preference.hotel_atmosphere`;
+- single-value cardinality only;
+- user and conversation scopes;
+- `ACTIVE` and `SUPERSEDED` version states;
+- write operations `ADD`, `REINFORCE`, `SUPERSEDE`, `ADD_EXCEPTION`,
+  `PENDING_CONFLICT`, `REJECT`, and `NOOP`.
+
+Retention modes, revoke/suppression generations, multi-key/set-valued semantics,
+SourceHandlingRecord, Memory Read/Use, Episodic/Working behavior, and Procedural
+publication below are target concepts unless source code shows otherwise.
+
+## Ownership Model
+
+The product boundary is authenticated standalone Chat. There is no target
+`workspace_id` parent for Conversation or tenant Memory.
 
 | Concept | Meaning |
 | --- | --- |
-| Authenticated principal | Request-time identity that supplies `owner_user_id`; never accepted from a user-data payload |
-| Conversation | Standalone dialogue owned directly by one authenticated owner |
-| Message | Ordered persisted user/assistant event inside a conversation |
-| Conversation outbox event | Transactional source event released only after the relevant turn is terminal |
-| Tenant Memory | User-derived Semantic, Episodic, or Working Memory isolated by owner and governed scope |
-| Procedural publication | System-owned versioned behavior/configuration outside tenant Memory scope/RLS |
-
-There is no target `workspace_id` parent for Conversation or Memory.
+| Authenticated principal | Request-time identity that supplies `owner_user_id`; authorization does not trust an owner id from user payload data |
+| Conversation | Standalone dialogue directly owned by one authenticated user |
+| Message | Ordered persisted user/assistant record within a conversation |
+| Conversation outbox event | Transactional source event released only after its producing turn is terminal |
+| Tenant Memory | User-derived Semantic, Episodic, or Working Memory isolated by owner and scope |
+| Procedural publication | System-owned versioned behavior outside tenant Memory ownership/RLS |
 
 ## Target Entity Overview
 
-| Entity | Purpose | Canonical/ephemeral |
+| Entity | Purpose | State |
 | --- | --- | --- |
-| Conversation | Owner-scoped dialogue and deletion fence | Canonical PostgreSQL |
-| Message | Ordered persisted turn content/status/provenance | Canonical PostgreSQL |
-| ConversationOutboxEvent | Async source handoff with lease/readiness state | Canonical PostgreSQL |
-| DialogueState | Reconstructed referents/topic/goal for one turn | Ephemeral |
-| TurnSemantics | Typed non-authoritative interpretation of current turn | Ephemeral/evaluation trace |
-| ContextPlan | Whether the turn needs Memory, RAG, both, or neither | Ephemeral/evaluation trace |
-| MemoryAssertion | Stable identity for one governed remembered proposition | Canonical PostgreSQL |
-| MemoryVersion | Immutable normalized state and lifecycle version for an assertion | Canonical PostgreSQL |
-| MemoryEvidence | Immutable provenance supporting or contradicting a candidate/assertion | Canonical PostgreSQL |
-| MemoryCandidate | Proposed normalized Memory before governed consolidation/activation | Canonical PostgreSQL |
-| MemoryDecision | Auditable policy/consolidation decision | Canonical PostgreSQL |
-| SourceHandlingRecord | Positive family-specific routing outcome for one source/outbox event | Canonical PostgreSQL |
-| MemoryWriteIdempotency | Stable semantic retry/result record | Canonical PostgreSQL |
-| MemoryOutboxEvent | Downstream Memory work owned by the Memory pipeline | Canonical PostgreSQL |
-| MemoryReadSelection | Eligible/relevant selected Memory for one response | Ephemeral/evaluation trace |
-| PublishedProcedure | System-owned evaluated procedural version | Separate canonical publication state |
+| Conversation | Owner-scoped dialogue and deletion boundary | Canonical PostgreSQL |
+| Message | Ordered turn content/status/provenance | Canonical PostgreSQL |
+| ConversationOutboxEvent | Async source handoff with release/lease/retry state | Canonical PostgreSQL |
+| DialogueState | Current-turn referents/topic/goal | Ephemeral |
+| TurnSemantics | Typed non-authoritative interpretation of the current turn | Ephemeral |
+| ContextPlan | Whether the response needs Memory, RAG, both, or neither | Ephemeral |
+| MemoryAssertion | Stable identity for one remembered semantic proposition | Canonical PostgreSQL |
+| MemoryVersion | Immutable normalized state/lifecycle version under an assertion | Canonical PostgreSQL |
+| MemoryEvidence | Provenance supporting or contradicting a Memory decision | Canonical PostgreSQL |
+| MemoryCandidate | Proposed normalized item before governed resolution | Canonical PostgreSQL |
+| MemoryDecision | Auditable decision/effect or abstention | Canonical PostgreSQL |
+| SourceHandlingRecord | Family-specific positive authority for processing one source/outbox event | Canonical PostgreSQL |
+| MemoryWriteIdempotency | Stable result for retry-safe semantic writes | Canonical PostgreSQL |
+| MemoryReadSelection | Eligible/relevant selected Memory for one response | Ephemeral |
+| PublishedProcedure | Versioned system-owned procedural state | Separate canonical publication state |
 
 ## Core Relationships
 
@@ -57,26 +70,24 @@ erDiagram
     CONVERSATION ||--o{ MESSAGE : contains
     CONVERSATION ||--o{ CONVERSATION_OUTBOX_EVENT : emits
     MESSAGE ||--o{ MEMORY_EVIDENCE : sources
-    CONVERSATION_OUTBOX_EVENT ||--o{ SOURCE_HANDLING_RECORD : classified_per_family
+    CONVERSATION_OUTBOX_EVENT ||--o{ SOURCE_HANDLING_RECORD : authorizes_per_family
     MEMORY_ASSERTION ||--o{ MEMORY_VERSION : versions
     MEMORY_ASSERTION ||--o{ MEMORY_EVIDENCE : supported_by
-    MEMORY_CANDIDATE }o--|| MEMORY_EVIDENCE : grounded_in
+    MEMORY_CANDIDATE }o--o{ MEMORY_EVIDENCE : grounded_in
     MEMORY_DECISION }o--|| MEMORY_CANDIDATE : decides
     MEMORY_VERSION }o--o{ MEMORY_EVIDENCE : justified_by
     PUBLISHED_PROCEDURE ||--o| PUBLISHED_PROCEDURE : supersedes
 ```
 
-The relationship map is conceptual. Physical foreign keys and table layouts are
-owned by migrations and repository contracts when their implementation stage is
-executed.
+The diagram is conceptual. Migrations and repository contracts own physical
+foreign keys and table layouts.
 
-## Memory Assertion Identity
+## Semantic Assertion Identity
 
-An assertion groups versions of one semantic proposition under a stable identity.
-The approved Stage-2 model keeps identity independent from the current value so
-correction/supersession does not create unrelated assertions.
+A semantic assertion groups versions of one proposition under a stable identity.
+The value itself is versioned state and is not part of that identity.
 
-Conceptually the identity includes:
+Conceptually:
 
 ```text
 owner
@@ -86,51 +97,48 @@ owner
 + condition
 ```
 
-The exact encoded identifier remains an implementation contract. A value is
-versioned state, not part of the stable assertion identity.
+This lets a correction create a new version of the same proposition rather than
+a disconnected assertion.
 
-Each assertion also carries the suppression-generation boundary needed to make
-forget/no-resurrection deterministic.
+The target assertion also carries the suppression-generation boundary required
+for deterministic forget/no-resurrection behavior.
 
 ## Memory Version
 
-A Memory version is immutable historical state. Representative target fields
+A target `MemoryVersion` is immutable historical state. Representative fields
 include:
 
-- assertion/version identity;
+- assertion and version identity;
 - normalized value;
 - authority;
 - scope;
-- persisted retention mode;
+- retention mode;
 - sensitivity;
 - lifecycle status;
 - suppression generation;
 - optional `expires_at`;
 - creation/supersession/revocation provenance;
-- policy/schema version metadata needed for audit/replay.
+- schema/policy version metadata needed for audit or replay.
 
-A later correction creates a new version rather than rewriting the old version.
+Correction creates a new version and supersedes the old one; it does not rewrite
+history in place.
 
-## Normalized Semantic Values
+## Semantic Registry Evolution
 
-The approved first Semantic Memory slice uses a closed registry. In-process
-normalized values are typed as:
+### Current Registry
 
-```text
-single-valued key -> string enum/member
-set-valued key    -> non-empty sorted/deduplicated tuple of governed members
-```
+The implemented `semantic-registry-v1` contains one single-valued key:
 
-Set state is one immutable assertion-version snapshot, not a delimiter-joined
-string and not one assertion per member.
+| Key | Cardinality |
+| --- | --- |
+| `travel.preference.hotel_atmosphere` | single |
 
-Positive compatible evidence computes deterministic union. If the union is
-unchanged, it reinforces the current version; if it grows, a new full snapshot
-supersedes the previous version. Explicit correction/member-forget materializes
-the desired full snapshot first. Removing the final member revokes the
-assertion.
+Implemented normalized values are `quiet`, `lively`, `central`, and `secluded`.
 
-The initial `semantic-registry-v2` contains exactly eight P0 Travel Agent keys:
+### Target Registry
+
+The target semantic slice extends the governed registry to these travel-facing
+keys:
 
 | Key | Cardinality |
 | --- | --- |
@@ -143,57 +151,66 @@ The initial `semantic-registry-v2` contains exactly eight P0 Travel Agent keys:
 | `travel.preference.food_style` | set |
 | `travel.profile.default_departure_city` | single |
 
-Allowed values are owned by the registry implementation/approved plan, not by
-free-form model output.
+The target in-process representation is:
 
-## Memory Evidence
+```text
+single-valued key -> governed string member
+set-valued key    -> non-empty sorted/deduplicated tuple of governed members
+```
 
-Evidence is immutable provenance used for formation, consolidation, activation,
-source validity, and audit. It identifies its source message/conversation/outbox
-and generation. Multiple processing attempts of the same source are not
-independent evidence.
+Set state is one immutable assertion-version snapshot, not a delimiter-joined
+string and not one assertion per member. Compatible additions produce a new
+full set snapshot only when the normalized set changes.
 
-When a conversation/source is deleted or invalidated, evidence becomes
-ineligible for source-dependent use without requiring every derived Memory row
-to be physically deleted or rewritten.
+## Evidence, Candidate, and Decision
 
-Raw deleted-source text must not reappear through read, inspect, prompt, trace,
-summary, projection, or citation.
+### MemoryEvidence
 
-## Memory Candidate and Decision
+Evidence is immutable provenance. It identifies the source conversation,
+message/outbox event, observation time, and the generation relevant to lifecycle
+decisions.
 
-`MemoryCandidate` is a proposed normalized item, not durable truth. It must pass
-registry, sensitivity, scope, generation, source-validity, and lifecycle policy
-before a governed effect is proposed.
+Repeated processing of the same source does not become independent evidence.
+When a source is deleted or invalidated, source-dependent eligibility must be
+recomputed without exposing deleted raw text through read, prompt, inspect,
+trace, summary, projection, or citation.
 
-`MemoryDecision` records why a candidate/evidence relation produced an effect or
-abstention. Representative relation vocabulary:
+### MemoryCandidate
+
+A candidate is a proposed normalized Memory item, not durable truth. Before it
+can produce a state change it must pass the applicable registry, scope,
+sensitivity, source-validity, generation, and lifecycle rules.
+
+### MemoryDecision
+
+A decision records the governed relation/effect or abstention. The target
+relation vocabulary includes:
 
 ```text
 new | duplicate | reinforcement | correction | contradiction |
 temporary_exception | stale | unrelated | uncertain
 ```
 
-Representative governed operations:
+Target effects include:
 
 ```text
 ADD | REINFORCE | SUPERSEDE | ADD_EXCEPTION |
 PENDING_CONFLICT | REJECT | NOOP | REVOKE
 ```
 
-A model may classify unresolved semantic relations, but the deterministic
-resolver owns the operation.
+A bounded model may help classify an unresolved semantic relation. Deterministic
+application policy owns the resulting effect.
 
 ## SourceHandlingRecord
 
-Background inference requires positive source authority. A source/outbox event
-has one family-specific handling record keyed conceptually by:
+Background processing requires positive, family-specific source authority.
+Conceptually the record is keyed by:
 
 ```text
 (source_outbox_id, memory_family)
 ```
 
-Representative outcomes include:
+Target outcomes include:
 
 ```text
 BACKGROUND_ELIGIBLE
@@ -204,11 +221,11 @@ FORGET_APPLIED
 FORGET_REFUSED
 ```
 
-No record means `UNHANDLED`, never background permission.
+Absence of a record means `UNHANDLED`, never implicit background permission.
 
-## Memory Dimensions
+## Independent Memory Dimensions
 
-These dimensions are intentionally independent:
+These dimensions must remain separate because they answer different questions.
 
 ### Authority
 
@@ -218,6 +235,9 @@ EXPLICIT_STATEMENT
 REPEATED_INFERENCE
 ```
 
+Authority answers how strongly the system may trust the observation, not how
+long it should live.
+
 ### Scope
 
 ```text
@@ -225,7 +245,8 @@ conversation
 user
 ```
 
-Procedural Memory is not a tenant scope.
+Scope answers where the Memory may apply. Procedural state is not a tenant
+scope.
 
 ### Retention
 
@@ -235,12 +256,12 @@ SOURCE_BOUND
 USER_DURABLE
 ```
 
-Retention is persisted when a version is written. Optional temporal expiry and
-source validity are separate eligibility inputs.
+Retention is persisted when target Memory is written. Expiry and source validity
+remain separate eligibility inputs.
 
 ### Lifecycle
 
-At minimum:
+Target lifecycle includes at least:
 
 ```text
 SHADOW / PENDING
@@ -248,38 +269,40 @@ ACTIVE
 SUPERSEDED
 REVOKED
 REJECTED
-EXPIRED (effective or persisted cleanup state)
+EXPIRED
 ```
 
-`ACTIVE` does not imply readable or selected.
+`ACTIVE` is necessary but not sufficient for answer-time use.
 
 ### Sensitivity
 
-Registry/deterministic policy sets a floor. Model classification may only raise
-that classification. Initial durable user Memory stores ordinary personal data
-only; higher-risk classes remain no-store until separately approved.
+A deterministic registry/policy sets a minimum sensitivity classification. A
+model may raise that classification but never lower the floor. Higher-risk
+classes remain non-storable until an explicit policy permits them.
 
 ## Forget, Suppression, and Re-remember
 
-Product forget is represented by `REVOKE`/`REVOKED` plus an advanced assertion
-suppression generation.
+Target product forget is a lifecycle operation, not physical history rewriting:
 
 ```text
 generation 1 active
 -> explicit forget
--> generation 1 revoked; suppression_generation = 2
--> delayed generation 1 candidate cannot form/activate/read
--> explicit re-remember may create current generation 2 state
+-> generation 1 revoked
+-> suppression_generation advances to 2
+-> delayed generation 1 work cannot form, activate, or read
+-> later explicit re-remember may create current generation 2 state
 ```
 
-Privacy erasure/deletion records are separate from product forget history.
+Privacy erasure/source deletion is a separate concern. It may invalidate or
+remove source content while preserving only the minimum lifecycle facts needed
+to prevent resurrection.
 
-## Conflict and Precedence
+## Conflict and Response Precedence
 
 Equal-authority unresolved contradiction becomes non-answer-eligible pending
 conflict rather than last-write-wins.
 
-Answer-time precedence is:
+Target response precedence is:
 
 ```text
 system/developer policy
@@ -287,61 +310,47 @@ system/developer policy
 > verified hard constraints
 > current conversation working state / temporary override
 > user-scoped soft preference/profile
-> episodic/summary context
+> episodic context
 ```
 
-A current-turn override may suppress soft durable Memory for one response
-without mutating that durable Memory.
+A conversation-specific or current-turn override may suppress a softer user
+preference for one response without mutating the durable user-scoped value.
 
 ## Read/Use Projection
 
-Canonical Memory state is filtered before answer-time selection:
+Target selection filters canonical state before prompt composition:
 
 ```text
 owner + scope
--> lifecycle/retention/source/suppression eligibility
+-> lifecycle / retention / source-validity / suppression eligibility
 -> relevance
--> precedence/conflict exclusion
+-> conflict and response-precedence exclusion
 -> bounded ranking/selection
 ```
 
-The resulting `MemoryReadSelection` is projected into a structured generation
-contract. It is not a citation and raw evidence is not automatically included.
-
-Optional full-text/pgvector projections, when justified later, contain only
-rebuildable retrieval aids and must revalidate canonical state before use.
+The result is a structured `MemoryReadSelection`, not a raw database dump and
+not a citation. Optional full-text/vector projections may accelerate discovery
+later, but every candidate selected from such a projection must be revalidated
+against canonical state.
 
 ## Memory Families
 
-| Family | Target ownership | Target scope |
-| --- | --- | --- |
-| Semantic | Tenant/user-derived | user or conversation |
-| Episodic | Tenant/user-derived | conversation; governed user generalization |
-| Working | Tenant/user-derived | conversation |
-| Procedural | System-owned publication | separate non-tenant boundary |
+| Family | Ownership | Typical scope | Core purpose |
+| --- | --- | --- | --- |
+| Semantic | Tenant/user-derived | user or conversation | Stable facts, preferences, constraints |
+| Episodic | Tenant/user-derived | conversation; governed user generalization | Grounded past experiences/events |
+| Working | Tenant/user-derived | conversation | Short-lived continuity/current working state |
+| Procedural | System-owned | separate non-tenant boundary | Versioned system behavior |
 
-Each new tenant family must implement its own formation, retention,
-consolidation, read/use, deletion, failure, and evaluation slice rather than
-sharing a generic ungoverned Memory blob.
+Each tenant family must have explicit formation, retention, read/use, deletion,
+failure, and evaluation behavior. Sharing infrastructure must not turn them into
+one ungoverned payload type.
 
-## Procedural Publication Model
+## Procedural Publication
 
-Procedural Memory is versioned system-owned state produced through deterministic
-validation, conclusive evaluation, and explicit publication authority. Ordinary
-Chat and tenant Memory-worker credentials cannot publish it.
+Procedural Memory is system-owned publication state. Ordinary Chat users and
+tenant Memory workers cannot publish it.
 
-Runtime selects only the active approved procedure version. Rollback changes the
-published version pointer/selection and never rewrites tenant Memory.
-
-## Removed Historical Concepts
-
-The following concepts are historical and must not be used as current target
-entities:
-
-- `TripWorkspace` as a required parent;
-- Workspace-scoped `ItineraryVersion`/`TripDecision` Planner state;
-- SQLite-backed application schema registries;
-- generic legacy `MemoryRecord` as the complete Memory lifecycle model;
-- public Memory Manager/control resources.
-
-Historical specs/reports may still mention them as evidence of earlier stages.
+A target procedure version becomes selectable only after deterministic
+validation, evaluation, and explicit publication. Rollback changes the active
+published version; it does not rewrite tenant Memory.

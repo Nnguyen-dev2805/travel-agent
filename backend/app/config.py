@@ -142,7 +142,7 @@ class Settings(BaseModel):
     )
     MEMORY_WRITE_EVAL_FIXTURES_PATH: str = os.getenv(
         "MEMORY_WRITE_EVAL_FIXTURES_PATH",
-        "docs/evaluation/fixtures/memory/write-pipeline-hotel-atmosphere-v0.1",
+        "backend/tests/fixtures/evaluation/memory/write-pipeline-hotel-atmosphere-v0.1",
     )
 
     # Fail-closed guard: the runtime role must not be a superuser and must

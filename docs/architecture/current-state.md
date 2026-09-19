@@ -1,171 +1,209 @@
 # Current-state Architecture
 
-## Scope
+## Purpose
 
-This document records the implemented Travel Agent architecture following the approved clean break per ADRs 0018–0022 and the governing design specification `docs/specs/2026-09-10-authenticated-chat-postgresql-clean-break-design.md`.
+This document describes behavior implemented by the checked-out code. It is not
+a roadmap and does not treat future Memory design as current capability.
 
-The system baseline provides authenticated standalone Chat with Retrieval-Augmented Generation (RAG) and basic semantic memory write pipeline capabilities backed by PostgreSQL 16. Legacy prototypes including Workspace containers, Planner state, SQLite-first persistence, dual-write migrations, and unauthenticated compatibility modes have been cleanly retired.
+The runtime today is an authenticated standalone Chat application backed by
+PostgreSQL 16 and RAG. It also contains a feature-gated semantic Memory
+write-side pipeline. Workspace containers, Planner routes/state, SQLite
+application persistence, and a public Memory-management API are not part of the
+mounted runtime.
 
-Use this document when comparing proposed work against what is implemented today.
+For implementation truth, source code, migrations, tests, configuration, and
+fresh runtime evidence take precedence over this document.
 
-## Approved Future Direction Is Not Current State
+## Runtime at a Glance
 
-The repository owner has approved the future Agent Memory architecture in
-[`2026-09-12-agent-memory-target-architecture-design.md`](../specs/2026-09-12-agent-memory-target-architecture-design.md) v0.2 and implementation plan v0.5. Those artifacts authorize staged work; they do not make unimplemented Memory behavior part of this current-state record. See [Target-state Architecture](target-state.md).
+```mermaid
+flowchart LR
+    UI[React / Vite] --> API[FastAPI]
+    API --> ORCH[ConversationOrchestrator]
+    ORCH --> PG[(PostgreSQL 16)]
+    ORCH --> RAG[RAGService]
+    RAG --> CHROMA[(Chroma)]
+    RAG --> MODEL[External model provider]
+    PG -. released extraction event .-> WORKER[Memory worker]
+    WORKER -. when feature gates are enabled .-> PG
+```
 
-## Superseded Specifications and Decisions
+`RuntimeContainer` is the API composition root. The Memory worker is a separate
+process with its own database credential boundary; it is not constructed by the
+API container.
 
-The clean break removed the earlier Workspace/SQLite/Planner product model and
-its mounted legacy Memory surfaces. Important supersession relationships are:
+## Mounted HTTP Surface
 
-| Legacy reference | Current authority | Effect |
-| --- | --- | --- |
-| ADR 0002 — Trip Workspace as Primary Product Container | ADR 0018 | Workspace is no longer the mounted product container |
-| ADR 0003 — Local SQLite Workspace Storage | ADR 0019 / ADR 0022 | SQLite is not application truth |
-| ADR 0004 — Shared Local Application Store | ADR 0019 / ADR 0022 | Shared SQLite schema registry retired |
-| ADR 0008 — Workspace-owned Planner State | ADR 0018 | Planner runtime surface/state retired |
-| ADR 0011 — Standalone Conversations with optional Workspace association | ADR 0021 | `workspace_id` removed; conversations are directly owner-scoped |
-| ADR 0015 / ADR 0017 — public Memory controls/confirmation surface | ADR 0020 | Public Memory-management surface removed; risk rules remain historical input |
+The FastAPI application mounts four routers containing eight routes:
 
-ADR 0010 contains broader security/deletion decisions; ADR 0018 supersedes only
-its historical unauthenticated compatibility-mode portion, not every security
-control in that record.
-
-The approved future Memory Read/Use design in ADR 0039 also supersedes ADR 0007
-as target authority; current runtime truth still follows the code and tables
-described below until that stage is implemented.
-
-## Runtime Components
-
-The active runtime is composed via `RuntimeContainer` at startup and exposes exactly 8 mounted routes across 4 routers.
-
-| Component | Implemented Responsibility | Evidence |
-| --- | --- | --- |
-| **React/Vite client** | Browser UI sending authenticated chat requests to backend API | `frontend/src/services/api.js`, `frontend/package.json` |
-| **FastAPI application** | Application lifecycle management via lifespan, security middleware, content-free error handling, and router mounting | `backend/app/main.py` |
-| **RuntimeContainer** | Composition root managing application dependencies, engine disposal, repository lifecycle, and observability probes | `backend/app/runtime_container.py` |
-| **Health route** | Public endpoint returning process liveness and service metadata (`/health`) | `backend/app/api/health.py` |
-| **Ops readiness route** | Authenticated endpoint (`/api/v1/ops/readiness`) returning six structured components: application, model provider, RAG Chroma, PostgreSQL, Alembic migration head, and memory write pipeline | `backend/app/api/ops.py`, `backend/observability/readiness.py` |
-| **Chat route** | Authenticated endpoint (`/api/v1/chat`) auto-creating or continuing conversations, opening a durable turn with its extraction outbox intent, then orchestrating RAG generation and terminal turn transition | `backend/app/api/chat.py`, `backend/orchestration/conversation_orchestrator.py` |
-| **Conversation routes** | Authenticated endpoints (`/api/v1/conversations`) managing standalone conversations and message histories with strict tenant isolation | `backend/app/api/conversations.py`, `backend/conversations/service.py` |
-| **PostgreSQL conversation store** | Persists standalone conversations, sequential messages, and conversation outbox entries atomically under PostgreSQL | `backend/conversations/postgres_repository.py` |
-| **Security boundary** | Mandatory local bearer token authentication, principal extraction, tenant isolation, body size limiting, and restricted CORS | `backend/security/` |
-| **Conversation turn/outbox boundary** | Persists the user message, pending assistant message, and extraction outbox event atomically; terminal completion releases the event and terminal failure cancels it | `backend/conversations/service.py`, `backend/conversations/postgres_repository.py` |
-| **Basic Semantic Memory Write Pipeline** | Versioned assertions, authority ranking, row-level locking, idempotent commits, and background shadow worker | `backend/memory/write_pipeline/` |
-| **RAG generation service** | Generates contextual answers using Chroma vector retrieval, query embedding (`BAAI/bge-m3`), and model completion | `backend/rag/generation/rag_service.py` |
-| **Observability & redaction** | Correlated request IDs (`X-Request-ID`, `rq_...`), structured redaction of tokens/paths/content, and audit logging | `backend/observability/` |
-
-## Mounted Routes (8 Total)
-
-Only the following 8 routes are mounted in `backend/app/main.py`:
-
-| Method | Path | Auth Required | Description |
+| Method | Path | Authentication | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/health` | No | Service liveness probe |
-| `GET` | `/api/v1/ops/readiness` | Yes (Bearer) | Six-component readiness snapshot (App, Model Provider, RAG Chroma, PostgreSQL, Alembic, Memory Write Pipeline) |
-| `POST` | `/api/v1/chat` | Yes (Bearer) | Authenticated chat turn with conversation auto-creation/continuation |
-| `POST` | `/api/v1/conversations` | Yes (Bearer) | Create a new standalone conversation |
-| `GET` | `/api/v1/conversations` | Yes (Bearer) | List conversations owned by authenticated user |
-| `GET` | `/api/v1/conversations/{conversation_id}` | Yes (Bearer) | Retrieve conversation by ID (404 on cross-owner access) |
-| `DELETE` | `/api/v1/conversations/{conversation_id}` | Yes (Bearer) | Soft-delete conversation (tombstone hiding) |
-| `GET` | `/api/v1/conversations/{conversation_id}/messages` | Yes (Bearer) | Paged message history in sequence order |
+| `GET` | `/health` | No | Process liveness |
+| `GET` | `/api/v1/ops/readiness` | Bearer | Structured runtime readiness |
+| `POST` | `/api/v1/chat` | Bearer | Run one chat turn |
+| `POST` | `/api/v1/conversations` | Bearer | Create a conversation |
+| `GET` | `/api/v1/conversations` | Bearer | List owned conversations |
+| `GET` | `/api/v1/conversations/{conversation_id}` | Bearer | Read one owned conversation |
+| `GET` | `/api/v1/conversations/{conversation_id}/messages` | Bearer | Read paged message history |
+| `DELETE` | `/api/v1/conversations/{conversation_id}` | Bearer | Tombstone one owned conversation |
 
-All legacy routes (`/api/v1/workspaces/*`, `/api/v1/planner/*`, `/api/v1/memory/*`, and direct `/api/v1/conversations/{id}/messages` POST) are completely unmounted and retired.
+There are no mounted Workspace, Planner, or public Memory routes.
 
-## Composition Root: RuntimeContainer
+## Chat Turn Flow
 
-Per ADR 0018, `RuntimeContainer` in `backend/app/runtime_container.py` acts as the single composition root for the application:
-1. **Lifespan Integration**: Instantiated during FastAPI `lifespan` startup, stored on `app.state.container`, and cleanly shuts down on termination.
-2. **PostgreSQL Engine Management**: Owns the SQLAlchemy `Engine` initialized from `DATABASE_URL` (with pooled connections, statement pre-ping, and graceful disposal on shutdown).
-3. **Dependency Injection Seam**: Provides thread-safe, memoized factories for `PostgresConversationRepository`, `ConversationService`, `ConversationOrchestrator`, and `OpsReadinessProbe`.
-4. **Decoupled Architecture**: Routes receive dependencies via FastAPI dependency injection helpers (`get_conversation_service`, `get_orchestrator`, `get_readiness_probe`) without instantiating global singletons or storage adapters directly.
-
-## Online Authenticated Chat Flow
+A chat request is owner-scoped from authentication through persistence.
 
 ```mermaid
 sequenceDiagram
-    participant Browser as React / Vite Client
-    participant Main as FastAPI App & Security
-    participant API as Chat Endpoint (/api/v1/chat)
+    participant Client
+    participant API as FastAPI
     participant Orch as ConversationOrchestrator
-    participant PG as PostgreSQL (Storage)
+    participant PG as PostgreSQL
     participant RAG as RAGService
 
-    Browser->>Main: POST /api/v1/chat (Authorization: Bearer <token>, message, [conversation_id])
-    Main->>Main: Verify Bearer Token -> Principal(owner_user_id)
-    Main->>API: Validated Request + Principal
-    alt No conversation_id provided
-        API->>Orch: handle_turn(message, conversation_id=None, owner_user_id)
-        Orch->>PG: create_conversation_with_initial_turn(..., OutboxIntent)
-        Note over PG: One transaction: Conversation + USER COMPLETE + ASSISTANT PENDING + conversation_outbox
-    else conversation_id provided
-        API->>Orch: handle_turn(message, conversation_id=cv_..., owner_user_id)
-        Orch->>PG: Verify ownership of conversation (404 if cross-owner)
-        Orch->>PG: append_turn(..., OutboxIntent)
-        Note over PG: One transaction: USER COMPLETE + ASSISTANT PENDING + conversation_outbox
+    Client->>API: POST /api/v1/chat
+    API->>Orch: message + principal + optional conversation_id
+    alt first turn
+        Orch->>PG: create conversation + user message + pending assistant
+    else existing conversation
+        Orch->>PG: verify owner + append user/pending assistant pair
     end
-    Note over Orch,PG: Phase 1 committed; extraction event is not claimable until the turn becomes terminal
+    opt MEMORY_SHADOW_EXTRACT_ENABLED
+        Note over Orch,PG: extraction outbox event is persisted with the turn
+    end
     Orch->>RAG: generate_answer(message, top_k=4)
-    RAG-->>Orch: Answer, citations, model metadata
-    alt Generation succeeds
-        Orch->>PG: complete_turn(assistant_message_id, reply)
-        Note over PG: Same transaction: ASSISTANT -> COMPLETE + release this turn's outbox event
-        Orch-->>API: TurnOutcome (reply, conversation metadata, citations)
-        API-->>Browser: 200 OK ChatResponse
-    else Generation fails
-        Orch->>PG: fail_turn(assistant_message_id)
-        Note over PG: Same transaction: ASSISTANT -> FAILED + cancel this turn's outbox event
-        Orch-->>API: Raise failure
+    RAG-->>Orch: reply + citations + model
+    alt generation succeeds
+        Orch->>PG: complete_turn(reply)
+        Note over PG: assistant becomes COMPLETE; turn outbox event is released
+        Orch-->>API: persisted TurnOutcome
+    else generation fails
+        Orch->>PG: fail_turn()
+        Note over PG: assistant becomes FAILED; turn outbox event is cancelled
+        Orch-->>API: failure
     end
 ```
 
-Key runtime invariants:
-- **Conversation Auto-Creation**: If `conversation_id` is omitted on the first turn, the orchestrator auto-creates an owned conversation (`cv_...`) and returns its identifier in `conversation.conversation_id`.
-- **Conversation Continuation**: Providing `conversation_id` on subsequent turns appends messages in sequential order.
-- **Cross-Owner Isolation**: Accessing another user's conversation immediately aborts with a content-free 404 (without revealing conversation existence).
-- **Transactional Outbox + Terminal Barrier**: The extraction event is written
-  synchronously with the user message and pending assistant row. It becomes
-  claimable only when `complete_turn` releases it in the same transaction as
-  the assistant `COMPLETE` transition; `fail_turn` cancels it with the
-  `FAILED` transition. Model-backed Memory extraction itself remains
-  asynchronous and therefore does not extend chat-generation latency.
+Important invariants:
 
-## Data Model and Persistence
+- the first turn can create its conversation automatically;
+- an existing conversation is checked in the authenticated owner's scope;
+- the user message and pending assistant row are opened together;
+- generation runs outside the persistence transaction;
+- terminal success releases that turn's extraction event;
+- terminal generation failure cancels it;
+- an unreleased extraction event is not claimable by the Memory worker.
 
-The storage tier is powered exclusively by PostgreSQL 16, governed by Alembic migrations with head revision `20260912_02` (`20260912_02_worker_column_grants`).
+## RAG Boundary
 
-### Active PostgreSQL Tables
-1. `conversations`: Standalone conversation records owned directly by `owner_user_id` (NOT NULL). Contains `conversation_id`, `owner_user_id`, `title`, `retention_state`, `created_at`, `updated_at`.
-2. `messages`: Sequential conversation messages (`message_id`, `conversation_id`, `sequence`, `role`, `content`, `source`, `trace_visibility`, `status`, `created_at`).
-3. `conversation_outbox`: Transactional outbox events for background worker processing (`outbox_id`, `conversation_id`, `message_id`, `owner_user_id`, `event_type`, `payload`, `status`, `lease_owner`, `lease_until`, `attempt_count`, `released_at`). `released_at IS NULL` is the turn-readiness barrier; terminal completion releases the event and terminal failure cancels it.
-4. Memory Write Pipeline Tables:
-   - `memory_assertions`: Canonical keys, subject keys, scopes.
-   - `memory_versions`: Versioned assertion states with active version uniqueness constraint.
-   - `memory_evidence`: Supporting citations and provenance.
-   - `memory_decisions`: Recorded policy decisions (DIRECT_WRITE, SHADOW, etc.).
-   - `memory_candidates`: Extracted raw memory candidates.
-   - `memory_events`: Audit ledger of memory mutation events.
-   - `memory_outbox`: Asynchronous memory event dispatch.
-   - `memory_write_idempotency`: Deduplication keys for safe concurrent writes.
-   - `memory_summaries`, `memory_episodes`, `memory_deletion_ledger`: Memory lifecycle tables.
+`RAGService` owns travel-knowledge retrieval and answer generation. The online
+path embeds the query, retrieves Chroma results, assembles prompt context, calls
+the configured model provider, and returns citations derived from retrieved
+travel evidence.
 
-### Security and Concurrency Controls
-- **Row Level Security (RLS)**: Enabled across all owner tables with tenant isolation policies (`app.tenant = owner_user_id`).
-- **FOR UPDATE SKIP LOCKED**: Outbox workers use PostgreSQL skip locked queries to process distinct conversations in parallel without deadlock or lock contention.
-- **One Active Version Constraint**: `uq_memory_versions_current` partial unique index guarantees at most one active version per assertion.
+The current RAG path is independent from canonical Memory state. The chat
+orchestrator currently calls `RAGService.generate_answer(...)` directly; it does
+not yet run a Memory Read/Use phase before generation.
 
-## Security and Privacy Controls
+## PostgreSQL and Migration State
 
-1. **Mandatory Bearer Authentication**:
-   - Every API endpoint under `/api/v1/` requires a valid Bearer token.
-   - Unauthenticated requests return `401 Unauthorized` with a generic, content-free message.
-   - Historical compatibility bypass mode (`AUTH_REQUIRED=false`) has been completely removed.
-2. **CORS Hardening**:
-   - Wildcard `*` CORS origins are prohibited when authentication is active. Startup fails closed if misconfigured.
-   - Trusted local origins (`http://localhost:5173`, `http://127.0.0.1:5173`) are explicitly allowlisted.
-3. **Request Body Limiting**:
-    - Request bodies are enforced up to `MAX_REQUEST_BODY_BYTES` (default 1,048,576 bytes). Oversized requests return `413 Request body too large.` with correlated request ID.
-4. **Safe Error Handling**:
-   - Validation failures (`422`) and unhandled exceptions (`500`) return content-free error envelopes containing only safe details and an `X-Request-ID` correlation header. No prompts, tokens, or stack traces are echoed.
-5. **Observability Redaction**:
-   - Event logger redacts all token-like, secret-like, content-like, and file-path values prior to serialization.
+PostgreSQL is the canonical relational store. The code-level Alembic head is:
+
+```text
+20260912_02
+```
+
+Current conversation persistence centers on:
+
+- `conversations` — directly owned by `owner_user_id`;
+- `messages` — ordered user/assistant records with terminal status;
+- `conversation_outbox` — background events with release, lease, retry, and
+  terminal state.
+
+The production Memory persistence adapter currently references:
+
+- `memory_assertions`;
+- `memory_versions`;
+- `memory_evidence`;
+- `memory_decisions`;
+- `memory_events`;
+- `memory_outbox`;
+- `memory_write_idempotency`.
+
+The migration also defines `memory_candidates`, `memory_summaries`,
+`memory_episodes`, and `memory_deletion_ledger`. Their presence is schema
+scaffolding, not evidence of an active runtime capability: current production
+modules do not reference those four tables directly. Candidate objects exist in
+the write pipeline, but the current PostgreSQL adapter does not persist them to
+`memory_candidates`.
+
+## Current Semantic Memory Slice
+
+The implemented write-side registry is `semantic-registry-v1` and currently
+contains one governed key:
+
+```text
+travel.preference.hotel_atmosphere
+```
+
+Its implemented properties are:
+
+| Property | Current implementation |
+| --- | --- |
+| Cardinality | `SINGLE` only |
+| Values | `quiet`, `lively`, `central`, `secluded` |
+| Scope | user or conversation |
+| Version status | `ACTIVE`, `SUPERSEDED` |
+| Write operations | `ADD`, `REINFORCE`, `SUPERSEDE`, `ADD_EXCEPTION`, `PENDING_CONFLICT`, `REJECT`, `NOOP` |
+
+The write pipeline includes model-assisted candidate extraction, deterministic
+registry/policy checks, deterministic resolution, PostgreSQL persistence,
+idempotency, evidence/decision records, and an asynchronous worker.
+
+Two relevant feature gates default to disabled:
+
+```text
+MEMORY_WRITE_PIPELINE_ENABLED=false
+MEMORY_SHADOW_EXTRACT_ENABLED=false
+```
+
+Therefore "implemented" and "enabled in the default runtime" are intentionally
+separate claims.
+
+## Security and Concurrency Boundaries
+
+The current implementation includes these material controls:
+
+- Bearer authentication is required for `/api/v1/*` product/ops routes;
+- owner identifiers come from the authenticated principal rather than request
+  data for authorization decisions;
+- PostgreSQL tenant context and row-level security protect owner-scoped data;
+- cross-owner conversation reads are exposed as not-found behavior;
+- wildcard CORS origins are rejected by configuration;
+- request bodies are limited by `MAX_REQUEST_BODY_BYTES` (default 1 MiB);
+- API and Memory worker database credentials are kept in separate process
+  boundaries and privileged/BYPASSRLS roles fail closed unless explicitly
+  allowed for throwaway local development;
+- outbox claim/retry logic uses leases and a release barrier so unfinished chat
+  turns cannot be processed as Memory evidence;
+- Memory persistence rechecks owner scope and uses bounded concurrency handling
+  instead of treating a stale write as success.
+
+## What Is Not Implemented Yet
+
+The following belong to the target architecture and must not be inferred from
+schema names, response placeholders, or old design history:
+
+- `DialogueStateResolver`, `TurnUnderstanding`, `ActionRouter`, and a general
+  `ContextPlanner` runtime;
+- chat-native explicit `remember`, `correct`, `forget`, or `inspect` behavior;
+- a governed Memory Read/Use engine feeding selected Memory into chat generation;
+- the target retention/suppression lifecycle including product forget and
+  no-resurrection generations;
+- the target multi-key/set-valued semantic registry;
+- active Episodic Memory and Working Memory vertical slices;
+- system-owned Procedural Memory publication;
+- Memory full-text or vector retrieval projections.
+
+See [Target-state Architecture](target-state.md) for the intended evolution and
+[Data Model](data-model.md) for target Memory concepts.
