@@ -110,7 +110,7 @@ not yet run a Memory Read/Use phase before generation.
 PostgreSQL is the canonical relational store. The code-level Alembic head is:
 
 ```text
-20260912_02
+20260915_04
 ```
 
 Current conversation persistence centers on:
@@ -139,22 +139,39 @@ the write pipeline, but the current PostgreSQL adapter does not persist them to
 
 ## Current Semantic Memory Slice
 
-The implemented write-side registry is `semantic-registry-v1` and currently
-contains one governed key:
+The implemented write-side registry is `semantic-registry-v2` and currently
+contains eight governed keys — four `SINGLE` and four `SET`:
 
-```text
-travel.preference.hotel_atmosphere
-```
+| Key | Cardinality |
+| --- | --- |
+| `travel.preference.hotel_atmosphere` | `SINGLE` |
+| `travel.preference.travel_pace` | `SINGLE` |
+| `travel.constraint.budget_level` | `SINGLE` |
+| `travel.profile.default_departure_city` | `SINGLE` |
+| `travel.preference.accommodation_type` | `SET` |
+| `travel.preference.transport_mode` | `SET` |
+| `travel.preference.activity_style` | `SET` |
+| `travel.preference.food_style` | `SET` |
+
+Each key owns its normalized values, cardinality, allowed scopes, sensitivity
+floor, and per-value English/Vietnamese synonyms; the registry is a closed
+contract, so unknown keys and unknown values raise. The former single-key
+constants (`HOTEL_ATMOSPHERE_KEY`, `HotelAtmosphere`, `HOTEL_ATMOSPHERE_SYNONYMS`)
+survive only as compatibility aliases onto the same data, not as a second source
+of truth.
 
 Its implemented properties are:
 
 | Property | Current implementation |
 | --- | --- |
-| Cardinality | `SINGLE` only |
-| Values | `quiet`, `lively`, `central`, `secluded` |
+| Cardinality | `SINGLE` and `SET` (a `SET` key holds a canonical, sorted, deduplicated tuple) |
 | Scope | user or conversation |
-| Version status | `ACTIVE`, `SUPERSEDED` |
-| Write operations | `ADD`, `REINFORCE`, `SUPERSEDE`, `ADD_EXCEPTION`, `PENDING_CONFLICT`, `REJECT`, `NOOP` |
+| Version status | `ACTIVE`, `SHADOW`, `SUPERSEDED`, `REVOKED` |
+| Write operations | `ADD`, `REINFORCE`, `SUPERSEDE`, `ADD_EXCEPTION`, `PENDING_CONFLICT`, `REJECT`, `NOOP`, `REVOKE` |
+
+Because `SET` keys are live, the set-valued machinery (`REVOKE`, desired-member
+resolution, and set-union change computation) is active and governed, not
+speculative scaffolding.
 
 The write pipeline includes model-assisted candidate extraction, deterministic
 registry/policy checks, deterministic resolution, PostgreSQL persistence,
@@ -194,16 +211,30 @@ The current implementation includes these material controls:
 The following belong to the target architecture and must not be inferred from
 schema names, response placeholders, or old design history:
 
-- `DialogueStateResolver`, `TurnUnderstanding`, `ActionRouter`, and a general
-  `ContextPlanner` runtime;
 - chat-native explicit `remember`, `correct`, `forget`, or `inspect` behavior;
-- a governed Memory Read/Use engine feeding selected Memory into chat generation;
+- a governed Memory Read/Use engine feeding selected Memory into chat generation
+  (the engine code exists but stays gated off and shadow-only by default);
 - the target retention/suppression lifecycle including product forget and
   no-resurrection generations;
-- the target multi-key/set-valued semantic registry;
 - active Episodic Memory and Working Memory vertical slices;
 - system-owned Procedural Memory publication;
 - Memory full-text or vector retrieval projections.
+
+### Implemented but shadow-only by default
+
+`DialogueStateResolver`, `TurnUnderstanding`, `ActionRouter`, and the
+`ContextPlanner` runtime are fully implemented and are instantiated
+unconditionally and invoked on every turn by `ConversationOrchestrator`. They
+are not stubs. They run as shadow evidence only: with the shipped defaults the
+planner does not enforce its proposal
+(`CONTEXT_PLANNER_ENFORCEMENT_ENABLED=false`), so generation short-circuits to
+`RAGService.generate_answer(message, top_k=4)` and the effective behavior is
+still `persist -> RAG -> complete/fail`. The distinction is that the target
+Stage-1 pipeline is present and exercised in shadow, not absent.
+
+The multi-key/set-valued semantic registry is also implemented — see
+[Current Semantic Memory Slice](#current-semantic-memory-slice), which documents
+`semantic-registry-v2` with its four `SET` keys.
 
 See [Target-state Architecture](target-state.md) for the intended evolution and
 [Data Model](data-model.md) for target Memory concepts.

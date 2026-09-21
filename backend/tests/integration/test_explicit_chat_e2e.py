@@ -44,9 +44,9 @@ from backend.memory.write_pipeline.postgres import (
     load_source_handling,
     record_source_handling,
 )
+from backend.memory.explicit_actions import INSPECT_UNAVAILABLE_REPLY
 from backend.orchestration.conversation_orchestrator import (
     ConversationOrchestrator,
-    INSPECT_UNAVAILABLE_REPLY,
 )
 from backend.security.models import AuthenticatedPrincipal, AuthMode
 from backend.tests.integration.pg_dsn import (

@@ -20,9 +20,9 @@ from backend.memory.read_models import MemorySelection, SelectedMemory
 from backend.memory.write_pipeline.models import Authority, MemoryScope
 from backend.orchestration.context_arbiter import ContextArbiter
 from backend.orchestration.context_planner import ContextPlanner
+from backend.memory.explicit_actions import INSPECT_UNAVAILABLE_REPLY
 from backend.orchestration.conversation_orchestrator import (
     INSPECT_UNAVAILABLE_MODEL,
-    INSPECT_UNAVAILABLE_REPLY,
     ConversationOrchestrator,
 )
 from backend.orchestration.turn_models import (

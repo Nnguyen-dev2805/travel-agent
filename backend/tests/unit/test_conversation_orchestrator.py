@@ -1167,9 +1167,7 @@ def test_inspect_returns_a_controlled_unavailable_outcome(rag, journal):
     Answering with an ordinary RAG reply would masquerade as a successful
     inspection of Memory that does not exist (`spec:397-401`).
     """
-    from backend.orchestration.conversation_orchestrator import (
-        INSPECT_UNAVAILABLE_REPLY,
-    )
+    from backend.memory.explicit_actions import INSPECT_UNAVAILABLE_REPLY
     from backend.orchestration.turn_models import TurnDisposition
 
     orchestrator = _stage_one_orchestrator(rag, journal)
@@ -1542,7 +1540,7 @@ def test_explicit_actions_inspect_returns_unavailable_and_records_noop(
 ):
     """EXPLICIT_INSPECT returns unavailable reply, records EXPLICIT_NOOP source handling."""
     from backend.memory.source_handling import SourceHandlingOutcome, SourceHandlingRecord
-    from backend.orchestration.conversation_orchestrator import INSPECT_UNAVAILABLE_REPLY
+    from backend.memory.explicit_actions import INSPECT_UNAVAILABLE_REPLY
 
     recorded_records: list[SourceHandlingRecord] = []
     orchestrator = ConversationOrchestrator(
@@ -1615,6 +1613,7 @@ def test_explicit_actions_mutation_commits_via_coordinator_without_complete_turn
 ):
     """Mutating explicit turn commits via coordinator and DOES NOT call complete_turn."""
     from backend.memory.explicit_actions import (
+        ExplicitMemoryActionHandler,
         ExplicitMemoryProposal,
         ProposalOutcome,
     )
@@ -1669,7 +1668,10 @@ def test_explicit_actions_mutation_commits_via_coordinator_without_complete_turn
         reason="test_add",
     )
 
-    class FakeHandler:
+    class FakeHandler(ExplicitMemoryActionHandler):
+        def __init__(self):
+            super().__init__(active_version_provider=lambda owner, key: ())
+
         def propose(self, understanding, state, *, owner_user_id: str, **kwargs):
             return ExplicitMemoryProposal(
                 outcome=ProposalOutcome.MUTATION,
@@ -1714,6 +1716,7 @@ def test_explicit_actions_stale_version_retries_once_and_succeeds(
         ExplicitMemoryCommitResult,
     )
     from backend.memory.explicit_actions import (
+        ExplicitMemoryActionHandler,
         ExplicitMemoryProposal,
         ProposalOutcome,
     )
@@ -1757,7 +1760,10 @@ def test_explicit_actions_stale_version_retries_once_and_succeeds(
                 ),
             )
 
-    class FakeHandler:
+    class FakeHandler(ExplicitMemoryActionHandler):
+        def __init__(self):
+            super().__init__(active_version_provider=lambda owner, key: ())
+
         def propose(self, understanding, state, *, owner_user_id: str, **kwargs):
             return ExplicitMemoryProposal(
                 outcome=ProposalOutcome.MUTATION,
@@ -1801,6 +1807,7 @@ def test_explicit_actions_stale_version_exhausted_fails_turn(
     """When StaleVersionError persists after retry, orchestrator fails turn cleanly."""
     from backend.memory.commit_coordinators import ExplicitMemoryCommitRequest
     from backend.memory.explicit_actions import (
+        ExplicitMemoryActionHandler,
         ExplicitMemoryProposal,
         ProposalOutcome,
     )
@@ -1815,7 +1822,10 @@ def test_explicit_actions_stale_version_exhausted_fails_turn(
             journal.append("coordinator_commit")
             raise StaleVersionError("Permanent conflict")
 
-    class FakeHandler:
+    class FakeHandler(ExplicitMemoryActionHandler):
+        def __init__(self):
+            super().__init__(active_version_provider=lambda owner, key: ())
+
         def propose(self, understanding, state, *, owner_user_id: str, **kwargs):
             return ExplicitMemoryProposal(
                 outcome=ProposalOutcome.MUTATION,
@@ -1857,6 +1867,7 @@ def test_explicit_actions_forget_commits_with_forget_applied_outcome(
 ):
     """Revoke explicit turn commits via coordinator with FORGET_APPLIED outcome."""
     from backend.memory.explicit_actions import (
+        ExplicitMemoryActionHandler,
         ExplicitMemoryProposal,
         ProposalOutcome,
     )
@@ -1911,7 +1922,10 @@ def test_explicit_actions_forget_commits_with_forget_applied_outcome(
         reason="test_revoke",
     )
 
-    class FakeHandler:
+    class FakeHandler(ExplicitMemoryActionHandler):
+        def __init__(self):
+            super().__init__(active_version_provider=lambda owner, key: ())
+
         def propose(self, understanding, state, *, owner_user_id: str, **kwargs):
             return ExplicitMemoryProposal(
                 outcome=ProposalOutcome.MUTATION,

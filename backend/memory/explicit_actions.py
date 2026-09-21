@@ -17,8 +17,17 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
+if TYPE_CHECKING:
+    from backend.memory.commit_coordinators import ExplicitMemoryCommitRequest
+from backend.memory.source_handling import (
+    MemoryFamily,
+    SourceHandlingOutcome,
+    SourceHandlingReason,
+    SourceHandlingRecord,
+)
+from backend.security.models import AuthenticatedPrincipal
 from backend.memory.write_pipeline.model_adapter import LLMProvider, extract_explicit
 from backend.memory.write_pipeline.models import (
     Authority,
@@ -133,6 +142,156 @@ def explicit_semantic_idempotency_key(
     return f"exp_{digest}"
 
 
+INSPECT_UNAVAILABLE_REPLY = (
+    "Tính năng xem ký ức chưa khả dụng ở giai đoạn này. "
+    "Tôi chưa thể liệt kê những gì đã ghi nhớ."
+)
+
+
+@dataclass(frozen=True)
+class ExplicitInspectResult:
+    """Typed result from an explicit memory inspection."""
+
+    reply: str
+    delivered: bool
+
+
+def format_inspect_reply(selection: Any) -> str:
+    """Render a governed MemorySelection into human-readable text."""
+    if not selection or not getattr(selection, "selected", ()):
+        return "Hiện tại tôi chưa ghi nhớ thông tin nào về sở thích của bạn."
+    lines = ["Dưới đây là các sở thích mà tôi đã ghi nhớ:"]
+    for item in selection.selected:
+        val_str = (
+            ", ".join(str(v) for v in item.normalized_value)
+            if isinstance(item.normalized_value, (tuple, list, set))
+            else str(item.normalized_value)
+        )
+        scope_label = (
+            "trong đoạn hội thoại này"
+            if getattr(item.scope, "value", str(item.scope)) == "conversation"
+            else "chung cho tài khoản của bạn"
+        )
+        lines.append(f"- {item.canonical_key}: {val_str} ({scope_label})")
+    return "\n".join(lines)
+
+
+def inspect_explicit_memory(
+    read_engine: Any | None,
+    *,
+    owner_user_id: str,
+    conversation_id: str | None = None,
+    memory_read_enabled: bool = False,
+) -> ExplicitInspectResult:
+    """Read and format remembered preferences, or return controlled unavailable."""
+    if not memory_read_enabled or read_engine is None:
+        return ExplicitInspectResult(
+            reply=INSPECT_UNAVAILABLE_REPLY,
+            delivered=False,
+        )
+    from backend.memory.read_models import MemoryReadRequest
+
+    req = MemoryReadRequest(
+        owner_user_id=owner_user_id,
+        conversation_id=conversation_id,
+        requested_keys=registry_keys(),
+        max_selected=8,
+    )
+    selection = read_engine.select(req)
+    return ExplicitInspectResult(
+        reply=format_inspect_reply(selection),
+        delivered=True,
+    )
+
+
+def build_explicit_source_handling_record(
+    *,
+    source_outbox_id: str,
+    source_message_id: str,
+    outcome: SourceHandlingOutcome,
+    reason_code: SourceHandlingReason = SourceHandlingReason.EXPLICIT_ACTION,
+) -> SourceHandlingRecord:
+    """Assemble one SourceHandlingRecord for an explicit turn."""
+    return SourceHandlingRecord(
+        source_outbox_id=source_outbox_id,
+        source_message_id=source_message_id,
+        family=MemoryFamily.SEMANTIC,
+        outcome=outcome,
+        reason_code=reason_code,
+        recorded_at=datetime.now(timezone.utc),
+    )
+
+
+def build_explicit_commit_request(
+    *,
+    proposal: ExplicitMemoryProposal,
+    principal: AuthenticatedPrincipal,
+    conversation_id: str,
+    user_message_id: str,
+    assistant_message_id: str,
+    expected_deletion_epoch: int,
+    source_outbox_id: str,
+    interaction_mode: InteractionMode | None = None,
+) -> ExplicitMemoryCommitRequest:
+    """Build an ExplicitMemoryCommitRequest from an explicit mutation proposal."""
+    ch = proposal.change
+    if ch is None:
+        raise ValueError("Cannot build commit request for a proposal without change.")
+
+    from backend.memory.commit_coordinators import ExplicitMemoryCommitRequest
+    from backend.memory.write_pipeline.models import SourceValidity
+
+    if (
+        interaction_mode is InteractionMode.EXPLICIT_FORGET
+        or ch.operation is MemoryOperation.REVOKE
+    ):
+        sh_outcome = SourceHandlingOutcome.FORGET_APPLIED
+    else:
+        sh_outcome = SourceHandlingOutcome.EXPLICIT_APPLIED
+
+    sh_record = build_explicit_source_handling_record(
+        source_outbox_id=source_outbox_id,
+        source_message_id=user_message_id,
+        outcome=sh_outcome,
+        reason_code=SourceHandlingReason.EXPLICIT_ACTION,
+    )
+
+    if ch.new_version is not None:
+        c_key = ch.new_version.canonical_key
+        c_val = ch.new_version.normalized_value
+    elif ch.superseded_version_ids:
+        c_key = proposal.canonical_key or "unknown"
+        c_val = "forget"
+    else:
+        c_key = proposal.canonical_key or "unknown"
+        c_val = "unknown"
+
+    owner_user_id = principal.owner_user_id
+    idem_key = explicit_semantic_idempotency_key(
+        owner_user_id=owner_user_id,
+        source_message_id=user_message_id,
+        canonical_key=c_key,
+        operation=ch.operation.value,
+        normalized_value=c_val,
+        suppression_generation=proposal.suppression_generation,
+    )
+
+    return ExplicitMemoryCommitRequest(
+        principal=principal,
+        conversation_id=conversation_id,
+        assistant_message_id=assistant_message_id,
+        expected_deletion_epoch=expected_deletion_epoch,
+        acknowledgement_text=proposal.acknowledgement_text or "Đã lưu!",
+        change=ch,
+        evidence=(),
+        decision=None,
+        idempotency_key=idem_key,
+        expected_version_id=proposal.expected_version_id,
+        source_validity=SourceValidity.NOT_REQUIRED,
+        source_handling_record=sh_record,
+    )
+
+
 class ExplicitMemoryActionHandler:
     """Processes explicit Remember, Correct, and Forget turns into semantic proposals."""
 
@@ -145,6 +304,46 @@ class ExplicitMemoryActionHandler:
         self._active_version_provider = active_version_provider
         self._provider = provider
         self._generation_provider = generation_provider
+
+    @staticmethod
+    def inspect(
+        read_engine: Any | None,
+        *,
+        owner_user_id: str,
+        conversation_id: str | None = None,
+        memory_read_enabled: bool = False,
+    ) -> ExplicitInspectResult:
+        """Inspect and format explicit preferences using governed read engine."""
+        return inspect_explicit_memory(
+            read_engine,
+            owner_user_id=owner_user_id,
+            conversation_id=conversation_id,
+            memory_read_enabled=memory_read_enabled,
+        )
+
+    @staticmethod
+    def build_commit_request(
+        *,
+        proposal: ExplicitMemoryProposal,
+        principal: AuthenticatedPrincipal,
+        conversation_id: str,
+        user_message_id: str,
+        assistant_message_id: str,
+        expected_deletion_epoch: int,
+        source_outbox_id: str,
+        interaction_mode: InteractionMode | None = None,
+    ) -> ExplicitMemoryCommitRequest:
+        """Build an ExplicitMemoryCommitRequest from an explicit proposal."""
+        return build_explicit_commit_request(
+            proposal=proposal,
+            principal=principal,
+            conversation_id=conversation_id,
+            user_message_id=user_message_id,
+            assistant_message_id=assistant_message_id,
+            expected_deletion_epoch=expected_deletion_epoch,
+            source_outbox_id=source_outbox_id,
+            interaction_mode=interaction_mode,
+        )
 
     def propose(
         self,

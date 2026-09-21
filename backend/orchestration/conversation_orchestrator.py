@@ -65,15 +65,6 @@ logger = logging.getLogger("travel_agent_orchestration")
 
 DEFAULT_TOP_K = 4
 
-#: The controlled outcome for a recognized `explicit_inspect` before Stage 3.
-#: Stage 1 has no governed Memory read path, so the honest answer is that the
-#: capability is unavailable. It is deliberately content-free: a Memory summary
-#: here would be fabricated, and an ordinary RAG reply would masquerade as a
-#: successful inspection (`spec:397-401`).
-INSPECT_UNAVAILABLE_REPLY = (
-    "Tính năng xem ký ức chưa khả dụng ở giai đoạn này. "
-    "Tôi chưa thể liệt kê những gì đã ghi nhớ."
-)
 
 #: No model produced this reply, so the label says so rather than borrowing the
 #: configured model name — a model label must not be read as proof of a call.
@@ -628,62 +619,36 @@ class ConversationOrchestrator:
 
             inspect_delivered = False
             if understanding.interaction_mode is InteractionMode.EXPLICIT_INSPECT:
-                if not self._memory_read_enabled or self._memory_read_engine is None:
-                    # Stage-1 controlled outcome: capability is recognized but
-                    # unavailable when read path is not enabled (spec:397-401).
-                    generated = {
-                        "reply": INSPECT_UNAVAILABLE_REPLY,
-                        "model": INSPECT_UNAVAILABLE_MODEL,
-                        "citations": [],
-                    }
-                else:
-                    from backend.memory.read_models import MemoryReadRequest
-                    from backend.memory.write_pipeline.registry import registry_keys
+                from backend.memory.explicit_actions import (
+                    ExplicitMemoryActionHandler,
+                    build_explicit_source_handling_record,
+                )
 
-                    req = MemoryReadRequest(
-                        owner_user_id=owner_user_id,
-                        conversation_id=conversation_id,
-                        requested_keys=registry_keys(),
-                        max_selected=8,
-                    )
-                    selection = self._memory_read_engine.select(req)
-                    if not selection.selected:
-                        reply_text = "Hiện tại tôi chưa ghi nhớ thông tin nào về sở thích của bạn."
-                    else:
-                        lines = ["Dưới đây là các sở thích mà tôi đã ghi nhớ:"]
-                        for item in selection.selected:
-                            val_str = (
-                                ", ".join(str(v) for v in item.normalized_value)
-                                if isinstance(item.normalized_value, (tuple, list, set))
-                                else str(item.normalized_value)
-                            )
-                            scope_label = (
-                                "trong đoạn hội thoại này"
-                                if getattr(item.scope, "value", str(item.scope)) == "conversation"
-                                else "chung cho tài khoản của bạn"
-                            )
-                            lines.append(f"- {item.canonical_key}: {val_str} ({scope_label})")
-                        reply_text = "\n".join(lines)
+                handler = self._explicit_action_handler or ExplicitMemoryActionHandler
+                inspect_result = handler.inspect(
+                    self._memory_read_engine,
+                    owner_user_id=owner_user_id,
+                    conversation_id=conversation_id,
+                    memory_read_enabled=self._memory_read_enabled,
+                )
 
-                    generated = {
-                        "reply": reply_text,
-                        "model": "system",
-                        "citations": [],
-                    }
-                    inspect_delivered = True
+                generated = {
+                    "reply": inspect_result.reply,
+                    "model": "system" if inspect_result.delivered else INSPECT_UNAVAILABLE_MODEL,
+                    "citations": [],
+                }
+                inspect_delivered = inspect_result.delivered
 
                 if self._explicit_actions_enabled and self._source_handling_recorder is not None:
                     source_outbox_id = conversations.get_turn_outbox_id(
                         conversation_id, user_message.message_id, owner_user_id
                     )
                     if source_outbox_id:
-                        sh_rec = SourceHandlingRecord(
+                        sh_rec = build_explicit_source_handling_record(
                             source_outbox_id=source_outbox_id,
                             source_message_id=user_message.message_id,
-                            family=MemoryFamily.SEMANTIC,
                             outcome=SourceHandlingOutcome.EXPLICIT_NOOP,
                             reason_code=SourceHandlingReason.EXPLICIT_ACTION,
-                            recorded_at=utc_now(),
                         )
                         self._source_handling_recorder(owner_user_id, sh_rec)
             elif (
@@ -691,8 +656,10 @@ class ConversationOrchestrator:
                 and self._explicit_action_handler is not None
                 and route is RoutingDecision.EXPLICIT_MEMORY_ACTION
             ):
-                from backend.memory.explicit_actions import ProposalOutcome
-
+                from backend.memory.explicit_actions import (
+                    ProposalOutcome,
+                    build_explicit_source_handling_record,
+                )
                 proposal = self._explicit_action_handler.propose(
                     understanding,
                     dialogue_state,
@@ -715,13 +682,11 @@ class ConversationOrchestrator:
                         "citations": [],
                     }
                     if source_outbox_id and self._source_handling_recorder is not None:
-                        sh_rec = SourceHandlingRecord(
+                        sh_rec = build_explicit_source_handling_record(
                             source_outbox_id=source_outbox_id,
                             source_message_id=user_message.message_id,
-                            family=MemoryFamily.SEMANTIC,
                             outcome=SourceHandlingOutcome.EXPLICIT_NOOP,
                             reason_code=SourceHandlingReason.EXPLICIT_ACTION,
-                            recorded_at=utc_now(),
                         )
                         self._source_handling_recorder(owner_user_id, sh_rec)
 
@@ -736,13 +701,11 @@ class ConversationOrchestrator:
                         "citations": [],
                     }
                     if source_outbox_id and self._source_handling_recorder is not None:
-                        sh_rec = SourceHandlingRecord(
+                        sh_rec = build_explicit_source_handling_record(
                             source_outbox_id=source_outbox_id,
                             source_message_id=user_message.message_id,
-                            family=MemoryFamily.SEMANTIC,
                             outcome=SourceHandlingOutcome.EXPLICIT_REFUSED,
                             reason_code=SourceHandlingReason.AMBIGUOUS_INTENT,
-                            recorded_at=utc_now(),
                         )
                         self._source_handling_recorder(owner_user_id, sh_rec)
 
@@ -757,12 +720,6 @@ class ConversationOrchestrator:
                         )
 
                     from backend.security.models import AuthenticatedPrincipal, AuthMode
-                    from backend.memory.commit_coordinators import ExplicitMemoryCommitRequest
-                    from backend.memory.explicit_actions import explicit_semantic_idempotency_key
-                    from backend.memory.write_pipeline.models import (
-                        MemoryOperation,
-                        SourceValidity,
-                    )
                     from backend.memory.write_pipeline.uow import StaleVersionError
 
                     if isinstance(principal, AuthenticatedPrincipal):
@@ -774,55 +731,18 @@ class ConversationOrchestrator:
                             credential_label=getattr(principal, "credential_label", "api") or "api",
                         )
 
-                    def _build_commit_request(current_proposal):
-                        ch = current_proposal.change
-                        if (
-                            understanding.interaction_mode is InteractionMode.EXPLICIT_FORGET
-                            or ch.operation is MemoryOperation.REVOKE
-                        ):
-                            sh_outcome = SourceHandlingOutcome.FORGET_APPLIED
-                        else:
-                            sh_outcome = SourceHandlingOutcome.EXPLICIT_APPLIED
-                        sh_record = SourceHandlingRecord(
-                            source_outbox_id=source_outbox_id,
-                            source_message_id=user_message.message_id,
-                            family=MemoryFamily.SEMANTIC,
-                            outcome=sh_outcome,
-                            reason_code=SourceHandlingReason.EXPLICIT_ACTION,
-                            recorded_at=utc_now(),
-                        )
-                        if ch.new_version is not None:
-                            c_key = ch.new_version.canonical_key
-                            c_val = ch.new_version.normalized_value
-                        elif ch.superseded_version_ids:
-                            c_key = current_proposal.canonical_key or "unknown"
-                            c_val = "forget"
-                        else:
-                            c_key = current_proposal.canonical_key or "unknown"
-                            c_val = "unknown"
+                    expected_deletion_epoch = getattr(conversation, "deletion_epoch", 0)
 
-                        idem_key = explicit_semantic_idempotency_key(
-                            owner_user_id=owner_user_id,
-                            source_message_id=user_message.message_id,
-                            canonical_key=c_key,
-                            operation=ch.operation.value,
-                            normalized_value=c_val,
-                            suppression_generation=current_proposal.suppression_generation,
-                        )
-                        expected_deletion_epoch = getattr(conversation, "deletion_epoch", 0)
-                        return ExplicitMemoryCommitRequest(
+                    def _build_commit_request(current_proposal):
+                        return self._explicit_action_handler.build_commit_request(
+                            proposal=current_proposal,
                             principal=auth_principal,
                             conversation_id=conversation_id,
+                            user_message_id=user_message.message_id,
                             assistant_message_id=pending_message.message_id,
                             expected_deletion_epoch=expected_deletion_epoch,
-                            acknowledgement_text=current_proposal.acknowledgement_text or "Đã lưu!",
-                            change=ch,
-                            evidence=(),
-                            decision=None,
-                            idempotency_key=idem_key,
-                            expected_version_id=current_proposal.expected_version_id,
-                            source_validity=SourceValidity.NOT_REQUIRED,
-                            source_handling_record=sh_record,
+                            source_outbox_id=source_outbox_id,
+                            interaction_mode=understanding.interaction_mode,
                         )
 
                     commit_request = _build_commit_request(proposal)

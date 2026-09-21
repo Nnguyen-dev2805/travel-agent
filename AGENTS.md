@@ -32,12 +32,9 @@ decision.
 ## Canonical Documentation
 
 - `docs/architecture/current-state.md`: implemented runtime.
-- `docs/architecture/target-state.md`: intended architecture.
+- `docs/architecture/target-state.md`: intended architecture, including the
+  remaining work it lists under "Remaining Gaps from the Current Runtime".
 - `docs/architecture/data-model.md`: conceptual data model.
-- `docs/roadmap/master-roadmap.md`: remaining work.
-- `DEVELOPMENT.md`: local setup and commands.
-- `SECURITY.md`: security and privacy.
-- `CONTRIBUTING.md`: contribution and Git workflow.
 
 ## Engineering Rules
 

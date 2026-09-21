@@ -737,4 +737,180 @@ def test_suppression_generation_forwarded_and_hashes_into_idempotency_key():
     assert key_gen_4 != key_gen_1
 
 
+def test_format_inspect_reply_empty_and_populated():
+    from backend.memory.explicit_actions import format_inspect_reply
+    from unittest.mock import MagicMock
 
+    # Empty selection
+    assert format_inspect_reply(None) == "Hiện tại tôi chưa ghi nhớ thông tin nào về sở thích của bạn."
+    empty_sel = MagicMock(selected=())
+    assert format_inspect_reply(empty_sel) == "Hiện tại tôi chưa ghi nhớ thông tin nào về sở thích của bạn."
+
+    # Populated selection
+    item1 = MagicMock(
+        canonical_key="travel.preference.cuisine",
+        normalized_value=("vietnamese", "italian"),
+        scope="conversation",
+    )
+    item2 = MagicMock(
+        canonical_key="travel.preference.budget",
+        normalized_value="luxury",
+        scope="user",
+    )
+    pop_sel = MagicMock(selected=(item1, item2))
+    reply = format_inspect_reply(pop_sel)
+    assert "Dưới đây là các sở thích mà tôi đã ghi nhớ:" in reply
+    assert "- travel.preference.cuisine: vietnamese, italian (trong đoạn hội thoại này)" in reply
+    assert "- travel.preference.budget: luxury (chung cho tài khoản của bạn)" in reply
+
+
+def test_inspect_explicit_memory_and_handler_inspect():
+    from backend.memory.explicit_actions import (
+        ExplicitMemoryActionHandler,
+        INSPECT_UNAVAILABLE_REPLY,
+        inspect_explicit_memory,
+    )
+    from unittest.mock import MagicMock
+
+    # When disabled
+    res = inspect_explicit_memory(None, owner_user_id="user_1", memory_read_enabled=False)
+    assert res.delivered is False
+    assert res.reply == INSPECT_UNAVAILABLE_REPLY
+
+    handler = ExplicitMemoryActionHandler(active_version_provider=lambda o, k: ())
+    res_h = handler.inspect(None, owner_user_id="user_1", memory_read_enabled=False)
+    assert res_h.delivered is False
+    assert res_h.reply == INSPECT_UNAVAILABLE_REPLY
+
+    # When enabled with mock read engine
+    mock_engine = MagicMock()
+    mock_item = MagicMock(
+        canonical_key="travel.preference.hotel_atmosphere",
+        normalized_value="quiet",
+        scope="user",
+    )
+    mock_engine.select.return_value = MagicMock(selected=(mock_item,))
+    res_enabled = inspect_explicit_memory(
+        mock_engine,
+        owner_user_id="user_1",
+        conversation_id="conv_1",
+        memory_read_enabled=True,
+    )
+    assert res_enabled.delivered is True
+    assert "travel.preference.hotel_atmosphere: quiet" in res_enabled.reply
+    mock_engine.select.assert_called_once()
+
+
+def test_build_explicit_source_handling_record():
+    from backend.memory.explicit_actions import build_explicit_source_handling_record
+    from backend.memory.source_handling import (
+        MemoryFamily,
+        SourceHandlingOutcome,
+        SourceHandlingReason,
+    )
+
+    rec = build_explicit_source_handling_record(
+        source_outbox_id="outbox_123",
+        source_message_id="msg_456",
+        outcome=SourceHandlingOutcome.EXPLICIT_APPLIED,
+    )
+    assert rec.source_outbox_id == "outbox_123"
+    assert rec.source_message_id == "msg_456"
+    assert rec.family == MemoryFamily.SEMANTIC
+    assert rec.outcome == SourceHandlingOutcome.EXPLICIT_APPLIED
+    assert rec.reason_code == SourceHandlingReason.EXPLICIT_ACTION
+    assert rec.recorded_at is not None
+
+
+def test_build_explicit_commit_request_and_handler():
+    from backend.memory.explicit_actions import (
+        ExplicitMemoryActionHandler,
+        ExplicitMemoryProposal,
+        ProposalOutcome,
+        build_explicit_commit_request,
+    )
+    from backend.memory.source_handling import SourceHandlingOutcome
+    from backend.memory.write_pipeline.models import (
+        MemoryChangeSet,
+        MemoryOperation,
+        SourceValidity,
+    )
+    from backend.security.models import AuthenticatedPrincipal, AuthMode
+    import pytest
+
+    p_no_change = ExplicitMemoryProposal(outcome=ProposalOutcome.NOOP)
+    principal = AuthenticatedPrincipal(
+        owner_user_id="user_1",
+        auth_mode=AuthMode.AUTHENTICATED,
+        credential_label="jwt",
+    )
+    with pytest.raises(ValueError, match="Cannot build commit request"):
+        build_explicit_commit_request(
+            proposal=p_no_change,
+            principal=principal,
+            conversation_id="conv_1",
+            user_message_id="msg_1",
+            assistant_message_id="asst_1",
+            expected_deletion_epoch=0,
+            source_outbox_id="outbox_1",
+        )
+
+    # Real proposal from handler.propose for remember
+    handler = ExplicitMemoryActionHandler(
+        active_version_provider=lambda o, k: (),
+        generation_provider=lambda o, k: 2,
+    )
+    state_rem = _make_state("Tôi thích đi tàu hỏa")
+    und_rem = TurnUnderstandingResult(
+        interaction_mode=InteractionMode.EXPLICIT_REMEMBER,
+        reason_codes=(UnderstandingReason.DETERMINISTIC_MATCH,),
+    )
+    p_mut = handler.propose(und_rem, state_rem, owner_user_id="user_1")
+
+    req = build_explicit_commit_request(
+        proposal=p_mut,
+        principal=principal,
+        conversation_id="conv_1",
+        user_message_id="msg_1",
+        assistant_message_id="asst_1",
+        expected_deletion_epoch=5,
+        source_outbox_id="outbox_1",
+    )
+    assert req.principal == principal
+    assert req.conversation_id == "conv_1"
+    assert req.assistant_message_id == "asst_1"
+    assert req.expected_deletion_epoch == 5
+    assert req.acknowledgement_text == p_mut.acknowledgement_text
+    assert req.change == p_mut.change
+    assert req.source_validity == SourceValidity.NOT_REQUIRED
+    assert req.source_handling_record.outcome == SourceHandlingOutcome.EXPLICIT_APPLIED
+    assert req.idempotency_key.startswith("exp_")
+
+    # Real proposal for forget / revoke
+    active_v = _make_version(
+        "mem_trans_1",
+        "travel.preference.transport_mode",
+        ("bus", "train"),
+    )
+    handler_forget = ExplicitMemoryActionHandler(
+        active_version_provider=lambda o, k: (active_v,)
+    )
+    state_forget = _make_state("Quên toàn bộ sở thích phương tiện di chuyển")
+    und_forget = TurnUnderstandingResult(
+        interaction_mode=InteractionMode.EXPLICIT_FORGET,
+        reason_codes=(UnderstandingReason.DETERMINISTIC_MATCH,),
+    )
+    p_revoke = handler_forget.propose(und_forget, state_forget, owner_user_id="user_1")
+
+    req_revoke = handler_forget.build_commit_request(
+        proposal=p_revoke,
+        principal=principal,
+        conversation_id="conv_1",
+        user_message_id="msg_1",
+        assistant_message_id="asst_1",
+        expected_deletion_epoch=0,
+        source_outbox_id="outbox_1",
+        interaction_mode=InteractionMode.EXPLICIT_FORGET,
+    )
+    assert req_revoke.source_handling_record.outcome == SourceHandlingOutcome.FORGET_APPLIED
+    assert req_revoke.change.operation == MemoryOperation.REVOKE
